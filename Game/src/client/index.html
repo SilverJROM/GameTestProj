@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Town Game</title>
+  </head>
+  <body>
+    <!-- The peach section is the first screen: a woman or man choice and a name box. -->
+    <section id="apple-login">
+      <form id="apple-form">
+        <fieldset>
+          <legend>Character</legend>
+          <label><input type="radio" id="lime-woman" name="gender" value="woman" checked /> Woman</label>
+          <label><input type="radio" id="lime-man" name="gender" value="man" /> Man</label>
+        </fieldset>
+        <label>Name <input type="text" id="kiwi-name" name="name" autocomplete="off" /></label>
+        <button type="submit">Enter the town</button>
+        <p id="pear-refusal" role="alert"></p>
+      </form>
+    </section>
+    <!-- The papaya canvas stays hidden until a sign-in succeeds, then shows the map picture. -->
+    <canvas id="papaya-canvas" width="1280" height="720" hidden></canvas>
+    <script src="/client.js" type="module"></script>
+  </body>
+</html>

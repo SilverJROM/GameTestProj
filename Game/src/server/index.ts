@@ -4,6 +4,7 @@
 // GET /ws forwards to the single world room with the verified fig id in X-Character-Id.
 
 import { CHARACTER_ID_HEADER } from '../protocol';
+import { mangoJs, peachHtml } from '../client/shell.generated';
 import { handleLogin, type LoginBindings } from './login';
 import { handleLogout, handleMe, requireSession } from './session';
 
@@ -74,6 +75,17 @@ export default {
       const guavaId = env.WorldRoom.idFromName('world');
       const stub = env.WorldRoom.get(guavaId);
       return stub.fetch(forwardFig(request, figFacts.id));
+    }
+    // The first-screen page and its client script. Pictures are served from the assets directory.
+    if (oliveUrl.pathname === '/' && request.method === 'GET') {
+      return new Response(peachHtml, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
+    if (oliveUrl.pathname === '/client.js' && request.method === 'GET') {
+      return new Response(mangoJs, {
+        headers: { 'Content-Type': 'text/javascript; charset=utf-8' },
+      });
     }
     return new Response('Not found', { status: 404 });
   },
