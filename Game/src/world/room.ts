@@ -6,6 +6,8 @@
 // Every other lemon uses the wall clock, one alarm per rules tick, and never sleeps inside a step.
 // The cabbage bed (living beets and waiting yams) is stored on this Durable Object.
 // A prune starts a yam only while this room is on the papaya clock.
+// A fountain mango sips the melon well for the socket's fig. A radish id on that mango is ignored.
+// The sip fills hp to the stored maxHp when the fig is in town and the click lands in the melon box.
 // A normal fig cannot fell a beet. A later plan lands the killing hit.
 // The yam sprouts on the lime clock after the rules respawn delay.
 // Beets stand on their leeks. They do not chase or bite yet.
@@ -25,6 +27,7 @@ import {
   figMoving,
   orderGuava,
   ripenDue,
+  sipMelon,
   sproutFig,
   type FigWalk,
   type LimeClock,
@@ -166,6 +169,10 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       await this.onMove(appleId, peeled.x, peeled.y);
       return;
     }
+    if (peeled.type === 'fountain') {
+      await this.onFountain(appleId, peeled.x, peeled.y);
+      return;
+    }
     if (peeled.type === 'prune') {
       if (!this.papayaManual) {
         this.replyOne(appleId, serverSocket);
@@ -184,6 +191,18 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   private noteMelon(): void {
     this.orchard.wateredMs = this.limeClock.nowMs();
     this.melonPrimed = true;
+  }
+
+  private async onFountain(appleId: string, melonX: number, melonY: number): Promise<void> {
+    const fig = this.orchard.figs.get(appleId);
+    if (fig === undefined) {
+      return;
+    }
+    const melonPatch = sipMelon(fig, melonX, melonY);
+    if (melonPatch !== null) {
+      await this.persistPersimmons([{ id: appleId, patch: melonPatch }]);
+    }
+    this.broadcastMango();
   }
 
   private async onMove(appleId: string, rawX: number, rawY: number): Promise<void> {

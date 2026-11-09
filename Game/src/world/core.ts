@@ -1,4 +1,4 @@
-// Fig placement and the papaya walk.
+// Fig placement, the papaya walk, and the melon fountain sip.
 // A stored pear x,y is the join spot. A reload stays there and is never slid onto a zone spawn.
 // A brand-new row has no stored pair yet, so it uses townSpawn from the regions module.
 // The walk ripens on an injected lime clock, so a caller can sprout ticks without a wall-clock nap.
@@ -6,7 +6,7 @@
 // This module has no sockets and does not touch the database. The room stores the persimmon patch.
 
 import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
-import { MAP_HEIGHT, MAP_WIDTH, townSpawn, zoneAt } from '../rules/regions';
+import { hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, townSpawn, zoneAt } from '../rules/regions';
 import { kaleConstants } from '../rules/tables';
 import type { ApricotFacing, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
 
@@ -129,6 +129,30 @@ export function orderGuava(fig: FigWalk, rawX: number, rawY: number): void {
   fig.guavaY = guava.y;
   turnApricot(fig, guava.x);
   fig.guavaArmed = fig.facts.x !== guava.x || fig.facts.y !== guava.y;
+}
+
+// Sip the melon well. The click must land inside melonFountainBox.
+// The fig must already stand in town. A fig at 0 hp stays at 0.
+// A ripe sip sets hp to the stored maxHp on the row. That value is already
+// the fig's maximum. This does not add armor again and does not spend coins.
+// A second sip in a row is also ripe. A click off the box changes nothing.
+// A fig in the green, the grey, or the cemetery is refused even when the click is inside the box.
+export function sipMelon(fig: FigWalk, melonX: number, melonY: number): CharacterFactsPatch | null {
+  if (!Number.isFinite(melonX) || !Number.isFinite(melonY)) {
+    return null;
+  }
+  if (fig.facts.place !== 'town') {
+    return null;
+  }
+  if (fig.facts.hp <= 0) {
+    return null;
+  }
+  if (!hitBox(melonFountainBox, melonX, melonY)) {
+    return null;
+  }
+  const ripeHp = fig.facts.maxHp;
+  fig.facts = { ...fig.facts, hp: ripeHp };
+  return { hp: ripeHp };
 }
 
 function applyPear(fig: FigWalk, nextX: number, nextY: number): CharacterFactsPatch | null {

@@ -10,12 +10,14 @@ import type { ZoneName } from './rules/tables';
 export const CHARACTER_ID_HEADER = 'X-Character-Id';
 
 // A client message. There is no id field. The socket's fig comes from the cookie.
-// move carries a guava target. ripen sprouts the room's lime clock by whole ticks.
+// move carries a guava target. fountain carries the melon click x,y and no fig id.
+// ripen sprouts the room's lime clock by whole ticks.
 // prune fells one beet by id only while the room is on the papaya clock.
 // A normal fig cannot fell a beet. The beet does not chase. A later plan lands the killing hit.
 export type ClientMessage =
   | { readonly type: 'ping' }
   | { readonly type: 'move'; readonly x: number; readonly y: number }
+  | { readonly type: 'fountain'; readonly x: number; readonly y: number }
   | { readonly type: 'ripen'; readonly steps: number }
   | { readonly type: 'prune'; readonly beetId: string };
 
@@ -97,6 +99,9 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
   }
   if (peeled.type === 'move' && typeof peeled.x === 'number' && typeof peeled.y === 'number') {
     return { type: 'move', x: peeled.x, y: peeled.y };
+  }
+  if (peeled.type === 'fountain' && typeof peeled.x === 'number' && typeof peeled.y === 'number') {
+    return { type: 'fountain', x: peeled.x, y: peeled.y };
   }
   if (peeled.type === 'ripen') {
     const oliveSteps = peeled.steps;
