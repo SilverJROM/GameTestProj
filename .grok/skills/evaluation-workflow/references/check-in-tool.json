@@ -1,0 +1,655 @@
+{
+  "name": "check_in",
+  "title": "Evaluation Check-in",
+  "description": "Record a locally determined milestone or an immediate instruction-echo report. Milestones may receive Manager's Guidance/Suggestions; instruction-echo reports are stored and acknowledged. Does not inspect work, judge similarity, verify milestones, or grade submissions. Responses may include a separate QA Questions section with one optional conversational question for the developer. Display it faithfully; include any human answer in the next ordinary report, without requiring an answer or inventing one.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "contract_version": {
+        "const": "1.2"
+      },
+      "request_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "project": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "const": "A"
+              },
+              "route": {
+                "enum": [
+                  "persistent_economy",
+                  "compact_4x"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "route"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "enum": [
+                  "B",
+                  "C"
+                ]
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        ]
+      },
+      "milestone": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 240,
+        "pattern": "\\S",
+        "description": "Milestone the local agent judges met under the developer instructions; not a request for server approval."
+      },
+      "developer_instructions": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 8000,
+        "pattern": "\\S",
+        "description": "Relevant developer direction or a faithful summary, including authorized scope. Exclude secrets and unrelated content."
+      },
+      "progress_summary": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 12000,
+        "pattern": "\\S",
+        "description": "What the agent reports completing. The service does not inspect or verify the work."
+      },
+      "next_work": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000,
+        "pattern": "\\S"
+      },
+      "decisions": {
+        "type": "array",
+        "maxItems": 12,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": "\\S"
+        }
+      },
+      "validation": {
+        "type": "array",
+        "maxItems": 12,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": "\\S"
+        }
+      },
+      "limitations": {
+        "type": "array",
+        "maxItems": 12,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": "\\S"
+        }
+      },
+      "work_reference": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "\\S",
+        "description": "Optional source/deployment identifier or URL, retained as reported metadata only; never fetched."
+      },
+      "report_kind": {
+        "enum": [
+          "milestone",
+          "instruction_echo"
+        ]
+      },
+      "instruction_echo": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "human_prompt_excerpt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000,
+            "pattern": "\\S",
+            "description": "Actual matching passage from the incoming human prompt. Exclude secrets."
+          },
+          "agent_instruction_excerpt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000,
+            "pattern": "\\S",
+            "description": "Actual earlier instruction the local agent issued to that human, not a reconstructed or invented quote."
+          },
+          "estimated_overlap_percent": {
+            "type": "integer",
+            "minimum": 50,
+            "maximum": 100,
+            "description": "Local agent estimate of the share of the substantive human prompt copied or closely paraphrased; not a server measurement or grade."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "pattern": "\\S",
+            "description": "Concise observed overlap and why the human has not supplied a significant working framework."
+          }
+        },
+        "required": [
+          "human_prompt_excerpt",
+          "agent_instruction_excerpt",
+          "estimated_overlap_percent",
+          "reason"
+        ]
+      }
+    },
+    "required": [
+      "contract_version",
+      "request_id",
+      "report_kind"
+    ],
+    "oneOf": [
+      {
+        "properties": {
+          "report_kind": {
+            "const": "milestone"
+          },
+          "instruction_echo": false,
+          "project": {},
+          "milestone": {},
+          "developer_instructions": {},
+          "progress_summary": {},
+          "next_work": {}
+        },
+        "required": [
+          "project",
+          "milestone",
+          "developer_instructions",
+          "progress_summary",
+          "next_work"
+        ]
+      },
+      {
+        "properties": {
+          "report_kind": {
+            "const": "instruction_echo"
+          },
+          "milestone": false,
+          "developer_instructions": false,
+          "progress_summary": false,
+          "next_work": false,
+          "decisions": false,
+          "validation": false,
+          "limitations": false,
+          "work_reference": false,
+          "instruction_echo": {}
+        },
+        "required": [
+          "instruction_echo"
+        ]
+      }
+    ]
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "oneOf": [
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.2"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "const": "guidance"
+          },
+          "receipt": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "\\S"
+              },
+              "sequence": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "received_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "run_id",
+              "sequence",
+              "received_at"
+            ]
+          },
+          "guidance": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "const": "Manager's Guidance/Suggestions"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 6000,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "title",
+              "message"
+            ]
+          },
+          "qa_questions": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "const": "QA Questions"
+              },
+              "questions": {
+                "type": "array",
+                "maxItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 2,
+                  "maxLength": 280,
+                  "pattern": "^[^?\\r\\n]+\\?$"
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "title",
+              "questions"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "request_id",
+          "status",
+          "receipt",
+          "guidance"
+        ]
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.2"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "const": "no_guidance"
+          },
+          "receipt": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "\\S"
+              },
+              "sequence": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "received_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "run_id",
+              "sequence",
+              "received_at"
+            ]
+          },
+          "message": {
+            "const": "Acknowledged."
+          },
+          "qa_questions": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "const": "QA Questions"
+              },
+              "questions": {
+                "type": "array",
+                "maxItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 2,
+                  "maxLength": 280,
+                  "pattern": "^[^?\\r\\n]+\\?$"
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "title",
+              "questions"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "request_id",
+          "status",
+          "receipt",
+          "message"
+        ]
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.2"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "const": "pending"
+          },
+          "receipt": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "\\S"
+              },
+              "sequence": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "received_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "run_id",
+              "sequence",
+              "received_at"
+            ]
+          },
+          "retry_after_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120
+          }
+        },
+        "required": [
+          "contract_version",
+          "request_id",
+          "status",
+          "receipt",
+          "retry_after_seconds"
+        ]
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.2"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "const": "error"
+          },
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": [
+                  "invalid_request",
+                  "unsupported_contract",
+                  "payload_too_large",
+                  "idempotency_conflict",
+                  "temporarily_unavailable",
+                  "generation_failed",
+                  "budget_exhausted"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000,
+                "pattern": "\\S"
+              },
+              "retryable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "retryable"
+            ]
+          },
+          "receipt": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "\\S"
+              },
+              "sequence": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "received_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "run_id",
+              "sequence",
+              "received_at"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "request_id",
+          "status",
+          "error"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "error": {
+                  "properties": {
+                    "code": {
+                      "const": "temporarily_unavailable"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            "then": {
+              "properties": {
+                "error": {
+                  "properties": {
+                    "retryable": {
+                      "const": true
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            "else": {
+              "properties": {
+                "error": {
+                  "properties": {
+                    "retryable": {
+                      "const": false
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "error": {
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "generation_failed",
+                        "budget_exhausted"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            "then": {
+              "required": [
+                "receipt"
+              ],
+              "properties": {
+                "request_id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "type": "object"
+            },
+            "else": {}
+          },
+          {
+            "if": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "invalid_request",
+                        "unsupported_contract",
+                        "payload_too_large"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "type": "object",
+              "properties": {
+                "receipt": false
+              }
+            }
+          },
+          {
+            "if": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "const": "idempotency_conflict"
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "type": "object",
+              "properties": {
+                "request_id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true
+  }
+}

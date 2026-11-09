@@ -1,0 +1,11 @@
+{
+  "contract_version": "1.2",
+  "transport": "streamable_http",
+  "mcp_uri": "https://brisk-ridge.roompoint.app/mcp",
+  "authorization": {
+    "scheme": "bearer",
+    "header": "Authorization",
+    "token_delivery": "separate_secure_channel"
+  },
+  "support_contact": "infra@roompoint.net"
+}

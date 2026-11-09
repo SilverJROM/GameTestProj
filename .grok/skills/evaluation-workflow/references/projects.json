@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "catalog_version": "2026-11-07.1",
+  "projects": [
+    {
+      "id": "A",
+      "title": "Multiplayer game",
+      "summary": "Requirements supplied separately.",
+      "routes": [
+        "persistent_economy",
+        "compact_4x"
+      ],
+      "availability": "available"
+    },
+    {
+      "id": "B",
+      "title": "Offline inventory reconciliation",
+      "summary": "Requirements supplied separately.",
+      "routes": [],
+      "availability": "available"
+    },
+    {
+      "id": "C",
+      "title": "Sophia's World",
+      "summary": "Requirements supplied separately.",
+      "routes": [],
+      "availability": "available"
+    }
+  ]
+}

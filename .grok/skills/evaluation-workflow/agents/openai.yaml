@@ -1,0 +1,4 @@
+interface:
+  display_name: "Evaluation Setup"
+  short_description: "Project options, consent and milestone check-ins"
+  default_prompt: "Use $evaluation-workflow to begin my developer test."
