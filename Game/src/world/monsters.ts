@@ -15,6 +15,10 @@ export interface Beet {
   readonly x: number;
   readonly y: number;
   readonly hp: number;
+  // Aggro: the fig this beet chases and bites. Absent until the first hit. Stored with the bed.
+  readonly targetId?: string;
+  // Lime-clock time of this beet's last bite. Its own clock, apart from the player's swing clock.
+  readonly swingMs?: number;
 }
 
 // A yam is one pruned beet waiting to sprout. dueMs is lime-clock time.
@@ -182,6 +186,39 @@ export function hurtBeet(bed: CabbageBed, beetId: string, amount: number, killer
   return { bed: { ...pruned, seeds, nextSeed }, beet, felled: true };
 }
 
+// A beet with no target and no bite stamp. The tomato is dropped from the copy.
+export function dropTarget(beet: Beet): Beet {
+  return { id: beet.id, kind: beet.kind, zone: beet.zone, x: beet.x, y: beet.y, hp: beet.hp };
+}
+
+// The first hit names the target. Only a hit-aggro kind takes one, and the first holder keeps it.
+// Returns the same bed when nothing changes.
+export function aggroBeet(bed: CabbageBed, beetId: string, hitterId: string): CabbageBed {
+  const beet = bed.beets.find((candidate) => candidate.id === beetId);
+  if (beet === undefined || beet.targetId !== undefined) {
+    return bed;
+  }
+  if (beetRow(beet.kind).aggro !== 'hit') {
+    return bed;
+  }
+  const beets = bed.beets.map((candidate) => (candidate.id === beetId ? { ...candidate, targetId: hitterId } : candidate));
+  return { ...bed, beets };
+}
+
+// Clear every beet that targets this fig.
+export function clearAggroOn(bed: CabbageBed, figId: string): CabbageBed {
+  if (!bed.beets.some((beet) => beet.targetId === figId)) {
+    return bed;
+  }
+  const beets = bed.beets.map((beet) => (beet.targetId === figId ? dropTarget(beet) : beet));
+  return { ...bed, beets };
+}
+
+// True while any beet holds a target.
+export function anyAggro(bed: CabbageBed): boolean {
+  return bed.beets.some((beet) => beet.targetId !== undefined);
+}
+
 // Sprout every yam whose due time has arrived. Other beets stay on their leeks.
 export function sproutYams(bed: CabbageBed, nowMs: number): CabbageBed {
   const ripe = bed.yams.filter((yam) => yam.dueMs <= nowMs);
@@ -233,7 +270,15 @@ function readBeet(value: unknown): Beet | null {
   if (!Number.isFinite(beet.x) || !Number.isFinite(beet.y) || !Number.isFinite(beet.hp)) {
     return null;
   }
-  return { id: beet.id, kind: beet.kind, zone: beet.zone, x: beet.x, y: beet.y, hp: beet.hp };
+  const base: Beet = { id: beet.id, kind: beet.kind, zone: beet.zone, x: beet.x, y: beet.y, hp: beet.hp };
+  // A beet stored before aggro existed has neither field and loads with no target.
+  const hasTarget = typeof beet.targetId === 'string' && beet.targetId.length > 0;
+  const hasSwing = typeof beet.swingMs === 'number' && Number.isFinite(beet.swingMs);
+  return {
+    ...base,
+    ...(hasTarget ? { targetId: beet.targetId } : {}),
+    ...(hasTarget && hasSwing ? { swingMs: beet.swingMs } : {}),
+  };
 }
 
 function readYam(value: unknown): Yam | null {

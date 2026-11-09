@@ -14,7 +14,7 @@
 // A short purse, an unknown quince, or a fig outside town leaves the pear as it was.
 // A normal fig cannot fell a beet with prune. An attack mango lands strike damage in reach, once per gap.
 // The yam sprouts on the lime clock after the rules respawn delay.
-// Beets stand on their leeks. They do not chase or bite yet.
+// Beets stand on their leeks until hit. A hit wolf or bear chases its first hitter on the same lime clock.
 
 import { DurableObject } from 'cloudflare:workers';
 import {
@@ -39,8 +39,10 @@ import {
   type PapayaOrchard,
   type PersimmonWrite,
 } from './core';
-import { strikeBeet, newSwingClock, type SwingClock } from './combat';
+import { strikeBeet, newSwingClock, stepAggro, type SwingClock } from './combat';
 import {
+  anyAggro,
+  clearAggroOn,
   plantCabbage,
   pruneBeet,
   readCabbage,
@@ -89,6 +91,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   private readonly swingClocks = new Map<string, SwingClock>();
   // Replaced from Durable Object storage before the first lemon is served.
   private cabbage: CabbageBed = plantCabbage();
+  // Beets whose bite landed in the latest ripen pass. Shown as the swung flag in the snapshot.
+  private swungBeets = new Set<string>();
 
   constructor(...melonArgs: ConstructorParameters<typeof DurableObject<FigRoomEnv>>) {
     super(...melonArgs);
@@ -142,9 +146,15 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       }
       this.figSockets.delete(appleId);
       this.orchard.figs.delete(appleId);
+      // A disconnect clears every beet that was chasing this fig.
+      const cleared = clearAggroOn(this.cabbage, appleId);
+      if (cleared !== this.cabbage) {
+        this.cabbage = cleared;
+        void this.storeCabbage();
+      }
     });
 
-    const welcome = bakeWelcome(planted, [...this.orchard.figs.values()], this.cabbage.beets, this.cabbage.seeds);
+    const welcome = bakeWelcome(planted, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds);
     serverSocket.send(JSON.stringify(welcome));
 
     return new Response(null, { status: 101, webSocket: clientSocket });
@@ -156,11 +166,17 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     const cabbageChanged = await this.sproutCabbage();
     let writes: PersimmonWrite[] = [];
+    let aggroChanged = false;
     if (this.melonPrimed) {
-      writes = ripenDue(this.orchard);
+      const ripened = this.ripenWorld();
+      writes = ripened.writes;
+      aggroChanged = ripened.changed;
       await this.persistPersimmons(writes);
+      if (aggroChanged) {
+        await this.storeCabbage();
+      }
     }
-    if (writes.length > 0 || cabbageChanged) {
+    if (writes.length > 0 || cabbageChanged || aggroChanged) {
       this.broadcastMango();
     }
     await this.armOrchard(true);
@@ -257,10 +273,31 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       this.noteMelon();
     }
     this.papayaNow += oliveSteps * kaleConstants.tickMs;
-    const writes = ripenDue(this.orchard);
-    await this.persistPersimmons(writes);
+    const ripened = this.ripenWorld();
+    await this.persistPersimmons(ripened.writes);
+    if (ripened.changed) {
+      await this.storeCabbage();
+    }
     await this.sproutCabbage();
     this.broadcastMango();
+  }
+
+  // Ripen the figs and step the beets' aggro on every whole tick, on the same lime clock.
+  private ripenWorld(): { writes: PersimmonWrite[]; changed: boolean } {
+    this.swungBeets = new Set<string>();
+    let changed = false;
+    const writes = ripenDue(this.orchard, (tickEndMs) => {
+      const stepped = stepAggro(this.cabbage, this.orchard.figs, kaleConstants.tickMs, tickEndMs);
+      if (stepped.changed) {
+        this.cabbage = stepped.bed;
+        changed = true;
+      }
+      for (const beetId of stepped.swung) {
+        this.swungBeets.add(beetId);
+      }
+      return stepped.writes;
+    });
+    return { writes, changed };
   }
 
   private async loadCabbage(): Promise<void> {
@@ -306,6 +343,11 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (struck.struck) {
       this.cabbage = struck.bed;
       await this.storeCabbage();
+      // A fresh target needs the tick clock running so the beet can chase.
+      if (!this.melonPrimed && anyAggro(this.cabbage)) {
+        this.noteMelon();
+      }
+      await this.armOrchard(false);
       if (struck.patch !== null) {
         await this.persistPersimmons([{ id: appleId, patch: struck.patch }]);
         await this.armOrchard(false);
@@ -330,7 +372,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       return;
     }
     let when: number | null = null;
-    if (this.anyFigMoving()) {
+    if (this.anyFigMoving() || anyAggro(this.cabbage) || this.swungBeets.size > 0) {
       when = Date.now() + kaleConstants.tickMs;
     }
     for (const yam of this.cabbage.yams) {
@@ -374,7 +416,11 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return null;
     }
-    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.cabbage.beets, this.cabbage.seeds));
+    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds));
+  }
+
+  private beetsInBloom() {
+    return this.cabbage.beets.map((beet) => ({ ...beet, swung: this.swungBeets.has(beet.id) }));
   }
 
   private replyOne(appleId: string, socket: WebSocket): void {

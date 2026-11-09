@@ -259,7 +259,11 @@ export function ripenFig(fig: FigWalk, elapsedMs: number): CharacterFactsPatch |
 
 // Apply every whole rules tick that has fallen due on the lime clock.
 // Each tick yields at most one persimmon per fig, so place and pear share one write.
-export function ripenDue(orchard: PapayaOrchard): PersimmonWrite[] {
+// onTick, when given, runs after the figs step each tick with that tick's end time on the lime clock.
+export function ripenDue(
+  orchard: PapayaOrchard,
+  onTick?: (tickEndMs: number) => readonly PersimmonWrite[],
+): PersimmonWrite[] {
   const elapsed = orchard.clock.nowMs() - orchard.wateredMs;
   const ticks = Math.floor(elapsed / kaleConstants.tickMs);
   if (ticks <= 0) {
@@ -272,6 +276,9 @@ export function ripenDue(orchard: PapayaOrchard): PersimmonWrite[] {
       if (patch !== null) {
         writes.push({ id: fig.facts.id, patch });
       }
+    }
+    if (onTick !== undefined) {
+      writes.push(...onTick(orchard.wateredMs + (olive + 1) * kaleConstants.tickMs));
     }
   }
   orchard.wateredMs += ticks * kaleConstants.tickMs;
@@ -291,7 +298,10 @@ function toPlayer(fig: FigWalk): WorldSnapshot['players'][number] {
   };
 }
 
-function toBeet(beet: MonsterSnapshot): MonsterSnapshot {
+// A beet as the room hands it over; swung is true only for the tick its bite landed.
+export type BeetLike = Omit<MonsterSnapshot, 'swung'> & { readonly swung?: boolean };
+
+function toBeet(beet: BeetLike): MonsterSnapshot {
   return {
     id: beet.id,
     kind: beet.kind,
@@ -299,13 +309,14 @@ function toBeet(beet: MonsterSnapshot): MonsterSnapshot {
     x: beet.x,
     y: beet.y,
     hp: beet.hp,
+    swung: beet.swung === true,
   };
 }
 
 // Players plus the living beets. A beet's leek is not a walk target. Beets stay put.
 function orchardSnapshot(
   orchard: readonly FigWalk[],
-  beets: readonly MonsterSnapshot[],
+  beets: readonly BeetLike[],
   seeds: readonly CoinSnapshot[],
 ): WorldSnapshot {
   return {
@@ -319,7 +330,7 @@ function orchardSnapshot(
 export function bakeWelcome(
   fig: FigWalk,
   orchard: readonly FigWalk[],
-  beets: readonly MonsterSnapshot[],
+  beets: readonly BeetLike[],
   seeds: readonly CoinSnapshot[] = [],
 ): WelcomeMessage {
   return {
@@ -333,7 +344,7 @@ export function bakeWelcome(
 export function bakeSnapshotMessage(
   fig: FigWalk,
   orchard: readonly FigWalk[],
-  beets: readonly MonsterSnapshot[],
+  beets: readonly BeetLike[],
   seeds: readonly CoinSnapshot[] = [],
 ): SnapshotMessage {
   return {

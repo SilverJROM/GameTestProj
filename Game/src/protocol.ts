@@ -16,7 +16,7 @@ export const CHARACTER_ID_HEADER = 'X-Character-Id';
 // prune fells one beet by id only while the room is on the papaya clock.
 // attack carries a beet id only. The socket's fig swings; a radish id on it is dropped.
 // A normal fig cannot fell a beet with prune. An attack in reach lands the killing hit.
-// The beet does not chase yet.
+// A hit beet chases its first hitter and bites; the snapshot flags each landed bite.
 export type ClientMessage =
   | { readonly type: 'ping' }
   | { readonly type: 'move'; readonly x: number; readonly y: number }
@@ -43,7 +43,7 @@ export interface PlayerSnapshot {
   readonly place: ZoneName;
 }
 
-// One living beet. It stands on a leek. Chase and bite are not in this snapshot yet.
+// One living beet. It stands on a leek until hit, then chases.
 export interface MonsterSnapshot {
   readonly id: string;
   readonly kind: string;
@@ -51,6 +51,8 @@ export interface MonsterSnapshot {
   readonly x: number;
   readonly y: number;
   readonly hp: number;
+  // True for the tick this beet's bite landed, so a client can pick the bite or swipe still.
+  readonly swung: boolean;
 }
 
 // One coin seed on the ground, owned by the character who felled the monster.

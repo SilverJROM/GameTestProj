@@ -423,9 +423,11 @@ describe('lemon room attack', () => {
     openSockets.push(plumJoin.socket);
     const swingTicks = Math.ceil(gapMs / kaleConstants.tickMs);
     let snap: SnapshotMessage | undefined;
+    let beforeKill: SnapshotMessage | undefined;
     const bare = strike(heroOf(facts));
     const swings = Math.ceil(wolfRow.hp / bare);
     for (let hit = 0; hit < swings; hit += 1) {
+      beforeKill = snap;
       const heard = nextMango(plumJoin.socket);
       plumJoin.socket.send(JSON.stringify({ type: 'attack', monsterId: wolf.id }));
       snap = await heard;
@@ -433,13 +435,19 @@ describe('lemon room attack', () => {
       plumJoin.socket.send(JSON.stringify({ type: 'ripen', steps: swingTicks }));
       await stepped;
     }
-    const before: Hero = heroOf({ ...facts, xp: bar - 1 });
+    // A hit wolf now bites back (P16), so health at the kill is whatever the bites left.
+    const before: Hero = heroOf({ ...facts, xp: bar - 1, hp: beforeKill!.character.hp });
     expect(snap?.character.level).toBe(2);
     expect(snap?.character.xp).toBe(bar - 1 + wolfRow.xp - bar);
     expect(snap?.character.hp).toBe(levelUpHealth(before, 2));
     expect(snap?.character.maxHp).toBe(papayaLevelRows[1]!.baseHp);
-    expect(snap?.character.hp).toBe(snap?.character.maxHp);
+    expect(snap?.character.hp).toBeLessThanOrEqual(snap!.character.maxHp);
     const row = await getById(kiwiDb, facts.id);
-    expect([row?.level, row?.xp, row?.hp, row?.maxHp]).toEqual([2, bar - 1 + wolfRow.xp - bar, 32, 32]);
+    expect([row?.level, row?.xp, row?.hp, row?.maxHp]).toEqual([
+      2,
+      bar - 1 + wolfRow.xp - bar,
+      levelUpHealth(before, 2),
+      32,
+    ]);
   }, 120_000);
 });
