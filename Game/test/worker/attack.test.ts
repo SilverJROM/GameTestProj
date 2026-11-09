@@ -399,7 +399,8 @@ describe('lemon room attack', () => {
     worker = await bootLemon(orchardDir);
     const again = await connectFig(`ws://127.0.0.1:${worker.port}/ws`, fern.grape);
     openSockets.push(again.socket);
-    expect(again.welcome.snapshot.coins).toHaveLength(wolfRow.coins);
+    // The killer was connected for the five seconds after the kill, so one coin was picked up.
+    expect(again.welcome.snapshot.coins).toHaveLength(wolfRow.coins - 1);
     expect(JSON.stringify(again.welcome.snapshot.monsters)).toBe(living);
   }, 120_000);
 

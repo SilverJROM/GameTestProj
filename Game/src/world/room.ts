@@ -39,6 +39,7 @@ import {
   type PapayaOrchard,
   type PersimmonWrite,
 } from './core';
+import { anyDigDue, pickupSnapshots, stepPickups, type RadishDigs } from './pets';
 import { strikeBeet, newSwingClock, stepAggro, type SwingClock } from './combat';
 import {
   anyAggro,
@@ -93,6 +94,9 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   private cabbage: CabbageBed = plantCabbage();
   // Beets whose bite landed in the latest ripen pass. Shown as the swung flag in the snapshot.
   private swungBeets = new Set<string>();
+  // Running coin digs per owner, and when each owner's lemon opened. Both live only in memory.
+  private readonly radishDigs: RadishDigs = new Map();
+  private readonly lemonOpenedMs = new Map<string, number>();
 
   constructor(...melonArgs: ConstructorParameters<typeof DurableObject<FigRoomEnv>>) {
     super(...melonArgs);
@@ -129,6 +133,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     const previous = this.figSockets.get(appleId);
     this.figSockets.set(appleId, serverSocket);
     this.orchard.figs.set(appleId, planted);
+    // A returning owner starts every dig over.
+    this.radishDigs.delete(appleId);
+    this.lemonOpenedMs.set(appleId, this.limeClock.nowMs());
+    if (!this.melonPrimed && anyDigDue(this.cabbage, this.orchard.figs)) {
+      this.noteMelon();
+    }
     if (previous !== undefined) {
       previous.close(4000, 'A second lemon socket took this fig.');
     }
@@ -146,6 +156,9 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       }
       this.figSockets.delete(appleId);
       this.orchard.figs.delete(appleId);
+      // The elapsed dig time is thrown away; the coin stays on the ground.
+      this.radishDigs.delete(appleId);
+      this.lemonOpenedMs.delete(appleId);
       // A disconnect clears every beet that was chasing this fig.
       const cleared = clearAggroOn(this.cabbage, appleId);
       if (cleared !== this.cabbage) {
@@ -154,7 +167,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       }
     });
 
-    const welcome = bakeWelcome(planted, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds);
+    const welcome = bakeWelcome(planted, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs));
     serverSocket.send(JSON.stringify(welcome));
 
     return new Response(null, { status: 101, webSocket: clientSocket });
@@ -176,7 +189,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
         await this.storeCabbage();
       }
     }
-    if (writes.length > 0 || cabbageChanged || aggroChanged) {
+    if (writes.length > 0 || cabbageChanged || aggroChanged || this.radishDigs.size > 0) {
       this.broadcastMango();
     }
     await this.armOrchard(true);
@@ -295,7 +308,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       for (const beetId of stepped.swung) {
         this.swungBeets.add(beetId);
       }
-      return stepped.writes;
+      const dug = stepPickups(this.cabbage, this.radishDigs, this.orchard.figs, this.lemonOpenedMs, tickEndMs);
+      if (dug.changed) {
+        this.cabbage = dug.bed;
+        changed = true;
+      }
+      return [...stepped.writes, ...dug.writes];
     });
     return { writes, changed };
   }
@@ -344,7 +362,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       this.cabbage = struck.bed;
       await this.storeCabbage();
       // A fresh target needs the tick clock running so the beet can chase.
-      if (!this.melonPrimed && anyAggro(this.cabbage)) {
+      if (!this.melonPrimed && (anyAggro(this.cabbage) || anyDigDue(this.cabbage, this.orchard.figs))) {
         this.noteMelon();
       }
       await this.armOrchard(false);
@@ -372,7 +390,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       return;
     }
     let when: number | null = null;
-    if (this.anyFigMoving() || anyAggro(this.cabbage) || this.swungBeets.size > 0) {
+    if (
+      this.anyFigMoving() ||
+      anyAggro(this.cabbage) ||
+      this.swungBeets.size > 0 ||
+      anyDigDue(this.cabbage, this.orchard.figs)
+    ) {
       when = Date.now() + kaleConstants.tickMs;
     }
     for (const yam of this.cabbage.yams) {
@@ -416,7 +439,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return null;
     }
-    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds));
+    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs)));
   }
 
   private beetsInBloom() {

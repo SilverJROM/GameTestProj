@@ -63,10 +63,21 @@ export interface CoinSnapshot {
   readonly y: number;
 }
 
+// A pickup in progress: the owner's coin spot and how much of the dig has passed.
+export interface PickupSnapshot {
+  readonly ownerId: string;
+  readonly coinId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly elapsedSeconds: number;
+}
+
 export interface WorldSnapshot {
   readonly players: readonly PlayerSnapshot[];
   readonly monsters: readonly MonsterSnapshot[];
   readonly coins: readonly CoinSnapshot[];
+  // One row per owner whose pet is digging right now; empty when no dig runs.
+  readonly pickups: readonly PickupSnapshot[];
 }
 
 // Sent once when a lemon socket is accepted.
