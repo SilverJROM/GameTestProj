@@ -1,0 +1,370 @@
+// G4 hunt flow on two real WorldRoom sockets and local D1, on the injected papaya clock.
+// Nothing here naps: every second that passes is a ripen mango that sprouts the room's lime clock.
+// Every number comes from the rules tables or the regions module.
+
+import { readFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { getPlatformProxy, unstable_dev, type PlatformProxy, type Unstable_DevWorker } from 'wrangler';
+import WebSocket from 'ws';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  PAPAYA_CLOCK_HEADER,
+  PAPAYA_CLOCK_RIPE,
+  type MonsterSnapshot,
+  type SnapshotMessage,
+  type WelcomeMessage,
+} from '../../src/protocol';
+import { maxHealth, strike, type Hero } from '../../src/rules/logic';
+import { skeletonRadiusPx, townSpawn, zoneAt } from '../../src/rules/regions';
+import { kaleConstants, onionMonsterRows, papayaLevelRows, pearTimings } from '../../src/rules/tables';
+import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
+import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
+import { plantCabbage } from '../../src/world/monsters';
+
+const guavaSecret = 'hunt-session-secret';
+const rowOf = (kind: string) => onionMonsterRows.find((row) => row.id === kind)!;
+const wolfRow = rowOf('wolf');
+const skeletonRow = rowOf('skeleton');
+const levelRowOf = (level: number) => papayaLevelRows.find((row) => row.level === level)!;
+// Ticks per monster swing, per player swing gap, and per axolotl pickup.
+const biteTicks = (pearTimings.monsterSwingSeconds * 1000) / kaleConstants.tickMs;
+const swingTicks = Math.ceil((pearTimings.playerAttackGapSeconds * 1000) / kaleConstants.tickMs);
+const dripTicks = (pearTimings.coinPickupSeconds * 1000) / kaleConstants.tickMs;
+
+function migrationStatements(sqlText: string): string[] {
+  return sqlText
+    .replace(/--[^\n]*/g, '')
+    .split(';')
+    .map((statement) => statement.trim())
+    .filter((statement) => statement.length > 0);
+}
+
+function grapeFromBeet(beetCookie: string): string {
+  return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
+}
+
+function mangoText(data: unknown): string {
+  if (typeof data === 'string') {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return Buffer.concat(data as Uint8Array[]).toString('utf8');
+  }
+  return Buffer.from(data as Uint8Array).toString('utf8');
+}
+
+function connectFig(url: string, grape: string): Promise<{ socket: WebSocket; welcome: WelcomeMessage }> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(url, {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${grape}`, [PAPAYA_CLOCK_HEADER]: PAPAYA_CLOCK_RIPE },
+    });
+    const timer = setTimeout(() => {
+      socket.terminate();
+      reject(new Error('welcome timed out'));
+    }, 8_000);
+    socket.once('error', (err) => {
+      clearTimeout(timer);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    });
+    socket.once('message', (data) => {
+      clearTimeout(timer);
+      resolve({ socket, welcome: JSON.parse(mangoText(data)) as WelcomeMessage });
+    });
+  });
+}
+
+function nextMango(socket: WebSocket): Promise<SnapshotMessage> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('snapshot timed out')), 8_000);
+    socket.once('message', (data) => {
+      clearTimeout(timer);
+      resolve(JSON.parse(mangoText(data)) as SnapshotMessage);
+    });
+  });
+}
+
+// Send one mango and wait for the broadcast on both sockets, so neither holds a stale snapshot.
+async function broadcastMango(
+  sender: WebSocket,
+  other: WebSocket,
+  payload: unknown,
+): Promise<{ senderSnap: SnapshotMessage; otherSnap: SnapshotMessage }> {
+  const senderHeard = nextMango(sender);
+  const otherHeard = nextMango(other);
+  sender.send(JSON.stringify(payload));
+  const [senderSnap, otherSnap] = await Promise.all([senderHeard, otherHeard]);
+  return { senderSnap, otherSnap };
+}
+
+function bootLemon(orchardDir: string): Promise<Unstable_DevWorker> {
+  return unstable_dev('src/server/index.ts', {
+    config: 'wrangler.jsonc',
+    persistTo: orchardDir,
+    vars: { SESSION_SECRET: guavaSecret },
+    logLevel: 'error',
+    experimental: { disableExperimentalWarning: true, disableDevRegistry: true },
+  });
+}
+
+function nthBeet(kind: string, skip = 0): MonsterSnapshot {
+  const beet = plantCabbage().beets.filter((candidate) => candidate.kind === kind)[skip]!;
+  return { ...beet, swung: false };
+}
+
+function heroOf(facts: Pick<CharacterFacts, 'level' | 'xp' | 'hp' | 'coins' | 'sword' | 'armor' | 'place'>): Hero {
+  return {
+    level: facts.level,
+    xp: facts.xp,
+    health: facts.hp,
+    coins: facts.coins,
+    sword: facts.sword,
+    armor: facts.armor,
+    place: facts.place,
+  };
+}
+
+describe('G4 hunt flow', () => {
+  let worker: Unstable_DevWorker | undefined;
+  let proxy: PlatformProxy | undefined;
+  let kiwiDb: CharacterDb;
+  let orchardDir = '';
+  const openSockets: WebSocket[] = [];
+
+  beforeAll(async () => {
+    orchardDir = await mkdtemp(path.join(tmpdir(), 'fig-hunt-'));
+    const v3Path = path.join(orchardDir, 'v3');
+    const prep = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: { path: v3Path } });
+    try {
+      const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
+      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
+      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
+      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+    } finally {
+      await prep.dispose();
+    }
+    worker = await bootLemon(orchardDir);
+    proxy = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: { path: v3Path } });
+    kiwiDb = (proxy.env as unknown as { DB: CharacterDb }).DB;
+  }, 120_000);
+
+  afterAll(async () => {
+    for (const socket of openSockets) {
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+    }
+    await worker?.stop();
+    await proxy?.dispose();
+    if (orchardDir.length > 0) {
+      await rm(orchardDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  // Log a fig in over HTTP, patch its D1 row, then join the room on a papaya-clock socket.
+  async function joinFig(name: string, patch: Partial<CharacterFacts>) {
+    const response = await worker!.fetch('http://town.example/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, gender: 'woman' }),
+    });
+    const text = await response.text();
+    expect(response.status, text).toBe(200);
+    const facts = JSON.parse(text) as CharacterFacts;
+    const grape = grapeFromBeet(response.headers.getSetCookie()[0] ?? '');
+    await saveFacts(kiwiDb, facts.id, patch);
+    const joined = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, grape);
+    openSockets.push(joined.socket);
+    return { id: facts.id, socket: joined.socket };
+  }
+
+  const rowIn = async (id: string) => (await getById(kiwiDb, id))!;
+  const beetIn = (snap: SnapshotMessage, id: string) => snap.snapshot.monsters.find((beet) => beet.id === id);
+
+  it('pays the wolf xp and coins only to the killer, on the pickup duration, while the hit wolf swings on the rules gap', async () => {
+    const wolf = nthBeet('wolf', 0);
+    // Basil hits first, so the wolf targets Basil. Fern lands the killing hit.
+    const basilStart = { level: 3, xp: 3, hp: levelRowOf(3).baseHp, maxHp: levelRowOf(3).baseHp, coins: 5 };
+    const fernStart = { level: 2, xp: 0, hp: levelRowOf(2).baseHp, maxHp: levelRowOf(2).baseHp, coins: 1 };
+    const basil = await joinFig('Basil', { ...basilStart, place: 'green', x: wolf.x, y: wolf.y });
+    const fern = await joinFig('Fern', { ...fernStart, place: 'green', x: wolf.x, y: wolf.y });
+    const fromFern = (payload: unknown) => broadcastMango(fern.socket, basil.socket, payload);
+    const fromBasil = (payload: unknown) => broadcastMango(basil.socket, fern.socket, payload);
+
+    const basilStrike = strike(heroOf({ ...basilStart, sword: null, armor: null, place: 'green' }));
+    const fernStrike = strike(heroOf({ ...fernStart, sword: null, armor: null, place: 'green' }));
+    // The flow needs Basil's hit to leave the wolf standing so Fern can finish it.
+    expect(basilStrike).toBeLessThan(wolfRow.hp);
+
+    // Before any hit, the wolf stands and nobody is bitten.
+    let heard = await fromFern({ type: 'ripen', steps: biteTicks * 2 });
+    expect(beetIn(heard.senderSnap, wolf.id)!.swung).toBe(false);
+    expect(heard.otherSnap.character.hp).toBe(basilStart.hp);
+
+    heard = await fromBasil({ type: 'attack', monsterId: wolf.id });
+    expect(beetIn(heard.senderSnap, wolf.id)!.hp).toBe(wolfRow.hp - basilStrike);
+    expect(beetIn(heard.otherSnap, wolf.id)!.hp).toBe(wolfRow.hp - basilStrike);
+
+    // The first swing lands on the next tick, then one every monster swing interval for the wolf row attack.
+    heard = await fromBasil({ type: 'ripen', steps: 1 });
+    expect(beetIn(heard.senderSnap, wolf.id)!.swung).toBe(true);
+    expect(heard.senderSnap.character.hp).toBe(basilStart.hp - wolfRow.attack);
+    for (let bites = 2; bites <= 3; bites += 1) {
+      for (let tick = 1; tick <= biteTicks; tick += 1) {
+        heard = await fromBasil({ type: 'ripen', steps: 1 });
+        expect(beetIn(heard.senderSnap, wolf.id)!.swung, `bite ${bites} tick ${tick}`).toBe(tick === biteTicks);
+        const landed = tick === biteTicks ? bites : bites - 1;
+        expect(heard.senderSnap.character.hp).toBe(basilStart.hp - wolfRow.attack * landed);
+      }
+    }
+    // Fern was never the target, so Fern was never bitten.
+    expect(heard.otherSnap.character.hp).toBe(fernStart.hp);
+
+    // Fern hits on the player swing gap until the wolf falls.
+    let wolfHp = wolfRow.hp - basilStrike;
+    let killSnap: SnapshotMessage | undefined;
+    for (let hit = 0; hit < 40 && killSnap === undefined; hit += 1) {
+      heard = await fromFern({ type: 'attack', monsterId: wolf.id });
+      wolfHp -= fernStrike;
+      if (wolfHp <= 0) {
+        expect(beetIn(heard.senderSnap, wolf.id)).toBeUndefined();
+        killSnap = heard.senderSnap;
+        break;
+      }
+      expect(beetIn(heard.senderSnap, wolf.id)!.hp).toBe(wolfHp);
+      await fromFern({ type: 'ripen', steps: swingTicks });
+    }
+    expect(killSnap).toBeDefined();
+    const basilXp = heard.otherSnap.character.xp;
+
+    // Only the killer gains the wolf's experience, in the snapshot and in D1.
+    expect(killSnap!.character.xp).toBe(fernStart.xp + wolfRow.xp);
+    expect(basilXp).toBe(basilStart.xp);
+    expect((await rowIn(fern.id)).xp).toBe(fernStart.xp + wolfRow.xp);
+    expect((await rowIn(basil.id)).xp).toBe(basilStart.xp);
+
+    // The drop is the wolf row's coins, all owned by the killer, and no purse has moved yet.
+    for (const snap of [heard.senderSnap, heard.otherSnap]) {
+      expect(snap.snapshot.coins).toHaveLength(wolfRow.coins);
+      for (const seed of snap.snapshot.coins) {
+        expect(seed.ownerId).toBe(fern.id);
+      }
+    }
+    expect(heard.senderSnap.character.coins).toBe(fernStart.coins);
+    expect(heard.otherSnap.character.coins).toBe(basilStart.coins);
+
+    // One coin per pickup duration: not one tick before, exactly on the duration.
+    for (let paid = 1; paid <= wolfRow.coins; paid += 1) {
+      heard = await fromFern({ type: 'ripen', steps: dripTicks - 1 });
+      expect(heard.senderSnap.character.coins, `before coin ${paid}`).toBe(fernStart.coins + paid - 1);
+      expect((await rowIn(fern.id)).coins).toBe(fernStart.coins + paid - 1);
+      expect(heard.senderSnap.snapshot.coins).toHaveLength(wolfRow.coins - paid + 1);
+      for (const dig of heard.senderSnap.snapshot.pickups) {
+        expect(dig.ownerId).toBe(fern.id);
+      }
+
+      heard = await fromFern({ type: 'ripen', steps: 1 });
+      expect(heard.senderSnap.character.coins, `coin ${paid}`).toBe(fernStart.coins + paid);
+      expect((await rowIn(fern.id)).coins).toBe(fernStart.coins + paid);
+      expect(heard.senderSnap.snapshot.coins).toHaveLength(wolfRow.coins - paid);
+
+      // The other purse never changes.
+      expect(heard.otherSnap.character.coins).toBe(basilStart.coins);
+      expect((await rowIn(basil.id)).coins).toBe(basilStart.coins);
+    }
+
+    // Nothing more is paid once the ground is bare.
+    heard = await fromFern({ type: 'ripen', steps: dripTicks * 2 });
+    expect(heard.senderSnap.character.coins).toBe(fernStart.coins + wolfRow.coins);
+    expect(heard.otherSnap.character.coins).toBe(basilStart.coins);
+    expect(heard.senderSnap.snapshot.pickups).toEqual([]);
+    expect((await rowIn(fern.id)).coins).toBe(fernStart.coins + wolfRow.coins);
+    expect((await rowIn(basil.id)).coins).toBe(basilStart.coins);
+  }, 180_000);
+
+  it('lets a skeleton ignore a fig outside the radius and a fig in the grey, then chase a fig inside both', async () => {
+    // The fifth skeleton stands at the east edge of the cemetery, next to the grey ground.
+    const skeleton = nthBeet('skeleton', 4);
+    const plumOutside = { x: skeleton.x + skeletonRadiusPx + 1, y: skeleton.y };
+    const plumInside = { x: skeleton.x + skeletonRadiusPx - 1, y: skeleton.y };
+    const radishGrey = { x: 470, y: 20 };
+    expect(zoneAt(plumOutside.x, plumOutside.y)).toBe('cemetery');
+    expect(zoneAt(plumInside.x, plumInside.y)).toBe('cemetery');
+    expect(zoneAt(radishGrey.x, radishGrey.y)).toBe('grey');
+    expect(Math.hypot(radishGrey.x - skeleton.x, radishGrey.y - skeleton.y)).toBeLessThan(skeletonRadiusPx);
+
+    const strong = { level: 6, hp: levelRowOf(6).baseHp, maxHp: levelRowOf(6).baseHp };
+    const plum = await joinFig('Plum', { ...strong, ...plumOutside, place: 'cemetery' });
+    const radish = await joinFig('Radish', { ...strong, ...radishGrey, place: 'grey' });
+    const fromPlum = (payload: unknown) => broadcastMango(plum.socket, radish.socket, payload);
+
+    // Outside the radius, and in the grey inside the radius: the skeleton stands.
+    let heard = await fromPlum({ type: 'ripen', steps: biteTicks * 5 });
+    let standing = beetIn(heard.senderSnap, skeleton.id)!;
+    expect([standing.x, standing.y]).toEqual([skeleton.x, skeleton.y]);
+    expect(standing.swung).toBe(false);
+    expect(heard.senderSnap.character.hp).toBe(strong.hp);
+    expect(heard.otherSnap.character.hp).toBe(strong.hp);
+
+    // Plum steps just inside the radius while still in the cemetery: the skeleton closes in and swings.
+    await fromPlum({ type: 'move', ...plumInside });
+    heard = await fromPlum({ type: 'ripen', steps: 1 });
+    for (let tick = 0; tick < biteTicks * 10 && !beetIn(heard.senderSnap, skeleton.id)!.swung; tick += 1) {
+      heard = await fromPlum({ type: 'ripen', steps: 1 });
+    }
+    standing = beetIn(heard.senderSnap, skeleton.id)!;
+    expect(standing.swung).toBe(true);
+    expect([standing.x, standing.y]).not.toEqual([skeleton.x, skeleton.y]);
+    expect(Math.hypot(standing.x - heard.senderSnap.character.x, standing.y - heard.senderSnap.character.y)).toBeLessThanOrEqual(
+      kaleConstants.meleeReachPx,
+    );
+    expect(heard.senderSnap.character.hp).toBe(strong.hp - skeletonRow.attack);
+
+    // The next swing lands one monster swing interval later, and the grey fig is never touched.
+    heard = await fromPlum({ type: 'ripen', steps: biteTicks });
+    expect(beetIn(heard.senderSnap, skeleton.id)!.swung).toBe(true);
+    expect(heard.senderSnap.character.hp).toBe(strong.hp - skeletonRow.attack * 2);
+    expect(heard.otherSnap.character.hp).toBe(strong.hp);
+    expect((await rowIn(radish.id)).hp).toBe(strong.hp);
+
+    // Plum walks back out of the cemetery so this skeleton lets go before the next case.
+    await fromPlum({ type: 'move', x: skeleton.x + 200, y: skeleton.y - 30 });
+    heard = await fromPlum({ type: 'ripen', steps: biteTicks * 10 });
+    expect(heard.senderSnap.character.place).not.toBe('cemetery');
+  }, 120_000);
+
+  it('returns a fig killed by a monster swing to the town spawn at full max health, keeping level, xp, gear, and coins', async () => {
+    const wolf = nthBeet('wolf', 2);
+    const kept = { level: 3, xp: 7, coins: 9, sword: 'shortSword', armor: 'leather' };
+    const fullMax = maxHealth(heroOf({ ...kept, hp: 1, place: 'green' }));
+    const rowan = await joinFig('Rowan', {
+      ...kept,
+      x: wolf.x,
+      y: wolf.y,
+      place: 'green',
+      // One wolf swing is a killing swing.
+      hp: wolfRow.attack,
+      maxHp: fullMax,
+    });
+    const sorrel = await joinFig('Sorrel', { place: 'town', x: townSpawn[0], y: townSpawn[1] + 20 });
+    const fromRowan = (payload: unknown) => broadcastMango(rowan.socket, sorrel.socket, payload);
+
+    let heard = await fromRowan({ type: 'attack', monsterId: wolf.id });
+    expect(beetIn(heard.senderSnap, wolf.id)!.hp).toBeLessThan(wolfRow.hp);
+    expect(heard.senderSnap.character.hp).toBe(wolfRow.attack);
+
+    heard = await fromRowan({ type: 'ripen', steps: 1 });
+    const [townX, townY] = townSpawn;
+    expect(heard.senderSnap.character).toMatchObject({ ...kept, place: 'town', x: townX, y: townY, hp: fullMax, maxHp: fullMax });
+    // The other socket sees Rowan land at the town spawn.
+    const seen = heard.otherSnap.snapshot.players.find((player) => player.id === rowan.id)!;
+    expect([seen.place, seen.x, seen.y]).toEqual(['town', townX, townY]);
+    expect(await rowIn(rowan.id)).toMatchObject({ ...kept, place: 'town', x: townX, y: townY, hp: fullMax });
+
+    // Nothing chases Rowan in town afterwards.
+    heard = await fromRowan({ type: 'ripen', steps: biteTicks * 5 });
+    expect(beetIn(heard.senderSnap, wolf.id)!.swung).toBe(false);
+    expect(heard.senderSnap.character.hp).toBe(fullMax);
+  }, 120_000);
+});
