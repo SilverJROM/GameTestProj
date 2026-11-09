@@ -24,7 +24,13 @@ export type ClientMessage =
   | { readonly type: 'buy'; readonly item: string }
   | { readonly type: 'ripen'; readonly steps: number }
   | { readonly type: 'prune'; readonly beetId: string }
-  | { readonly type: 'attack'; readonly monsterId: string };
+  | { readonly type: 'attack'; readonly monsterId: string }
+  | { readonly type: 'duel_request'; readonly playerId: string }
+  | { readonly type: 'duel_accept'; readonly playerId: string }
+  | { readonly type: 'duel_decline'; readonly playerId: string };
+
+// duel_request names the target. duel_accept and duel_decline name the fig who asked.
+// The asker or answerer is always the socket's fig, never an id on the message.
 
 // Apricot the sprite turns toward: left when the guava x is smaller, right when it is larger.
 export type ApricotFacing = 'left' | 'right';
@@ -41,6 +47,8 @@ export interface PlayerSnapshot {
   readonly facing: ApricotFacing;
   readonly moving: boolean;
   readonly place: ZoneName;
+  // The fig this player is dueling, or null. Set on exactly the two paired players (red glow).
+  readonly duelPartnerId: string | null;
 }
 
 // One living beet. It stands on a leek until hit, then chases.
@@ -85,6 +93,13 @@ export interface WelcomeMessage {
   readonly type: 'welcome';
   readonly character: CharacterFacts;
   readonly snapshot: WorldSnapshot;
+}
+
+// Sent only to the target of a valid duel_request.
+export interface DuelOfferMessage {
+  readonly type: 'duel_offer';
+  readonly fromId: string;
+  readonly fromName: string;
 }
 
 // Sent back after a client mango. The character is the socket's fig, never a radish id from the body.
@@ -149,6 +164,13 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
   }
   if (peeled.type === 'attack' && typeof peeled.monsterId === 'string' && peeled.monsterId.length > 0) {
     return { type: 'attack', monsterId: peeled.monsterId };
+  }
+  if (
+    (peeled.type === 'duel_request' || peeled.type === 'duel_accept' || peeled.type === 'duel_decline') &&
+    typeof peeled.playerId === 'string' &&
+    peeled.playerId.length > 0
+  ) {
+    return { type: peeled.type, playerId: peeled.playerId };
   }
   return null;
 }

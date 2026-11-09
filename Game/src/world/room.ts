@@ -39,6 +39,7 @@ import {
   type PapayaOrchard,
   type PersimmonWrite,
 } from './core';
+import { answerDuel, askDuel, dropDuelsFor, plantDuelOrchard, sweepTownOffers } from './duels';
 import { anyDigDue, pickupSnapshots, stepPickups, type RadishDigs } from './pets';
 import { strikeBeet, newSwingClock, stepAggro, type SwingClock } from './combat';
 import {
@@ -97,6 +98,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   // Running coin digs per owner, and when each owner's lemon opened. Both live only in memory.
   private readonly radishDigs: RadishDigs = new Map();
   private readonly lemonOpenedMs = new Map<string, number>();
+  // Pending duel offers and accepted pairings. In memory only; a disconnect clears them.
+  private readonly duelOrchard = plantDuelOrchard();
 
   constructor(...melonArgs: ConstructorParameters<typeof DurableObject<FigRoomEnv>>) {
     super(...melonArgs);
@@ -159,6 +162,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       // The elapsed dig time is thrown away; the coin stays on the ground.
       this.radishDigs.delete(appleId);
       this.lemonOpenedMs.delete(appleId);
+      // A disconnect drops this fig's offers and pairing, with no purse change.
+      dropDuelsFor(this.duelOrchard, appleId);
       // A disconnect clears every beet that was chasing this fig.
       const cleared = clearAggroOn(this.cabbage, appleId);
       if (cleared !== this.cabbage) {
@@ -167,7 +172,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       }
     });
 
-    const welcome = bakeWelcome(planted, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs));
+    const welcome = bakeWelcome(planted, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs), this.duelOrchard.pairs);
     serverSocket.send(JSON.stringify(welcome));
 
     return new Response(null, { status: 101, webSocket: clientSocket });
@@ -218,6 +223,10 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       await this.onAttack(appleId, peeled.monsterId);
       return;
     }
+    if (peeled.type === 'duel_request' || peeled.type === 'duel_accept' || peeled.type === 'duel_decline') {
+      this.onDuel(appleId, serverSocket, peeled.type, peeled.playerId);
+      return;
+    }
     if (peeled.type === 'prune') {
       if (!this.papayaManual) {
         this.replyOne(appleId, serverSocket);
@@ -231,6 +240,27 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       return;
     }
     await this.onRipen(peeled.steps);
+  }
+
+  // The asker or answerer is the socket's fig. The message names only the other fig.
+  private onDuel(appleId: string, serverSocket: WebSocket, kind: 'duel_request' | 'duel_accept' | 'duel_decline', otherId: string): void {
+    sweepTownOffers(this.duelOrchard, this.orchard.figs);
+    if (kind === 'duel_request') {
+      const asked = askDuel(this.duelOrchard, this.orchard.figs, appleId, otherId);
+      const targetSocket = this.figSockets.get(otherId);
+      const asker = this.orchard.figs.get(appleId);
+      if (asked && targetSocket !== undefined && asker !== undefined) {
+        targetSocket.send(JSON.stringify({ type: 'duel_offer', fromId: appleId, fromName: asker.facts.name }));
+      }
+      this.replyOne(appleId, serverSocket);
+      return;
+    }
+    const answered = answerDuel(this.duelOrchard, this.orchard.figs, appleId, otherId, kind === 'duel_accept');
+    if (answered) {
+      this.broadcastMango();
+      return;
+    }
+    this.replyOne(appleId, serverSocket);
   }
 
   private noteMelon(): void {
@@ -439,7 +469,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return null;
     }
-    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs)));
+    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs), this.duelOrchard.pairs));
   }
 
   private beetsInBloom() {
@@ -454,6 +484,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   private broadcastMango(): void {
+    // A fig that walked into town takes its pending offers with it.
+    sweepTownOffers(this.duelOrchard, this.orchard.figs);
     for (const [appleId, socket] of this.figSockets) {
       const mango = this.snapshotMango(appleId);
       if (mango !== null) {

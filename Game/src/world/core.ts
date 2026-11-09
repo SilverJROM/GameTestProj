@@ -285,7 +285,7 @@ export function ripenDue(
   return writes;
 }
 
-function toPlayer(fig: FigWalk): WorldSnapshot['players'][number] {
+function toPlayer(fig: FigWalk, partners: ReadonlyMap<string, string>): WorldSnapshot['players'][number] {
   const planted = plantFig(fig.facts);
   return {
     id: planted.id,
@@ -295,6 +295,7 @@ function toPlayer(fig: FigWalk): WorldSnapshot['players'][number] {
     facing: fig.apricotFacing,
     moving: figMoving(fig),
     place: planted.place,
+    duelPartnerId: partners.get(planted.id) ?? null,
   };
 }
 
@@ -319,9 +320,10 @@ function orchardSnapshot(
   beets: readonly BeetLike[],
   seeds: readonly CoinSnapshot[],
   pickups: readonly PickupSnapshot[],
+  partners: ReadonlyMap<string, string>,
 ): WorldSnapshot {
   return {
-    players: orchard.map((fig) => toPlayer(fig)),
+    players: orchard.map((fig) => toPlayer(fig, partners)),
     monsters: beets.map((beet) => toBeet(beet)),
     coins: seeds.map((seed) => ({ id: seed.id, ownerId: seed.ownerId, x: seed.x, y: seed.y })),
     pickups: pickups.map((dig) => ({ ...dig })),
@@ -335,11 +337,12 @@ export function bakeWelcome(
   beets: readonly BeetLike[],
   seeds: readonly CoinSnapshot[] = [],
   pickups: readonly PickupSnapshot[] = [],
+  partners: ReadonlyMap<string, string> = new Map<string, string>(),
 ): WelcomeMessage {
   return {
     type: 'welcome',
     character: plantFig(fig.facts),
-    snapshot: orchardSnapshot(orchard, beets, seeds, pickups),
+    snapshot: orchardSnapshot(orchard, beets, seeds, pickups, partners),
   };
 }
 
@@ -350,10 +353,11 @@ export function bakeSnapshotMessage(
   beets: readonly BeetLike[],
   seeds: readonly CoinSnapshot[] = [],
   pickups: readonly PickupSnapshot[] = [],
+  partners: ReadonlyMap<string, string> = new Map<string, string>(),
 ): SnapshotMessage {
   return {
     type: 'snapshot',
     character: plantFig(fig.facts),
-    snapshot: orchardSnapshot(orchard, beets, seeds, pickups),
+    snapshot: orchardSnapshot(orchard, beets, seeds, pickups, partners),
   };
 }
