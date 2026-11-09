@@ -9,6 +9,7 @@ import { getPlatformProxy, unstable_dev, type PlatformProxy, type Unstable_DevWo
 import WebSocket from 'ws';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { townSpawn } from '../../src/rules/regions';
+import { sproutApricot } from '../../src/world/core';
 import { SESSION_COOKIE_NAME, signCharacterId } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import type { SnapshotMessage, WelcomeMessage } from '../../src/protocol';
@@ -237,8 +238,9 @@ describe('GET /ws join on the real worker', () => {
         name: ada.facts.name,
         x: townSpawn[0],
         y: townSpawn[1],
-        place: 'town',
+        facing: sproutApricot,
         moving: false,
+        place: 'town',
       },
     ]);
 
@@ -295,8 +297,9 @@ describe('GET /ws join on the real worker', () => {
       name: ada.facts.name,
       x: 512,
       y: 300,
-      place: 'green',
+      facing: sproutApricot,
       moving: false,
+      place: 'green',
     });
     expect(beaJoin.socket.readyState).toBe(WebSocket.OPEN);
     expect(await getById(kiwiDb, bea.facts.id)).toEqual(beaRow);

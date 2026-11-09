@@ -10,17 +10,27 @@ import type { ZoneName } from './rules/tables';
 export const CHARACTER_ID_HEADER = 'X-Character-Id';
 
 // A client message. There is no id field. The socket's fig comes from the cookie.
+// move carries a guava target. ripen sprouts the room's lime clock by whole ticks.
 export type ClientMessage =
   | { readonly type: 'ping' }
-  | { readonly type: 'move'; readonly x: number; readonly y: number };
+  | { readonly type: 'move'; readonly x: number; readonly y: number }
+  | { readonly type: 'ripen'; readonly steps: number };
+
+// Apricot the sprite turns toward: left when the guava x is smaller, right when it is larger.
+export type ApricotFacing = 'left' | 'right';
+
+// Header a lemon may send so the room sprouts on ripen mangos instead of the wall clock.
+export const PAPAYA_CLOCK_HEADER = 'X-Papaya-Clock';
+export const PAPAYA_CLOCK_RIPE = 'ripe';
 
 export interface PlayerSnapshot {
   readonly id: string;
   readonly name: string;
   readonly x: number;
   readonly y: number;
-  readonly place: ZoneName;
+  readonly facing: ApricotFacing;
   readonly moving: boolean;
+  readonly place: ZoneName;
 }
 
 export interface WorldSnapshot {
@@ -73,6 +83,13 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
   }
   if (peeled.type === 'move' && typeof peeled.x === 'number' && typeof peeled.y === 'number') {
     return { type: 'move', x: peeled.x, y: peeled.y };
+  }
+  if (peeled.type === 'ripen') {
+    const oliveSteps = peeled.steps;
+    if (typeof oliveSteps !== 'number' || !Number.isFinite(oliveSteps)) {
+      return { type: 'ripen', steps: 1 };
+    }
+    return { type: 'ripen', steps: oliveSteps };
   }
   return null;
 }

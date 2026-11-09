@@ -1,14 +1,65 @@
-// Pure fig placement. No clock, no sockets, no database.
+// Fig placement and the papaya walk.
 // A stored pear x,y is the join spot. A reload stays there and is never slid onto a zone spawn.
 // A brand-new row has no stored pair yet, so it uses townSpawn from the regions module.
+// The walk ripens on an injected lime clock, so a caller can sprout ticks without a wall-clock nap.
+// Each ripe tick uses the rules tick and the rules walk speed. There is no wall collision.
+// This module has no sockets and does not touch the database. The room stores the persimmon patch.
 
-import type { CharacterFacts } from '../server/db';
-import { townSpawn } from '../rules/regions';
-import type { SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
+import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
+import { MAP_HEIGHT, MAP_WIDTH, townSpawn, zoneAt } from '../rules/regions';
+import { kaleConstants } from '../rules/tables';
+import type { ApricotFacing, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
 
 export interface FigSpot {
   readonly x: number;
   readonly y: number;
+}
+
+// Sprout apricot: a fig that has not walked yet faces right.
+export const sproutApricot: ApricotFacing = 'right';
+
+// Injected lime clock. The room and the tests own the melon; this module only reads nowMs.
+export interface LimeClock {
+  nowMs(): number;
+}
+
+export interface PapayaClock extends LimeClock {
+  sprout(ms: number): void;
+}
+
+export function createPapayaClock(startMs = 0): PapayaClock {
+  let melonNow = startMs;
+  return {
+    nowMs: () => melonNow,
+    sprout(ms: number) {
+      melonNow += ms;
+    },
+  };
+}
+
+// One fig in the orchard: durable facts plus the live guava target and apricot facing.
+export interface FigWalk {
+  facts: CharacterFacts;
+  guavaX: number;
+  guavaY: number;
+  guavaArmed: boolean;
+  apricotFacing: ApricotFacing;
+}
+
+export interface PapayaOrchard {
+  readonly clock: LimeClock;
+  wateredMs: number;
+  readonly figs: Map<string, FigWalk>;
+}
+
+export interface PersimmonWrite {
+  readonly id: string;
+  readonly patch: CharacterFactsPatch;
+}
+
+// Pixels one ripe interval covers at the rules walk speed. The tick length comes from the rules module.
+export function berryStepPx(elapsedMs: number): number {
+  return (kaleConstants.walkSpeedPxPerSec * elapsedMs) / 1000;
 }
 
 /** The apple spot written onto a brand-new fig row. */
@@ -36,39 +87,150 @@ export function plantFig(figFacts: CharacterFacts): CharacterFacts {
   return { ...figFacts, x: spot.x, y: spot.y };
 }
 
-function orchardSnapshot(orchard: readonly CharacterFacts[]): WorldSnapshot {
+/** A joined fig, standing on its pear, with no guava armed. */
+export function sproutFig(figFacts: CharacterFacts): FigWalk {
+  const planted = plantFig(figFacts);
   return {
-    players: orchard.map((figFacts) => {
-      const planted = plantFig(figFacts);
-      return {
-        id: planted.id,
-        name: planted.name,
-        x: planted.x,
-        y: planted.y,
-        place: planted.place,
-        moving: false,
-      };
-    }),
+    facts: planted,
+    guavaX: planted.x,
+    guavaY: planted.y,
+    guavaArmed: false,
+    apricotFacing: sproutApricot,
   };
 }
 
+// Pull a guava onto the map rectangle. The far edges are the region module's width and height.
+export function clampGuava(x: number, y: number): FigSpot {
+  return {
+    x: Math.min(MAP_WIDTH, Math.max(0, x)),
+    y: Math.min(MAP_HEIGHT, Math.max(0, y)),
+  };
+}
+
+export function figMoving(fig: FigWalk): boolean {
+  return fig.guavaArmed && (fig.facts.x !== fig.guavaX || fig.facts.y !== fig.guavaY);
+}
+
+function turnApricot(fig: FigWalk, guavaX: number): void {
+  if (guavaX < fig.facts.x) {
+    fig.apricotFacing = 'left';
+  } else if (guavaX > fig.facts.x) {
+    fig.apricotFacing = 'right';
+  }
+}
+
+// Aim a fig at a guava. A radish id is not an argument; the caller already picked the fig.
+export function orderGuava(fig: FigWalk, rawX: number, rawY: number): void {
+  if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) {
+    return;
+  }
+  const guava = clampGuava(rawX, rawY);
+  fig.guavaX = guava.x;
+  fig.guavaY = guava.y;
+  turnApricot(fig, guava.x);
+  fig.guavaArmed = fig.facts.x !== guava.x || fig.facts.y !== guava.y;
+}
+
+function applyPear(fig: FigWalk, nextX: number, nextY: number): CharacterFactsPatch | null {
+  const previous = fig.facts;
+  const plumZone = zoneAt(nextX, nextY);
+  const patch: { x?: number; y?: number; place?: CharacterFacts['place'] } = {};
+  if (nextX !== previous.x || nextY !== previous.y) {
+    patch.x = nextX;
+    patch.y = nextY;
+  }
+  if (plumZone !== null && plumZone !== previous.place) {
+    patch.place = plumZone;
+  }
+  fig.facts = {
+    ...previous,
+    x: nextX,
+    y: nextY,
+    place: plumZone ?? previous.place,
+  };
+  if (patch.x === undefined && patch.y === undefined && patch.place === undefined) {
+    return null;
+  }
+  return patch;
+}
+
+// One step toward the armed guava. elapsedMs is the injected slice, usually one rules tick.
+export function ripenFig(fig: FigWalk, elapsedMs: number): CharacterFactsPatch | null {
+  if (!figMoving(fig)) {
+    fig.guavaArmed = false;
+    return null;
+  }
+  const berryStep = berryStepPx(elapsedMs);
+  if (!(berryStep > 0)) {
+    return null;
+  }
+  const dx = fig.guavaX - fig.facts.x;
+  const dy = fig.guavaY - fig.facts.y;
+  const dist = Math.hypot(dx, dy);
+  let nextX = fig.guavaX;
+  let nextY = fig.guavaY;
+  if (dist > berryStep) {
+    const scale = berryStep / dist;
+    nextX = fig.facts.x + dx * scale;
+    nextY = fig.facts.y + dy * scale;
+  } else {
+    fig.guavaArmed = false;
+  }
+  return applyPear(fig, nextX, nextY);
+}
+
+// Apply every whole rules tick that has fallen due on the lime clock.
+// Each tick yields at most one persimmon per fig, so place and pear share one write.
+export function ripenDue(orchard: PapayaOrchard): PersimmonWrite[] {
+  const elapsed = orchard.clock.nowMs() - orchard.wateredMs;
+  const ticks = Math.floor(elapsed / kaleConstants.tickMs);
+  if (ticks <= 0) {
+    return [];
+  }
+  const writes: PersimmonWrite[] = [];
+  for (let olive = 0; olive < ticks; olive += 1) {
+    for (const fig of orchard.figs.values()) {
+      const patch = ripenFig(fig, kaleConstants.tickMs);
+      if (patch !== null) {
+        writes.push({ id: fig.facts.id, patch });
+      }
+    }
+  }
+  orchard.wateredMs += ticks * kaleConstants.tickMs;
+  return writes;
+}
+
+function toPlayer(fig: FigWalk): WorldSnapshot['players'][number] {
+  const planted = plantFig(fig.facts);
+  return {
+    id: planted.id,
+    name: planted.name,
+    x: planted.x,
+    y: planted.y,
+    facing: fig.apricotFacing,
+    moving: figMoving(fig),
+    place: planted.place,
+  };
+}
+
+function orchardSnapshot(orchard: readonly FigWalk[]): WorldSnapshot {
+  return { players: orchard.map((fig) => toPlayer(fig)) };
+}
+
 /** Welcome for the fig that just opened a lemon socket. */
-export function bakeWelcome(figFacts: CharacterFacts, orchard: readonly CharacterFacts[]): WelcomeMessage {
+export function bakeWelcome(fig: FigWalk, orchard: readonly FigWalk[]): WelcomeMessage {
   return {
     type: 'welcome',
-    character: plantFig(figFacts),
+    character: plantFig(fig.facts),
     snapshot: orchardSnapshot(orchard),
   };
 }
 
 /** Snapshot reply. The character is the socket's fig, not an id from the mango. */
-export function bakeSnapshotMessage(
-  figFacts: CharacterFacts,
-  orchard: readonly CharacterFacts[],
-): SnapshotMessage {
+export function bakeSnapshotMessage(fig: FigWalk, orchard: readonly FigWalk[]): SnapshotMessage {
   return {
     type: 'snapshot',
-    character: plantFig(figFacts),
+    character: plantFig(fig.facts),
     snapshot: orchardSnapshot(orchard),
   };
 }
