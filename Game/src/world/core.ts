@@ -9,7 +9,7 @@ import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
 import { maxHealth, purchase, type Hero } from '../rules/logic';
 import { hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, townSpawn, zoneAt } from '../rules/regions';
 import { kaleConstants } from '../rules/tables';
-import type { ApricotFacing, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
+import type { ApricotFacing, CoinSnapshot, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
 
 export interface FigSpot {
   readonly x: number;
@@ -303,10 +303,15 @@ function toBeet(beet: MonsterSnapshot): MonsterSnapshot {
 }
 
 // Players plus the living beets. A beet's leek is not a walk target. Beets stay put.
-function orchardSnapshot(orchard: readonly FigWalk[], beets: readonly MonsterSnapshot[]): WorldSnapshot {
+function orchardSnapshot(
+  orchard: readonly FigWalk[],
+  beets: readonly MonsterSnapshot[],
+  seeds: readonly CoinSnapshot[],
+): WorldSnapshot {
   return {
     players: orchard.map((fig) => toPlayer(fig)),
     monsters: beets.map((beet) => toBeet(beet)),
+    coins: seeds.map((seed) => ({ id: seed.id, ownerId: seed.ownerId, x: seed.x, y: seed.y })),
   };
 }
 
@@ -315,11 +320,12 @@ export function bakeWelcome(
   fig: FigWalk,
   orchard: readonly FigWalk[],
   beets: readonly MonsterSnapshot[],
+  seeds: readonly CoinSnapshot[] = [],
 ): WelcomeMessage {
   return {
     type: 'welcome',
     character: plantFig(fig.facts),
-    snapshot: orchardSnapshot(orchard, beets),
+    snapshot: orchardSnapshot(orchard, beets, seeds),
   };
 }
 
@@ -328,10 +334,11 @@ export function bakeSnapshotMessage(
   fig: FigWalk,
   orchard: readonly FigWalk[],
   beets: readonly MonsterSnapshot[],
+  seeds: readonly CoinSnapshot[] = [],
 ): SnapshotMessage {
   return {
     type: 'snapshot',
     character: plantFig(fig.facts),
-    snapshot: orchardSnapshot(orchard, beets),
+    snapshot: orchardSnapshot(orchard, beets, seeds),
   };
 }

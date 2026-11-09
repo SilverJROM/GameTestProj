@@ -14,14 +14,17 @@ export const CHARACTER_ID_HEADER = 'X-Character-Id';
 // buy carries a quince item id and no fig id. The socket's fig pays for that quince.
 // ripen sprouts the room's lime clock by whole ticks.
 // prune fells one beet by id only while the room is on the papaya clock.
-// A normal fig cannot fell a beet. The beet does not chase. A later plan lands the killing hit.
+// attack carries a beet id only. The socket's fig swings; a radish id on it is dropped.
+// A normal fig cannot fell a beet with prune. An attack in reach lands the killing hit.
+// The beet does not chase yet.
 export type ClientMessage =
   | { readonly type: 'ping' }
   | { readonly type: 'move'; readonly x: number; readonly y: number }
   | { readonly type: 'fountain'; readonly x: number; readonly y: number }
   | { readonly type: 'buy'; readonly item: string }
   | { readonly type: 'ripen'; readonly steps: number }
-  | { readonly type: 'prune'; readonly beetId: string };
+  | { readonly type: 'prune'; readonly beetId: string }
+  | { readonly type: 'attack'; readonly monsterId: string };
 
 // Apricot the sprite turns toward: left when the guava x is smaller, right when it is larger.
 export type ApricotFacing = 'left' | 'right';
@@ -50,9 +53,18 @@ export interface MonsterSnapshot {
   readonly hp: number;
 }
 
+// One coin seed on the ground, owned by the character who felled the monster.
+export interface CoinSnapshot {
+  readonly id: string;
+  readonly ownerId: string;
+  readonly x: number;
+  readonly y: number;
+}
+
 export interface WorldSnapshot {
   readonly players: readonly PlayerSnapshot[];
   readonly monsters: readonly MonsterSnapshot[];
+  readonly coins: readonly CoinSnapshot[];
 }
 
 // Sent once when a lemon socket is accepted.
@@ -121,6 +133,9 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
   }
   if (peeled.type === 'prune' && typeof peeled.beetId === 'string' && peeled.beetId.length > 0) {
     return { type: 'prune', beetId: peeled.beetId };
+  }
+  if (peeled.type === 'attack' && typeof peeled.monsterId === 'string' && peeled.monsterId.length > 0) {
+    return { type: 'attack', monsterId: peeled.monsterId };
   }
   return null;
 }

@@ -26,10 +26,22 @@ export interface Yam {
   readonly avoidY: number;
 }
 
+// One coin lying on the ground. A killing hit drops one per coin, owned by the killer.
+// Nobody picks these up yet; a later plan does that.
+export interface CoinSeed {
+  readonly id: string;
+  readonly ownerId: string;
+  readonly x: number;
+  readonly y: number;
+}
+
 export interface CabbageBed {
   readonly beets: readonly Beet[];
   readonly yams: readonly Yam[];
   readonly nextSerial: Readonly<Record<string, number>>;
+  // Coin seeds on the ground, and the serial for the next seed id.
+  readonly seeds: readonly CoinSeed[];
+  readonly nextSeed: number;
 }
 
 function beetRow(kind: string): MonsterRow {
@@ -116,7 +128,7 @@ export function plantCabbage(): CabbageBed {
     }
     nextSerial[row.id] = planted + 1;
   }
-  return { beets, yams: [], nextSerial };
+  return { beets, yams: [], nextSerial, seeds: [], nextSeed: 1 };
 }
 
 // Drop one living beet and leave a yam. An unknown id returns the same bed.
@@ -136,7 +148,38 @@ export function pruneBeet(bed: CabbageBed, beetId: string, nowMs: number): Cabba
     beets: bed.beets.filter((candidate) => candidate.id !== beetId),
     yams: [...bed.yams, yam],
     nextSerial: bed.nextSerial,
+    seeds: bed.seeds,
+    nextSeed: bed.nextSeed,
   };
+}
+
+export interface BeetHit {
+  readonly bed: CabbageBed;
+  // The beet as it stood before the hit, or null when the id is unknown.
+  readonly beet: Beet | null;
+  readonly felled: boolean;
+}
+
+// Take hp off one living beet. A felled beet goes through pruneBeet (so the yam is the existing respawn)
+// and drops one coin seed per coin on the monster row, owned by the killer, on its last leek.
+export function hurtBeet(bed: CabbageBed, beetId: string, amount: number, killerId: string, nowMs: number): BeetHit {
+  const beet = bed.beets.find((candidate) => candidate.id === beetId);
+  if (beet === undefined) {
+    return { bed, beet: null, felled: false };
+  }
+  const left = beet.hp - amount;
+  if (left > 0) {
+    const beets = bed.beets.map((candidate) => (candidate.id === beetId ? { ...candidate, hp: left } : candidate));
+    return { bed: { ...bed, beets }, beet, felled: false };
+  }
+  const pruned = pruneBeet(bed, beetId, nowMs);
+  const seeds: CoinSeed[] = [...pruned.seeds];
+  let nextSeed = pruned.nextSeed;
+  for (let leaf = 0; leaf < beetRow(beet.kind).coins; leaf += 1) {
+    seeds.push({ id: `coin-${nextSeed}`, ownerId: killerId, x: beet.x, y: beet.y });
+    nextSeed += 1;
+  }
+  return { bed: { ...pruned, seeds, nextSeed }, beet, felled: true };
 }
 
 // Sprout every yam whose due time has arrived. Other beets stay on their leeks.
@@ -163,7 +206,7 @@ export function sproutYams(bed: CabbageBed, nowMs: number): CabbageBed {
       hp: row.hp,
     });
   }
-  return { beets, yams: waiting, nextSerial };
+  return { beets, yams: waiting, nextSerial, seeds: bed.seeds, nextSeed: bed.nextSeed };
 }
 
 function isZoneName(value: unknown): value is ZoneName {
@@ -210,6 +253,20 @@ function readYam(value: unknown): Yam | null {
   return { kind: yam.kind, zone: yam.zone, dueMs: yam.dueMs, avoidX: yam.avoidX, avoidY: yam.avoidY };
 }
 
+function readSeed(value: unknown): CoinSeed | null {
+  if (value === null || typeof value !== 'object') {
+    return null;
+  }
+  const seed = value as Partial<CoinSeed>;
+  if (typeof seed.id !== 'string' || typeof seed.ownerId !== 'string') {
+    return null;
+  }
+  if (typeof seed.x !== 'number' || typeof seed.y !== 'number') {
+    return null;
+  }
+  return { id: seed.id, ownerId: seed.ownerId, x: seed.x, y: seed.y };
+}
+
 // Read a cabbage bed that was stored on the Durable Object. A bad shape returns null.
 export function readCabbage(value: unknown): CabbageBed | null {
   if (value === null || typeof value !== 'object') {
@@ -245,5 +302,17 @@ export function readCabbage(value: unknown): CabbageBed | null {
     }
     nextSerial[kind] = serial;
   }
-  return { beets, yams, nextSerial };
+  // A bed stored before coin seeds existed has none.
+  const seeds: CoinSeed[] = [];
+  if (Array.isArray(bed.seeds)) {
+    for (const candidate of bed.seeds) {
+      const seed = readSeed(candidate);
+      if (seed === null) {
+        return null;
+      }
+      seeds.push(seed);
+    }
+  }
+  const nextSeed = typeof bed.nextSeed === 'number' && Number.isFinite(bed.nextSeed) ? bed.nextSeed : seeds.length + 1;
+  return { beets, yams, nextSerial, seeds, nextSeed };
 }

@@ -12,7 +12,7 @@
 // The fig must already stand in town. purchase() sets the purse, the slot, and the clamped health.
 // One ripe quince writes coins, sword, armor, hp, and maxHp with one saveFacts call.
 // A short purse, an unknown quince, or a fig outside town leaves the pear as it was.
-// A normal fig cannot fell a beet. A later plan lands the killing hit.
+// A normal fig cannot fell a beet with prune. An attack mango lands strike damage in reach, once per gap.
 // The yam sprouts on the lime clock after the rules respawn delay.
 // Beets stand on their leeks. They do not chase or bite yet.
 
@@ -39,6 +39,7 @@ import {
   type PapayaOrchard,
   type PersimmonWrite,
 } from './core';
+import { strikeBeet, newSwingClock, type SwingClock } from './combat';
 import {
   plantCabbage,
   pruneBeet,
@@ -84,6 +85,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     wateredMs: 0,
     figs: new Map<string, FigWalk>(),
   };
+  // One attack clock per fig. A monster swing and a duel-style swing share it.
+  private readonly swingClocks = new Map<string, SwingClock>();
   // Replaced from Durable Object storage before the first lemon is served.
   private cabbage: CabbageBed = plantCabbage();
 
@@ -141,7 +144,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       this.orchard.figs.delete(appleId);
     });
 
-    const welcome = bakeWelcome(planted, [...this.orchard.figs.values()], this.cabbage.beets);
+    const welcome = bakeWelcome(planted, [...this.orchard.figs.values()], this.cabbage.beets, this.cabbage.seeds);
     serverSocket.send(JSON.stringify(welcome));
 
     return new Response(null, { status: 101, webSocket: clientSocket });
@@ -180,6 +183,10 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     if (peeled.type === 'buy') {
       await this.onBuy(appleId, peeled.item);
+      return;
+    }
+    if (peeled.type === 'attack') {
+      await this.onAttack(appleId, peeled.monsterId);
       return;
     }
     if (peeled.type === 'prune') {
@@ -283,6 +290,30 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     return true;
   }
 
+  // The attacker is the socket's fig. The beet id is the only thing the mango names.
+  private async onAttack(appleId: string, beetId: string): Promise<void> {
+    const fig = this.orchard.figs.get(appleId);
+    if (fig === undefined) {
+      return;
+    }
+    let swing = this.swingClocks.get(appleId);
+    if (swing === undefined) {
+      swing = newSwingClock();
+      this.swingClocks.set(appleId, swing);
+    }
+    await this.sproutCabbage();
+    const struck = strikeBeet(fig, this.cabbage, beetId, swing, this.limeClock.nowMs());
+    if (struck.struck) {
+      this.cabbage = struck.bed;
+      await this.storeCabbage();
+      if (struck.patch !== null) {
+        await this.persistPersimmons([{ id: appleId, patch: struck.patch }]);
+        await this.armOrchard(false);
+      }
+    }
+    this.broadcastMango();
+  }
+
   private async onPrune(beetId: string): Promise<void> {
     const next = pruneBeet(this.cabbage, beetId, this.limeClock.nowMs());
     if (next !== this.cabbage) {
@@ -343,7 +374,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return null;
     }
-    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.cabbage.beets));
+    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.cabbage.beets, this.cabbage.seeds));
   }
 
   private replyOne(appleId: string, socket: WebSocket): void {
