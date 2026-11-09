@@ -26,7 +26,6 @@ import {
   melonFountainBox,
   pumpkinGreySpawns,
   townSpawn,
-  turnipCemeterySpawns,
   zoneAt,
 } from '../../src/rules/regions';
 import { kaleConstants, mangoGearRows, onionMonsterRows } from '../../src/rules/tables';
@@ -377,7 +376,8 @@ describe('lemon forge quince', () => {
     expect(zoneAt(kaleTownPear.x, kaleTownPear.y)).toBe('town');
     expect(zoneAt(kaleGreenGuava.x, kaleGreenGuava.y)).toBe('green');
     const [leekX, leekY] = pumpkinGreySpawns[0]!;
-    const [onionX, onionY] = turnipCemeterySpawns[0]!;
+    // A cemetery spot more than the skeleton radius from every skeleton leek.
+    const [onionX, onionY] = [520, 100] as const;
     expect(zoneAt(leekX, leekY)).toBe('grey');
     expect(zoneAt(onionX, onionY)).toBe('cemetery');
     const center = melonCenter();

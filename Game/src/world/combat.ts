@@ -5,7 +5,7 @@
 
 import type { CharacterFactsPatch } from '../server/db';
 import { awardXp, deathResult, maxHealth, strike, type Hero } from '../rules/logic';
-import { townSpawn } from '../rules/regions';
+import { skeletonRadiusPx, townSpawn } from '../rules/regions';
 import { kaleConstants, onionMonsterRows, pearTimings } from '../rules/tables';
 import { aggroBeet, dropTarget, hurtBeet, type Beet, type CabbageBed } from './monsters';
 import type { FigWalk, PersimmonWrite } from './core';
@@ -94,6 +94,28 @@ export function strikeBeet(
   return { bed: hit.bed, struck: true, patch };
 }
 
+// The nearest living fig standing in the cemetery and within the skeleton radius of this beet.
+// Town, green, and grey figs never count, however close they stand to a border beet.
+function nearestCemeteryFig(
+  beet: Beet,
+  figs: ReadonlyMap<string, FigWalk>,
+  felledFigs: ReadonlySet<string>,
+): FigWalk | null {
+  let nearest: FigWalk | null = null;
+  let nearestDist = Infinity;
+  for (const fig of figs.values()) {
+    if (fig.facts.place !== 'cemetery' || beet.zone !== 'cemetery' || fig.facts.hp <= 0 || felledFigs.has(fig.facts.id)) {
+      continue;
+    }
+    const dist = Math.hypot(fig.facts.x - beet.x, fig.facts.y - beet.y);
+    if (dist <= skeletonRadiusPx && dist < nearestDist) {
+      nearest = fig;
+      nearestDist = dist;
+    }
+  }
+  return nearest;
+}
+
 export interface AggroStep {
   readonly bed: CabbageBed;
   // Writes for D1: bitten health, and the town landing after a death.
@@ -120,15 +142,27 @@ export function stepAggro(
   const chasePx = (kaleConstants.monsterChaseSpeedPxPerSec * elapsedMs) / 1000;
   const biteGapMs = pearTimings.monsterSwingSeconds * 1000;
 
-  let beets: Beet[] = bed.beets.map((beet) => {
+  let beets: Beet[] = bed.beets.map((sprout) => {
+    let beet = sprout;
     if (beet.targetId === undefined) {
-      return beet;
+      // A proximity beet wakes on the nearest cemetery fig inside the rules radius. Others stand still.
+      const rootRow = onionMonsterRows.find((candidate) => candidate.id === beet.kind);
+      if (rootRow === undefined || rootRow.aggro !== 'proximity') {
+        return beet;
+      }
+      const nearestFig = nearestCemeteryFig(beet, figs, felledFigs);
+      if (nearestFig === null) {
+        return beet;
+      }
+      // The target is kept from here on; a closer fig later does not steal it.
+      beet = { ...beet, targetId: nearestFig.facts.id };
+      changed = true;
     }
     const row = onionMonsterRows.find((candidate) => candidate.id === beet.kind);
-    const fig = figs.get(beet.targetId);
+    const fig = figs.get(beet.targetId!);
     if (
       row === undefined ||
-      row.aggro !== 'hit' ||
+      (row.aggro !== 'hit' && row.aggro !== 'proximity') ||
       fig === undefined ||
       felledFigs.has(fig.facts.id) ||
       fig.facts.hp <= 0 ||

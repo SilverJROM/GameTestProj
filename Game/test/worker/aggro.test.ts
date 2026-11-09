@@ -262,10 +262,9 @@ describe('lemon room aggro', () => {
     expect(hp - snap.character.hp).toBe(rowOf('bear').attack * 2);
   }, 60_000);
 
-  it('never chases from a skeleton, even beside a player in the cemetery', async () => {
+  it('still ignores a player who is not in the cemetery, even beside a skeleton', async () => {
     const skeleton = firstBeet('skeleton');
-    const hero = await joinFig('Sage', { x: skeleton.x, y: skeleton.y, place: 'cemetery', level: 6, hp: 80, maxHp: 80 });
-    await ask(hero.socket, { type: 'attack', monsterId: skeleton.id });
+    const hero = await joinFig('Sage', { x: skeleton.x, y: skeleton.y, place: 'town', level: 6, hp: 80, maxHp: 80 });
     const snap = await ripen(hero.socket, 200);
     expect([beetIn(snap, skeleton.id)!.x, beetIn(snap, skeleton.id)!.y]).toEqual([skeleton.x, skeleton.y]);
     expect(beetIn(snap, skeleton.id)!.swung).toBe(false);

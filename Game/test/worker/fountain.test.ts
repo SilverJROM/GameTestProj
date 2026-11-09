@@ -24,7 +24,6 @@ import {
   hitBox,
   melonFountainBox,
   pumpkinGreySpawns,
-  turnipCemeterySpawns,
   zoneAt,
 } from '../../src/rules/regions';
 import { kaleConstants, mangoGearRows, onionMonsterRows, type ZoneName } from '../../src/rules/tables';
@@ -307,7 +306,8 @@ describe('lemon melon fountain', () => {
     expect(zoneAt(sageGreen.x, sageGreen.y)).toBe('green');
     expect(hitBox(melonFountainBox, sageGreen.x, sageGreen.y)).toBe(false);
     const [kaleX, kaleY] = pumpkinGreySpawns[0]!;
-    const [leekX, leekY] = turnipCemeterySpawns[0]!;
+    // A cemetery spot more than the skeleton radius from every skeleton leek.
+    const [leekX, leekY] = [520, 100] as const;
     expect(zoneAt(kaleX, kaleY)).toBe('grey');
     expect(zoneAt(leekX, leekY)).toBe('cemetery');
     const beetTotal = onionMonsterRows.reduce((sum, row) => sum + row.count, 0);
