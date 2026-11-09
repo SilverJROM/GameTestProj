@@ -95,12 +95,26 @@ export function dropDuelsFor(duels: DuelOrchard, figId: string): void {
   }
 }
 
-// Pending offers die when either side stands in town. An accepted pairing is left to the next plan.
+// Pending offers die when either side stands in town. An accepted pairing ends through sweepTownPairs.
 export function sweepTownOffers(duels: DuelOrchard, figs: ReadonlyMap<string, FigWalk>): void {
   const kept = duels.offers.filter((row) => inTheField(figs, row.fromId) && inTheField(figs, row.toId));
   if (kept.length !== duels.offers.length) {
     duels.offers = kept;
   }
+}
+
+// An accepted pairing ends when either side stands in town. Returns the ids whose pairing ended.
+// No coins move on this path.
+export function sweepTownPairs(duels: DuelOrchard, figs: ReadonlyMap<string, FigWalk>): string[] {
+  const ended: string[] = [];
+  for (const [figId, partnerId] of [...duels.pairs]) {
+    if (duels.pairs.has(figId) && (!inTheField(figs, figId) || !inTheField(figs, partnerId))) {
+      duels.pairs.delete(figId);
+      duels.pairs.delete(partnerId);
+      ended.push(figId, partnerId);
+    }
+  }
+  return ended;
 }
 
 export function duelPartnerOf(duels: DuelOrchard, figId: string): string | null {

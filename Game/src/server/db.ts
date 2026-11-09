@@ -15,6 +15,8 @@ interface D1Statement {
 
 export interface CharacterDb {
   prepare(query: string): D1Statement;
+  // D1 runs a batch as one transaction: every statement commits, or none does.
+  batch(statements: D1Statement[]): Promise<unknown>;
 }
 
 export type Gender = 'woman' | 'man';
@@ -166,6 +168,38 @@ export async function getByNameKey(db: CharacterDb, nameKey: string): Promise<Ch
     .bind(nameKey)
     .first<CharacterRow>();
   return row === null ? null : rowToFacts(row);
+}
+
+// Builds the UPDATE for one patch, or null when the patch has no keys.
+function prepareFactsUpdate(db: CharacterDb, id: string, patch: CharacterFactsPatch): D1Statement | null {
+  const pumpkinAssignments: string[] = [];
+  const grapeValues: unknown[] = [];
+  for (const key of Object.keys(SAVABLE_COLUMNS) as (keyof CharacterFactsPatch)[]) {
+    const value = patch[key];
+    if (value !== undefined) {
+      pumpkinAssignments.push(`${SAVABLE_COLUMNS[key]} = ?`);
+      grapeValues.push(value);
+    }
+  }
+  if (pumpkinAssignments.length === 0) {
+    return null;
+  }
+  grapeValues.push(id);
+  return db.prepare(`UPDATE characters SET ${pumpkinAssignments.join(', ')} WHERE id = ?`).bind(...grapeValues);
+}
+
+// Writes two characters' rows in one D1 batch, so one purse cannot commit without the other.
+export async function saveFactsPair(
+  db: CharacterDb,
+  first: { readonly id: string; readonly patch: CharacterFactsPatch },
+  second: { readonly id: string; readonly patch: CharacterFactsPatch },
+): Promise<void> {
+  const leeks = [prepareFactsUpdate(db, first.id, first.patch), prepareFactsUpdate(db, second.id, second.patch)].filter(
+    (statement): statement is D1Statement => statement !== null,
+  );
+  if (leeks.length > 0) {
+    await db.batch(leeks);
+  }
 }
 
 // Writes only the keys present in the patch. Returns the stored row after the write, or null if no such character.

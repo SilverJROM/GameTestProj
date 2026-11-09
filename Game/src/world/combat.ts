@@ -4,7 +4,7 @@
 // Time is whole milliseconds on the injected lime clock. This module never sleeps.
 
 import type { CharacterFactsPatch } from '../server/db';
-import { awardXp, deathResult, maxHealth, strike, type Hero } from '../rules/logic';
+import { awardXp, deathResult, duelPayout, maxHealth, strike, type Hero } from '../rules/logic';
 import { skeletonRadiusPx, townSpawn } from '../rules/regions';
 import { kaleConstants, onionMonsterRows, pearTimings } from '../rules/tables';
 import { aggroBeet, dropTarget, hurtBeet, type Beet, type CabbageBed } from './monsters';
@@ -208,4 +208,61 @@ export function stepAggro(
     );
   }
   return { bed: changed ? { ...bed, beets } : bed, writes, swung, changed };
+}
+
+export interface FigStrike {
+  // True when the swing landed (the clock was stamped).
+  readonly struck: boolean;
+  // Writes for D1. A felled duelist gives two rows that must be saved in one batch.
+  readonly writes: readonly PersimmonWrite[];
+  readonly felled: boolean;
+}
+
+// One duel swing by the attacker at the target. Lands only between flagged partners of each other.
+// Anything else does nothing and stamps nothing. Damage is the attacker's strike; no xp moves.
+// At 0 the loser lands in town at full max health and the winner takes half the loser's coins, rounded down.
+export function strikeFig(
+  attacker: FigWalk,
+  target: FigWalk | undefined,
+  pairs: ReadonlyMap<string, string>,
+  swing: SwingClock,
+  nowMs: number,
+): FigStrike {
+  const none: FigStrike = { struck: false, writes: [], felled: false };
+  if (target === undefined || attacker.facts.id === target.facts.id) {
+    return none;
+  }
+  if (pairs.get(attacker.facts.id) !== target.facts.id || pairs.get(target.facts.id) !== attacker.facts.id) {
+    return none;
+  }
+  if (attacker.facts.place === 'town' || target.facts.place === 'town' || target.facts.hp <= 0) {
+    return none;
+  }
+  if (!trySwing(swing, nowMs, 'duel')) {
+    return none;
+  }
+  const left = target.facts.hp - strike(heroOf(attacker));
+  if (left > 0) {
+    target.facts = { ...target.facts, hp: left };
+    return { struck: true, writes: [{ id: target.facts.id, patch: { hp: left } }], felled: false };
+  }
+  const risen = deathResult({ ...heroOf(target), health: 0 });
+  const pot = duelPayout(target.facts.coins);
+  const [townX, townY] = townSpawn;
+  const loserCoins = target.facts.coins - pot;
+  const winnerCoins = attacker.facts.coins + pot;
+  target.facts = { ...target.facts, hp: risen.health, place: risen.place, x: townX, y: townY, coins: loserCoins };
+  target.guavaX = townX;
+  target.guavaY = townY;
+  target.guavaArmed = false;
+  attacker.facts = { ...attacker.facts, coins: winnerCoins };
+  return {
+    struck: true,
+    felled: true,
+    // Loser first, winner second: saveFactsPair writes both in one batch.
+    writes: [
+      { id: target.facts.id, patch: { hp: risen.health, place: risen.place, x: townX, y: townY, coins: loserCoins } },
+      { id: attacker.facts.id, patch: { coins: winnerCoins } },
+    ],
+  };
 }

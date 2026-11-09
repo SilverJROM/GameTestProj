@@ -24,7 +24,7 @@ import {
   peelClientMessage,
 } from '../protocol';
 import { kaleConstants } from '../rules/tables';
-import { getById, saveFacts, type CharacterDb } from '../server/db';
+import { getById, saveFacts, saveFactsPair, type CharacterDb } from '../server/db';
 import {
   bakeSnapshotMessage,
   bakeWelcome,
@@ -39,9 +39,9 @@ import {
   type PapayaOrchard,
   type PersimmonWrite,
 } from './core';
-import { answerDuel, askDuel, dropDuelsFor, plantDuelOrchard, sweepTownOffers } from './duels';
+import { answerDuel, askDuel, dropDuelsFor, plantDuelOrchard, sweepTownOffers, sweepTownPairs } from './duels';
 import { anyDigDue, pickupSnapshots, stepPickups, type RadishDigs } from './pets';
-import { strikeBeet, newSwingClock, stepAggro, type SwingClock } from './combat';
+import { strikeBeet, strikeFig, newSwingClock, stepAggro, type SwingClock } from './combat';
 import {
   anyAggro,
   clearAggroOn,
@@ -220,7 +220,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       return;
     }
     if (peeled.type === 'attack') {
-      await this.onAttack(appleId, peeled.monsterId);
+      await this.onAttack(appleId, 'monsterId' in peeled ? peeled.monsterId : undefined, 'playerId' in peeled ? peeled.playerId : undefined);
       return;
     }
     if (peeled.type === 'duel_request' || peeled.type === 'duel_accept' || peeled.type === 'duel_decline') {
@@ -376,9 +376,16 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   // The attacker is the socket's fig. The beet id is the only thing the mango names.
-  private async onAttack(appleId: string, beetId: string): Promise<void> {
+  // A message that names a monster runs the monster path only; otherwise a named player is a duel swing.
+  private async onAttack(appleId: string, beetId: string | undefined, rivalId: string | undefined): Promise<void> {
     const fig = this.orchard.figs.get(appleId);
     if (fig === undefined) {
+      return;
+    }
+    if (beetId === undefined) {
+      if (rivalId !== undefined) {
+        await this.onDuelSwing(appleId, fig, rivalId);
+      }
       return;
     }
     let swing = this.swingClocks.get(appleId);
@@ -400,6 +407,33 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
         await this.persistPersimmons([{ id: appleId, patch: struck.patch }]);
         await this.armOrchard(false);
       }
+    }
+    this.broadcastMango();
+  }
+
+  // A duel swing shares the fig's one attack clock with monster swings.
+  private async onDuelSwing(appleId: string, fig: FigWalk, rivalId: string): Promise<void> {
+    sweepTownOffers(this.duelOrchard, this.orchard.figs);
+    sweepTownPairs(this.duelOrchard, this.orchard.figs);
+    let swing = this.swingClocks.get(appleId);
+    if (swing === undefined) {
+      swing = newSwingClock();
+      this.swingClocks.set(appleId, swing);
+    }
+    const hit = strikeFig(fig, this.orchard.figs.get(rivalId), this.duelOrchard.pairs, swing, this.limeClock.nowMs());
+    if (hit.felled) {
+      const [loserRow, winnerRow] = hit.writes as [PersimmonWrite, PersimmonWrite];
+      // The pairing and the glow end with the fight; both purses go to D1 in one batch.
+      dropDuelsFor(this.duelOrchard, appleId);
+      await saveFactsPair(this.env.DB, loserRow, winnerRow);
+      // A loser in town is no target for a chasing beet.
+      const cleared = clearAggroOn(this.cabbage, rivalId);
+      if (cleared !== this.cabbage) {
+        this.cabbage = cleared;
+        await this.storeCabbage();
+      }
+    } else {
+      await this.persistPersimmons(hit.writes);
     }
     this.broadcastMango();
   }
@@ -486,6 +520,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   private broadcastMango(): void {
     // A fig that walked into town takes its pending offers with it.
     sweepTownOffers(this.duelOrchard, this.orchard.figs);
+    sweepTownPairs(this.duelOrchard, this.orchard.figs);
     for (const [appleId, socket] of this.figSockets) {
       const mango = this.snapshotMango(appleId);
       if (mango !== null) {

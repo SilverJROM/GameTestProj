@@ -25,6 +25,7 @@ export type ClientMessage =
   | { readonly type: 'ripen'; readonly steps: number }
   | { readonly type: 'prune'; readonly beetId: string }
   | { readonly type: 'attack'; readonly monsterId: string }
+  | { readonly type: 'attack'; readonly playerId: string }
   | { readonly type: 'duel_request'; readonly playerId: string }
   | { readonly type: 'duel_accept'; readonly playerId: string }
   | { readonly type: 'duel_decline'; readonly playerId: string };
@@ -163,7 +164,11 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
     return { type: 'prune', beetId: peeled.beetId };
   }
   if (peeled.type === 'attack' && typeof peeled.monsterId === 'string' && peeled.monsterId.length > 0) {
+    // A message that names a monster is a monster attack; a playerId beside it is dropped.
     return { type: 'attack', monsterId: peeled.monsterId };
+  }
+  if (peeled.type === 'attack' && typeof peeled.playerId === 'string' && peeled.playerId.length > 0) {
+    return { type: 'attack', playerId: peeled.playerId };
   }
   if (
     (peeled.type === 'duel_request' || peeled.type === 'duel_accept' || peeled.type === 'duel_decline') &&
