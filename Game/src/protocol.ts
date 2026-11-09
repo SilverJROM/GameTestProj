@@ -40,6 +40,8 @@ export type ApricotFacing = 'left' | 'right';
 export const PAPAYA_CLOCK_HEADER = 'X-Papaya-Clock';
 export const PAPAYA_CLOCK_RIPE = 'ripe';
 
+export type FigGender = 'woman' | 'man';
+
 export interface PlayerSnapshot {
   readonly id: string;
   readonly name: string;
@@ -48,6 +50,8 @@ export interface PlayerSnapshot {
   readonly facing: ApricotFacing;
   readonly moving: boolean;
   readonly place: ZoneName;
+  // Woman or man, so each fig draws the matching stills.
+  readonly gender: FigGender;
   // The fig this player is dueling, or null. Set on exactly the two paired players (red glow).
   readonly duelPartnerId: string | null;
 }

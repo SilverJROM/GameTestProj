@@ -3,6 +3,8 @@
 // papaya canvas, which draws the world map picture from the assets directory.
 // Plain script, no framework. The functions take the document and fetch as arguments so a test can drive them.
 
+import { sproutAfterLogin } from './main.ts';
+
 const appleLoginPath = '/api/login';
 const cherryMePath = '/api/me';
 const melonMapPath = '/maps/world-map-wide.jpg';
@@ -72,7 +74,19 @@ export async function submitLogin(peachDoc, fetchFn) {
     return false;
   }
 
+  let figFacts = null;
+  try {
+    figFacts = await meResponse.json();
+  } catch {
+    figFacts = null;
+  }
+
   revealMap(peachDoc);
+  try {
+    sproutAfterLogin(peachDoc, figFacts);
+  } catch {
+    // The map stays up even if the lemon cannot sprout.
+  }
   return true;
 }
 

@@ -241,6 +241,8 @@ describe('GET /ws join on the real worker', () => {
         facing: sproutApricot,
         moving: false,
         place: 'town',
+        gender: ada.facts.gender,
+        duelPartnerId: null,
       },
     ]);
 
@@ -300,6 +302,8 @@ describe('GET /ws join on the real worker', () => {
       facing: sproutApricot,
       moving: false,
       place: 'green',
+      gender: ada.facts.gender,
+      duelPartnerId: null,
     });
     expect(beaJoin.socket.readyState).toBe(WebSocket.OPEN);
     expect(await getById(kiwiDb, bea.facts.id)).toEqual(beaRow);

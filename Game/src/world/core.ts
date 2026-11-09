@@ -295,6 +295,7 @@ function toPlayer(fig: FigWalk, partners: ReadonlyMap<string, string>): WorldSna
     facing: fig.apricotFacing,
     moving: figMoving(fig),
     place: planted.place,
+    gender: fig.facts.gender,
     duelPartnerId: partners.get(planted.id) ?? null,
   };
 }

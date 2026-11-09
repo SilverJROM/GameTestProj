@@ -4,6 +4,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Town Game</title>
+    <style>
+      body { margin: 0; background: #1b1a17; color: #f4ead7; font-family: Georgia, serif; }
+      #apple-login { max-width: 28rem; margin: 2rem auto; padding: 1rem 1.25rem; }
+      #papaya-canvas { display: block; width: 100%; height: auto; background: #000; }
+      #quince-smith, #plum-duel {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        padding: 0.75rem 1rem;
+        background: rgba(32, 24, 16, 0.92);
+        border: 1px solid #c4552a;
+      }
+      #quince-list button, #plum-duel button { margin: 0.35rem 0.35rem 0 0; }
+    </style>
   </head>
   <body>
     <!-- The peach section is the first screen: a woman or man choice and a name box. -->
@@ -21,6 +35,15 @@
     </section>
     <!-- The papaya canvas stays hidden until a sign-in succeeds, then shows the map picture. -->
     <canvas id="papaya-canvas" width="1280" height="720" hidden></canvas>
+    <section id="quince-smith" hidden>
+      <p>Forge</p>
+      <div id="quince-list"></div>
+    </section>
+    <section id="plum-duel" hidden>
+      <p id="plum-offer"></p>
+      <button type="button" id="plum-accept">Accept</button>
+      <button type="button" id="plum-decline">Decline</button>
+    </section>
     <script src="/client.js" type="module"></script>
   </body>
 </html>
