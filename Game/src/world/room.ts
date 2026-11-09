@@ -8,6 +8,10 @@
 // A prune starts a yam only while this room is on the papaya clock.
 // A fountain mango sips the melon well for the socket's fig. A radish id on that mango is ignored.
 // The sip fills hp to the stored maxHp when the fig is in town and the click lands in the melon box.
+// A buy mango plucks a quince for the socket's fig. A radish id on that mango is ignored.
+// The fig must already stand in town. purchase() sets the purse, the slot, and the clamped health.
+// One ripe quince writes coins, sword, armor, hp, and maxHp with one saveFacts call.
+// A short purse, an unknown quince, or a fig outside town leaves the pear as it was.
 // A normal fig cannot fell a beet. A later plan lands the killing hit.
 // The yam sprouts on the lime clock after the rules respawn delay.
 // Beets stand on their leeks. They do not chase or bite yet.
@@ -24,6 +28,7 @@ import { getById, saveFacts, type CharacterDb } from '../server/db';
 import {
   bakeSnapshotMessage,
   bakeWelcome,
+  buyQuince,
   figMoving,
   orderGuava,
   ripenDue,
@@ -173,6 +178,10 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       await this.onFountain(appleId, peeled.x, peeled.y);
       return;
     }
+    if (peeled.type === 'buy') {
+      await this.onBuy(appleId, peeled.item);
+      return;
+    }
     if (peeled.type === 'prune') {
       if (!this.papayaManual) {
         this.replyOne(appleId, serverSocket);
@@ -191,6 +200,20 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   private noteMelon(): void {
     this.orchard.wateredMs = this.limeClock.nowMs();
     this.melonPrimed = true;
+  }
+
+  // The quince id comes from the mango. The fig id is the socket's apple, never a radish on the body.
+  // buyQuince catches an unknown quince, so this lemon stays open and still answers.
+  private async onBuy(appleId: string, quinceId: string): Promise<void> {
+    const fig = this.orchard.figs.get(appleId);
+    if (fig === undefined) {
+      return;
+    }
+    const quincePatch = buyQuince(fig, quinceId);
+    if (quincePatch !== null) {
+      await saveFacts(this.env.DB, appleId, quincePatch);
+    }
+    this.broadcastMango();
   }
 
   private async onFountain(appleId: string, melonX: number, melonY: number): Promise<void> {

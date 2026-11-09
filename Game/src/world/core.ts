@@ -1,4 +1,4 @@
-// Fig placement, the papaya walk, and the melon fountain sip.
+// Fig placement, the papaya walk, the melon fountain sip, and the forge quince.
 // A stored pear x,y is the join spot. A reload stays there and is never slid onto a zone spawn.
 // A brand-new row has no stored pair yet, so it uses townSpawn from the regions module.
 // The walk ripens on an injected lime clock, so a caller can sprout ticks without a wall-clock nap.
@@ -6,6 +6,7 @@
 // This module has no sockets and does not touch the database. The room stores the persimmon patch.
 
 import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
+import { maxHealth, purchase, type Hero } from '../rules/logic';
 import { hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, townSpawn, zoneAt } from '../rules/regions';
 import { kaleConstants } from '../rules/tables';
 import type { ApricotFacing, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
@@ -153,6 +154,59 @@ export function sipMelon(fig: FigWalk, melonX: number, melonY: number): Characte
   const ripeHp = fig.facts.maxHp;
   fig.facts = { ...fig.facts, hp: ripeHp };
   return { hp: ripeHp };
+}
+
+// Buy one quince at the forge. The fig must already stand in town.
+// purchase() spends the purse, replaces the worn slot, and clamps health.
+// maxHp is maxHealth() of that hero. A sword leaves that maximum where it was.
+// A short purse comes back unchanged. An unknown quince throws inside purchase();
+// that throw stays in this path and the fig is left as it was.
+// A fig in the green, the grey, or the cemetery is refused even for a real quince.
+// The worn piece is replaced with no refund. There is no selling.
+export function buyQuince(fig: FigWalk, quinceId: string): CharacterFactsPatch | null {
+  if (fig.facts.place !== 'town') {
+    return null;
+  }
+  const peachHero: Hero = {
+    level: fig.facts.level,
+    xp: fig.facts.xp,
+    health: fig.facts.hp,
+    coins: fig.facts.coins,
+    sword: fig.facts.sword,
+    armor: fig.facts.armor,
+    place: fig.facts.place,
+  };
+  let grapeHero: Hero;
+  try {
+    const oliveBought = purchase(peachHero, quinceId);
+    if (!oliveBought.ok) {
+      return null;
+    }
+    grapeHero = oliveBought.hero;
+  } catch {
+    // purchase() throws when the quince id is not on the forge table.
+    return null;
+  }
+  const kiwiMax = maxHealth(grapeHero);
+  const limeCoins = grapeHero.coins;
+  const limeSword = grapeHero.sword;
+  const limeArmor = grapeHero.armor;
+  const limeHp = grapeHero.health;
+  fig.facts = {
+    ...fig.facts,
+    coins: limeCoins,
+    sword: limeSword,
+    armor: limeArmor,
+    hp: limeHp,
+    maxHp: kiwiMax,
+  };
+  return {
+    coins: limeCoins,
+    sword: limeSword,
+    armor: limeArmor,
+    hp: limeHp,
+    maxHp: kiwiMax,
+  };
 }
 
 function applyPear(fig: FigWalk, nextX: number, nextY: number): CharacterFactsPatch | null {
