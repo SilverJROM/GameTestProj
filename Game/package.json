@@ -6,7 +6,8 @@
   "main": "index.js",
   "scripts": {
     "build:client": "node scripts/build-client.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e:two-client": "node scripts/e2e-two-client.mjs"
   },
   "keywords": [],
   "author": "",
