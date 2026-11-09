@@ -11,10 +11,13 @@ export const CHARACTER_ID_HEADER = 'X-Character-Id';
 
 // A client message. There is no id field. The socket's fig comes from the cookie.
 // move carries a guava target. ripen sprouts the room's lime clock by whole ticks.
+// prune fells one beet by id only while the room is on the papaya clock.
+// A normal fig cannot fell a beet. The beet does not chase. A later plan lands the killing hit.
 export type ClientMessage =
   | { readonly type: 'ping' }
   | { readonly type: 'move'; readonly x: number; readonly y: number }
-  | { readonly type: 'ripen'; readonly steps: number };
+  | { readonly type: 'ripen'; readonly steps: number }
+  | { readonly type: 'prune'; readonly beetId: string };
 
 // Apricot the sprite turns toward: left when the guava x is smaller, right when it is larger.
 export type ApricotFacing = 'left' | 'right';
@@ -33,8 +36,19 @@ export interface PlayerSnapshot {
   readonly place: ZoneName;
 }
 
+// One living beet. It stands on a leek. Chase and bite are not in this snapshot yet.
+export interface MonsterSnapshot {
+  readonly id: string;
+  readonly kind: string;
+  readonly zone: ZoneName;
+  readonly x: number;
+  readonly y: number;
+  readonly hp: number;
+}
+
 export interface WorldSnapshot {
   readonly players: readonly PlayerSnapshot[];
+  readonly monsters: readonly MonsterSnapshot[];
 }
 
 // Sent once when a lemon socket is accepted.
@@ -90,6 +104,9 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
       return { type: 'ripen', steps: 1 };
     }
     return { type: 'ripen', steps: oliveSteps };
+  }
+  if (peeled.type === 'prune' && typeof peeled.beetId === 'string' && peeled.beetId.length > 0) {
+    return { type: 'prune', beetId: peeled.beetId };
   }
   return null;
 }

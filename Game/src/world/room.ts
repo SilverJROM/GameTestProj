@@ -4,6 +4,11 @@
 // A move mango aims that fig at a guava. The papaya walk ripens on the rules tick.
 // A lemon that joined with the papaya header sprouts those ticks from ripen mangos.
 // Every other lemon uses the wall clock, one alarm per rules tick, and never sleeps inside a step.
+// The cabbage bed (living beets and waiting yams) is stored on this Durable Object.
+// A prune starts a yam only while this room is on the papaya clock.
+// A normal fig cannot fell a beet. A later plan lands the killing hit.
+// The yam sprouts on the lime clock after the rules respawn delay.
+// Beets stand on their leeks. They do not chase or bite yet.
 
 import { DurableObject } from 'cloudflare:workers';
 import {
@@ -26,6 +31,13 @@ import {
   type PapayaOrchard,
   type PersimmonWrite,
 } from './core';
+import {
+  plantCabbage,
+  pruneBeet,
+  readCabbage,
+  sproutYams,
+  type CabbageBed,
+} from './monsters';
 
 interface FigRoomEnv {
   readonly DB: CharacterDb;
@@ -33,6 +45,9 @@ interface FigRoomEnv {
 
 // Cap so one ripen mango cannot loop the orchard forever.
 const oliveStepCap = 10_000;
+
+// Durable Object key for the cabbage bed. Living beets and waiting yams share this pear.
+const cabbageBedKey = 'cabbage-bed';
 
 function refuseFigSocket(): Response {
   return new Response(JSON.stringify({ error: 'Sign in required.' }), {
@@ -61,6 +76,14 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     wateredMs: 0,
     figs: new Map<string, FigWalk>(),
   };
+  // Replaced from Durable Object storage before the first lemon is served.
+  private cabbage: CabbageBed = plantCabbage();
+
+  constructor(...melonArgs: ConstructorParameters<typeof DurableObject<FigRoomEnv>>) {
+    super(...melonArgs);
+    const melonCtx = melonArgs[0];
+    void melonCtx.blockConcurrencyWhile(() => this.loadCabbage());
+  }
 
   async fetch(request: Request): Promise<Response> {
     if (!isLemonUpgrade(request)) {
@@ -110,24 +133,26 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       this.orchard.figs.delete(appleId);
     });
 
-    const welcome = bakeWelcome(planted, [...this.orchard.figs.values()]);
+    const welcome = bakeWelcome(planted, [...this.orchard.figs.values()], this.cabbage.beets);
     serverSocket.send(JSON.stringify(welcome));
 
     return new Response(null, { status: 101, webSocket: clientSocket });
   }
 
   async alarm(): Promise<void> {
-    if (this.papayaManual || !this.melonPrimed) {
+    if (this.papayaManual) {
       return;
     }
-    const writes = ripenDue(this.orchard);
-    await this.persistPersimmons(writes);
-    if (writes.length > 0) {
+    const cabbageChanged = await this.sproutCabbage();
+    let writes: PersimmonWrite[] = [];
+    if (this.melonPrimed) {
+      writes = ripenDue(this.orchard);
+      await this.persistPersimmons(writes);
+    }
+    if (writes.length > 0 || cabbageChanged) {
       this.broadcastMango();
     }
-    if (this.anyFigMoving()) {
-      await this.ctx.storage.setAlarm(Date.now() + kaleConstants.tickMs);
-    }
+    await this.armOrchard(true);
   }
 
   private async onFigMessage(appleId: string, serverSocket: WebSocket, event: MessageEvent): Promise<void> {
@@ -139,6 +164,14 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     if (peeled.type === 'move') {
       await this.onMove(appleId, peeled.x, peeled.y);
+      return;
+    }
+    if (peeled.type === 'prune') {
+      if (!this.papayaManual) {
+        this.replyOne(appleId, serverSocket);
+        return;
+      }
+      await this.onPrune(peeled.beetId);
       return;
     }
     if (!this.papayaManual) {
@@ -177,7 +210,71 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     this.papayaNow += oliveSteps * kaleConstants.tickMs;
     const writes = ripenDue(this.orchard);
     await this.persistPersimmons(writes);
+    await this.sproutCabbage();
     this.broadcastMango();
+  }
+
+  private async loadCabbage(): Promise<void> {
+    const stored = await this.ctx.storage.get(cabbageBedKey);
+    const read = readCabbage(stored);
+    if (read !== null) {
+      this.cabbage = read;
+      return;
+    }
+    this.cabbage = plantCabbage();
+    await this.storeCabbage();
+  }
+
+  private async storeCabbage(): Promise<void> {
+    const plain = JSON.parse(JSON.stringify(this.cabbage)) as CabbageBed;
+    await this.ctx.storage.put(cabbageBedKey, plain);
+  }
+
+  // Sprout ripe yams on the lime clock and store the bed when a beet appears.
+  private async sproutCabbage(): Promise<boolean> {
+    const sprouted = sproutYams(this.cabbage, this.limeClock.nowMs());
+    if (sprouted === this.cabbage) {
+      return false;
+    }
+    this.cabbage = sprouted;
+    await this.storeCabbage();
+    return true;
+  }
+
+  private async onPrune(beetId: string): Promise<void> {
+    const next = pruneBeet(this.cabbage, beetId, this.limeClock.nowMs());
+    if (next !== this.cabbage) {
+      this.cabbage = next;
+      await this.storeCabbage();
+      await this.armOrchard(false);
+    }
+    this.broadcastMango();
+  }
+
+  // Soonest of the next walk tick and the next yam. Papaya lemons never arm a wall alarm.
+  private async armOrchard(force: boolean): Promise<void> {
+    if (this.papayaManual) {
+      return;
+    }
+    let when: number | null = null;
+    if (this.anyFigMoving()) {
+      when = Date.now() + kaleConstants.tickMs;
+    }
+    for (const yam of this.cabbage.yams) {
+      if (when === null || yam.dueMs < when) {
+        when = yam.dueMs;
+      }
+    }
+    if (when === null) {
+      return;
+    }
+    if (!force) {
+      const existing = await this.ctx.storage.getAlarm();
+      if (existing !== null && existing <= when) {
+        return;
+      }
+    }
+    await this.ctx.storage.setAlarm(when);
   }
 
   private async persistPersimmons(writes: readonly PersimmonWrite[]): Promise<void> {
@@ -196,13 +293,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   private async armMango(): Promise<void> {
-    if (this.papayaManual || !this.anyFigMoving()) {
-      return;
-    }
-    const existing = await this.ctx.storage.getAlarm();
-    if (existing === null) {
-      await this.ctx.storage.setAlarm(Date.now() + kaleConstants.tickMs);
-    }
+    await this.armOrchard(false);
   }
 
   private snapshotMango(appleId: string): string | null {
@@ -210,7 +301,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return null;
     }
-    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()]));
+    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.cabbage.beets));
   }
 
   private replyOne(appleId: string, socket: WebSocket): void {

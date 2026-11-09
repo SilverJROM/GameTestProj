@@ -1,0 +1,417 @@
+// Seven beets per zone. A fresh cabbage holds 7 wolves on the green, 7 bears on the grey,
+// and 7 skeletons in the cemetery. Town stays empty. Each beet stands on a leek from the regions module.
+// A pruned beet sprouts again after the rules respawn delay, on a different leek in the same zone.
+// The lime clock is injected. This file does not sleep for that delay.
+// The cabbage bed is stored on the Durable Object and comes back after the lemon restarts.
+
+import { readFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { getPlatformProxy, unstable_dev, type Unstable_DevWorker } from 'wrangler';
+import WebSocket from 'ws';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  PAPAYA_CLOCK_HEADER,
+  PAPAYA_CLOCK_RIPE,
+  type MonsterSnapshot,
+  type SnapshotMessage,
+  type WelcomeMessage,
+} from '../../src/protocol';
+import { spawnPoints, zoneAt } from '../../src/rules/regions';
+import { kaleConstants, onionMonsterRows, pearTimings, type ZoneName } from '../../src/rules/tables';
+import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
+import type { CharacterDb, CharacterFacts } from '../../src/server/db';
+import { createPapayaClock } from '../../src/world/core';
+import { plantCabbage, pruneBeet, sproutYams, yamDueMs, type Beet } from '../../src/world/monsters';
+
+const guavaSecret = 'guava-session-secret';
+
+function migrationStatements(sqlText: string): string[] {
+  return sqlText
+    .replace(/--[^\n]*/g, '')
+    .split(';')
+    .map((statement) => statement.trim())
+    .filter((statement) => statement.length > 0);
+}
+
+function grapeFromBeet(beetCookie: string): string {
+  return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
+}
+
+function mangoText(data: unknown): string {
+  if (typeof data === 'string') {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return Buffer.concat(data as Uint8Array[]).toString('utf8');
+  }
+  return Buffer.from(data as Uint8Array).toString('utf8');
+}
+
+function beetLabel(beet: { id: string; kind: string; zone: string; x: number; y: number; hp: number }): string {
+  return `${beet.kind}|${beet.id}|${beet.zone}|${beet.x}|${beet.y}|${beet.hp}`;
+}
+
+function sortedBeets(beets: readonly { id: string; kind: string; zone: string; x: number; y: number; hp: number }[]): string[] {
+  return beets.map((beet) => beetLabel(beet)).sort();
+}
+
+function herdOf(beets: readonly MonsterSnapshot[] | readonly Beet[], kind: string): MonsterSnapshot[] {
+  return beets.filter((beet) => beet.kind === kind) as MonsterSnapshot[];
+}
+
+function expectFreshCabbage(beets: readonly MonsterSnapshot[] | readonly Beet[]): void {
+  expect(beets.some((beet) => beet.zone === 'town')).toBe(false);
+  expect(beets.some((beet) => zoneAt(beet.x, beet.y) === 'town')).toBe(false);
+  expect(beets).toHaveLength(onionMonsterRows.reduce((sum, row) => sum + row.count, 0));
+  for (const row of onionMonsterRows) {
+    expect(row.count).toBe(7);
+    const patch = herdOf(beets, row.id);
+    expect(patch).toHaveLength(7);
+    for (const beet of patch) {
+      expect(beet.zone).toBe(row.zone);
+      expect(beet.hp).toBe(row.hp);
+      expect(beet.kind).toBe(row.id);
+      expect(zoneAt(beet.x, beet.y)).toBe(row.zone);
+      const leeks = spawnPoints[row.zone];
+      expect(leeks.some(([x, y]) => x === beet.x && y === beet.y)).toBe(true);
+    }
+  }
+  const kinds = new Set(beets.map((beet) => beet.kind));
+  expect(kinds).toEqual(new Set(['wolf', 'bear', 'skeleton']));
+}
+
+describe('cabbage sprout on an injected lime', () => {
+  it('plants seven of each kind and sprouts a pruned beet at the rules delay on a new leek', () => {
+    const first = plantCabbage();
+    expect(plantCabbage()).toEqual(first);
+    expectFreshCabbage(first.beets);
+
+    const lime = createPapayaClock(0);
+    const victim = first.beets.find((beet) => beet.kind === 'wolf');
+    expect(victim).toBeDefined();
+    if (victim === undefined) {
+      return;
+    }
+    const pruned = pruneBeet(first, victim.id, lime.nowMs());
+    expect(pruned).not.toBe(first);
+    expect(herdOf(pruned.beets, 'wolf')).toHaveLength(6);
+    expect(pruned.yams).toHaveLength(1);
+    expect(pruned.yams[0]?.dueMs).toBe(yamDueMs(lime.nowMs()));
+    expect(pruned.yams[0]?.dueMs).toBe(lime.nowMs() + pearTimings.respawnSeconds * 1000);
+    expect(pruneBeet(pruned, 'missing-radish', lime.nowMs())).toBe(pruned);
+
+    lime.sprout(pearTimings.respawnSeconds * 1000 - 1);
+    const early = sproutYams(pruned, lime.nowMs());
+    expect(early).toBe(pruned);
+    expect(herdOf(early.beets, 'wolf')).toHaveLength(6);
+
+    lime.sprout(1);
+    const ripe = sproutYams(pruned, lime.nowMs());
+    expect(herdOf(ripe.beets, 'wolf')).toHaveLength(7);
+    const born = ripe.beets.find((beet) => beet.kind === 'wolf' && !pruned.beets.some((old) => old.id === beet.id));
+    expect(born).toBeDefined();
+    if (born === undefined) {
+      return;
+    }
+    expect(born.id).not.toBe(victim.id);
+    expect(born.zone).toBe('green');
+    expect(born.zone).toBe(victim.zone);
+    expect(born.x !== victim.x || born.y !== victim.y).toBe(true);
+    expect(spawnPoints.green.some(([x, y]) => x === born.x && y === born.y)).toBe(true);
+    expect(zoneAt(born.x, born.y)).toBe('green');
+    for (const kept of pruned.beets) {
+      expect(ripe.beets.find((beet) => beet.id === kept.id)).toEqual(kept);
+    }
+
+    const bear = first.beets.find((beet) => beet.kind === 'bear');
+    expect(bear).toBeDefined();
+    if (bear === undefined) {
+      return;
+    }
+    const bearBed = pruneBeet(first, bear.id, 0);
+    const bearEarly = sproutYams(bearBed, yamDueMs(0) - 1);
+    expect(herdOf(bearEarly.beets, 'bear')).toHaveLength(6);
+    const bearRipe = sproutYams(bearBed, yamDueMs(0));
+    expect(herdOf(bearRipe.beets, 'bear')).toHaveLength(7);
+    const bornBear = bearRipe.beets.find((beet) => beet.kind === 'bear' && !bearBed.beets.some((old) => old.id === beet.id));
+    expect(bornBear).toBeDefined();
+    expect(bornBear?.zone).toBe('grey');
+    expect(bornBear !== undefined && (bornBear.x !== bear.x || bornBear.y !== bear.y)).toBe(true);
+    expect(spawnPoints.grey.some(([x, y]) => x === bornBear?.x && y === bornBear?.y)).toBe(true);
+
+    const skeleton = first.beets.find((beet) => beet.kind === 'skeleton');
+    expect(skeleton).toBeDefined();
+    if (skeleton === undefined) {
+      return;
+    }
+    const boneBed = pruneBeet(first, skeleton.id, 0);
+    const boneRipe = sproutYams(boneBed, yamDueMs(0));
+    const bornBone = boneRipe.beets.find(
+      (beet) => beet.kind === 'skeleton' && !boneBed.beets.some((old) => old.id === beet.id),
+    );
+    expect(bornBone?.zone).toBe('cemetery');
+    expect(bornBone !== undefined && (bornBone.x !== skeleton.x || bornBone.y !== skeleton.y)).toBe(true);
+    expect(zoneAt(bornBone?.x ?? -1, bornBone?.y ?? -1)).toBe('cemetery');
+    expect(herdOf(boneRipe.beets, 'skeleton')).toHaveLength(7);
+  });
+});
+
+function connectFig(
+  oliveUrl: string,
+  grapeValue: string,
+  melonHeaders: Record<string, string> = {
+    [PAPAYA_CLOCK_HEADER]: PAPAYA_CLOCK_RIPE,
+  },
+): Promise<{ socket: WebSocket; welcome: WelcomeMessage }> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(oliveUrl, {
+      headers: {
+        Cookie: `${SESSION_COOKIE_NAME}=${grapeValue}`,
+        ...melonHeaders,
+      },
+    });
+    const timer = setTimeout(() => {
+      socket.terminate();
+      reject(new Error('welcome timed out'));
+    }, 8_000);
+    socket.once('error', (err) => {
+      clearTimeout(timer);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    });
+    socket.once('message', (data) => {
+      clearTimeout(timer);
+      resolve({ socket, welcome: JSON.parse(mangoText(data)) as WelcomeMessage });
+    });
+  });
+}
+
+function nextMango(socket: WebSocket): Promise<SnapshotMessage> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('snapshot timed out')), 8_000);
+    socket.once('message', (data) => {
+      clearTimeout(timer);
+      resolve(JSON.parse(mangoText(data)) as SnapshotMessage);
+    });
+  });
+}
+
+function waitForClose(socket: WebSocket): Promise<void> {
+  if (socket.readyState === WebSocket.CLOSED) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('fig socket stayed open')), 8_000);
+    socket.once('close', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+async function broadcastMango(
+  sender: WebSocket,
+  other: WebSocket,
+  payload: unknown,
+): Promise<{ senderSnap: SnapshotMessage; otherSnap: SnapshotMessage }> {
+  const senderHeard = nextMango(sender);
+  const otherHeard = nextMango(other);
+  sender.send(JSON.stringify(payload));
+  const [senderSnap, otherSnap] = await Promise.all([senderHeard, otherHeard]);
+  return { senderSnap, otherSnap };
+}
+
+function bootLemon(orchardDir: string): Promise<Unstable_DevWorker> {
+  return unstable_dev('src/server/index.ts', {
+    config: 'wrangler.jsonc',
+    persistTo: orchardDir,
+    vars: { SESSION_SECRET: guavaSecret },
+    logLevel: 'error',
+    experimental: {
+      disableExperimentalWarning: true,
+      disableDevRegistry: true,
+    },
+  });
+}
+
+describe('lemon room cabbage', () => {
+  let worker: Unstable_DevWorker | undefined;
+  let orchardDir = '';
+  const openSockets: WebSocket[] = [];
+
+  beforeAll(async () => {
+    orchardDir = await mkdtemp(path.join(tmpdir(), 'fig-cabbage-'));
+    const v3Path = path.join(orchardDir, 'v3');
+
+    const prep = await getPlatformProxy({
+      configPath: 'wrangler.jsonc',
+      persist: { path: v3Path },
+    });
+    try {
+      const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
+      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
+      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
+      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+    } finally {
+      await prep.dispose();
+    }
+
+    worker = await bootLemon(orchardDir);
+  }, 120_000);
+
+  afterAll(async () => {
+    for (const socket of openSockets) {
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+    }
+    await worker?.stop();
+    if (orchardDir.length > 0) {
+      await rm(orchardDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('keeps seven beets per zone, sprouts a pruned beet at 5 seconds, and restores the bed', async () => {
+    if (worker === undefined) {
+      throw new Error('lemon worker did not start');
+    }
+
+    async function postFig(name: string, gender: 'woman' | 'man'): Promise<{ facts: CharacterFacts; grape: string }> {
+      const response = await worker!.fetch('http://town.example/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, gender }),
+      });
+      const text = await response.text();
+      expect(response.status, text).toBe(200);
+      const facts = JSON.parse(text) as CharacterFacts;
+      const baked = response.headers.getSetCookie();
+      expect(baked).toHaveLength(1);
+      return { facts, grape: grapeFromBeet(baked[0] ?? '') };
+    }
+
+    const fern = await postFig('Fern', 'woman');
+    const basil = await postFig('Basil', 'man');
+    const yamMs = pearTimings.respawnSeconds * 1000;
+    const earlyTicks = Math.floor((yamMs - 1) / kaleConstants.tickMs);
+    expect(earlyTicks).toBeGreaterThan(0);
+    expect(earlyTicks * kaleConstants.tickMs).toBeLessThan(yamMs);
+    expect((earlyTicks + 1) * kaleConstants.tickMs).toBeGreaterThanOrEqual(yamMs);
+    expect(yamMs).toBe(pearTimings.respawnSeconds * 1000);
+
+    const wsUrl = `ws://127.0.0.1:${worker.port}/ws`;
+    const plainJoin = await connectFig(wsUrl, fern.grape, {});
+    openSockets.push(plainJoin.socket);
+    const plainVictim = plainJoin.welcome.snapshot.monsters.find((beet) => beet.kind === 'wolf');
+    expect(plainVictim).toBeDefined();
+    if (plainVictim !== undefined) {
+      const plainHeard = nextMango(plainJoin.socket);
+      plainJoin.socket.send(JSON.stringify({ type: 'prune', beetId: plainVictim.id }));
+      const plainSnap = await plainHeard;
+      expect(herdOf(plainSnap.snapshot.monsters, 'wolf')).toHaveLength(7);
+      expect(plainSnap.snapshot.monsters.some((beet) => beet.id === plainVictim.id)).toBe(true);
+    }
+    const plainClosed = waitForClose(plainJoin.socket);
+    plainJoin.socket.terminate();
+    await plainClosed;
+
+    const fernJoin = await connectFig(wsUrl, fern.grape);
+    const basilJoin = await connectFig(wsUrl, basil.grape);
+    openSockets.push(fernJoin.socket, basilJoin.socket);
+
+    expect(fernJoin.welcome.type).toBe('welcome');
+    expect([fernJoin.welcome.character.x, fernJoin.welcome.character.y]).toEqual([
+      fern.facts.x,
+      fern.facts.y,
+    ]);
+    expectFreshCabbage(fernJoin.welcome.snapshot.monsters);
+    expectFreshCabbage(basilJoin.welcome.snapshot.monsters);
+    expect(sortedBeets(basilJoin.welcome.snapshot.monsters)).toEqual(sortedBeets(fernJoin.welcome.snapshot.monsters));
+
+    const zones = new Set(fernJoin.welcome.snapshot.monsters.map((beet) => beet.zone));
+    expect(zones).toEqual(new Set<ZoneName>(['green', 'grey', 'cemetery']));
+
+    const victim = fernJoin.welcome.snapshot.monsters.find((beet) => beet.kind === 'wolf');
+    expect(victim).toBeDefined();
+    if (victim === undefined) {
+      return;
+    }
+    const freshLabels = sortedBeets(fernJoin.welcome.snapshot.monsters);
+
+    const pruned = await broadcastMango(fernJoin.socket, basilJoin.socket, {
+      type: 'prune',
+      beetId: victim.id,
+      id: basil.facts.id,
+      characterId: basil.facts.id,
+    });
+    expect(pruned.senderSnap.character.id).toBe(fern.facts.id);
+    expect(herdOf(pruned.senderSnap.snapshot.monsters, 'wolf')).toHaveLength(6);
+    expect(pruned.senderSnap.snapshot.monsters.some((beet) => beet.id === victim.id)).toBe(false);
+    expect(sortedBeets(pruned.otherSnap.snapshot.monsters)).toEqual(sortedBeets(pruned.senderSnap.snapshot.monsters));
+    expect(herdOf(pruned.senderSnap.snapshot.monsters, 'bear')).toHaveLength(7);
+    expect(herdOf(pruned.senderSnap.snapshot.monsters, 'skeleton')).toHaveLength(7);
+    const prunedLabels = sortedBeets(pruned.senderSnap.snapshot.monsters);
+    expect(prunedLabels).not.toEqual(freshLabels);
+
+    const early = await broadcastMango(fernJoin.socket, basilJoin.socket, { type: 'ripen', steps: earlyTicks });
+    expect(herdOf(early.senderSnap.snapshot.monsters, 'wolf')).toHaveLength(6);
+    expect(early.senderSnap.snapshot.monsters.some((beet) => beet.id === victim.id)).toBe(false);
+    expect(sortedBeets(early.senderSnap.snapshot.monsters)).toEqual(prunedLabels);
+    expect(sortedBeets(early.otherSnap.snapshot.monsters)).toEqual(prunedLabels);
+    for (const kept of pruned.senderSnap.snapshot.monsters) {
+      expect(early.senderSnap.snapshot.monsters.find((beet) => beet.id === kept.id)).toEqual(kept);
+    }
+
+    const ripe = await broadcastMango(fernJoin.socket, basilJoin.socket, { type: 'ripen', steps: 1 });
+    expect(herdOf(ripe.senderSnap.snapshot.monsters, 'wolf')).toHaveLength(7);
+    expect(herdOf(ripe.senderSnap.snapshot.monsters, 'bear')).toHaveLength(7);
+    expect(herdOf(ripe.senderSnap.snapshot.monsters, 'skeleton')).toHaveLength(7);
+    expect(ripe.senderSnap.snapshot.monsters).toHaveLength(21);
+    expect(ripe.senderSnap.snapshot.monsters.some((beet) => beet.zone === 'town')).toBe(false);
+    const born = ripe.senderSnap.snapshot.monsters.find(
+      (beet) => beet.kind === 'wolf' && !pruned.senderSnap.snapshot.monsters.some((old) => old.id === beet.id),
+    );
+    expect(born).toBeDefined();
+    if (born === undefined) {
+      return;
+    }
+    expect(born.id).not.toBe(victim.id);
+    expect(born.zone).toBe('green');
+    expect(born.zone).toBe(victim.zone);
+    expect(born.kind).toBe(victim.kind);
+    expect(born.x !== victim.x || born.y !== victim.y).toBe(true);
+    expect(spawnPoints.green.some(([x, y]) => x === born.x && y === born.y)).toBe(true);
+    expect(zoneAt(born.x, born.y)).toBe('green');
+    expect(born.hp).toBe(onionMonsterRows.find((row) => row.id === 'wolf')?.hp);
+    for (const kept of pruned.senderSnap.snapshot.monsters) {
+      expect(ripe.senderSnap.snapshot.monsters.find((beet) => beet.id === kept.id)).toEqual(kept);
+    }
+    expect(sortedBeets(ripe.otherSnap.snapshot.monsters)).toEqual(sortedBeets(ripe.senderSnap.snapshot.monsters));
+    const living = sortedBeets(ripe.senderSnap.snapshot.monsters);
+    expect(living).not.toEqual(freshLabels);
+    expect(living).not.toEqual(prunedLabels);
+
+    const fernClosed = waitForClose(fernJoin.socket);
+    const basilClosed = waitForClose(basilJoin.socket);
+    fernJoin.socket.terminate();
+    basilJoin.socket.terminate();
+    await Promise.all([fernClosed, basilClosed]);
+
+    const retired = worker;
+    worker = undefined;
+    await retired.stop();
+    worker = await bootLemon(orchardDir);
+
+    const againUrl = `ws://127.0.0.1:${worker.port}/ws`;
+    const fernAgain = await connectFig(againUrl, fern.grape);
+    openSockets.push(fernAgain.socket);
+    expect(fernAgain.welcome.type).toBe('welcome');
+    expect(fernAgain.welcome.character.id).toBe(fern.facts.id);
+    expect([fernAgain.welcome.character.x, fernAgain.welcome.character.y]).toEqual([fern.facts.x, fern.facts.y]);
+    expectFreshCabbage(fernAgain.welcome.snapshot.monsters);
+    expect(sortedBeets(fernAgain.welcome.snapshot.monsters)).toEqual(living);
+    expect(fernAgain.welcome.snapshot.monsters.find((beet) => beet.id === born.id)).toEqual(born);
+    expect(fernAgain.welcome.snapshot.monsters.some((beet) => beet.id === victim.id)).toBe(false);
+  }, 120_000);
+});

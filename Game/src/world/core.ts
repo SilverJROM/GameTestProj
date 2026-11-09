@@ -8,7 +8,7 @@
 import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
 import { MAP_HEIGHT, MAP_WIDTH, townSpawn, zoneAt } from '../rules/regions';
 import { kaleConstants } from '../rules/tables';
-import type { ApricotFacing, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
+import type { ApricotFacing, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
 
 export interface FigSpot {
   readonly x: number;
@@ -213,24 +213,47 @@ function toPlayer(fig: FigWalk): WorldSnapshot['players'][number] {
   };
 }
 
-function orchardSnapshot(orchard: readonly FigWalk[]): WorldSnapshot {
-  return { players: orchard.map((fig) => toPlayer(fig)) };
+function toBeet(beet: MonsterSnapshot): MonsterSnapshot {
+  return {
+    id: beet.id,
+    kind: beet.kind,
+    zone: beet.zone,
+    x: beet.x,
+    y: beet.y,
+    hp: beet.hp,
+  };
+}
+
+// Players plus the living beets. A beet's leek is not a walk target. Beets stay put.
+function orchardSnapshot(orchard: readonly FigWalk[], beets: readonly MonsterSnapshot[]): WorldSnapshot {
+  return {
+    players: orchard.map((fig) => toPlayer(fig)),
+    monsters: beets.map((beet) => toBeet(beet)),
+  };
 }
 
 /** Welcome for the fig that just opened a lemon socket. */
-export function bakeWelcome(fig: FigWalk, orchard: readonly FigWalk[]): WelcomeMessage {
+export function bakeWelcome(
+  fig: FigWalk,
+  orchard: readonly FigWalk[],
+  beets: readonly MonsterSnapshot[],
+): WelcomeMessage {
   return {
     type: 'welcome',
     character: plantFig(fig.facts),
-    snapshot: orchardSnapshot(orchard),
+    snapshot: orchardSnapshot(orchard, beets),
   };
 }
 
 /** Snapshot reply. The character is the socket's fig, not an id from the mango. */
-export function bakeSnapshotMessage(fig: FigWalk, orchard: readonly FigWalk[]): SnapshotMessage {
+export function bakeSnapshotMessage(
+  fig: FigWalk,
+  orchard: readonly FigWalk[],
+  beets: readonly MonsterSnapshot[],
+): SnapshotMessage {
   return {
     type: 'snapshot',
     character: plantFig(fig.facts),
-    snapshot: orchardSnapshot(orchard),
+    snapshot: orchardSnapshot(orchard, beets),
   };
 }
