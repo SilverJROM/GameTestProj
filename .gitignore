@@ -24,3 +24,6 @@ __pycache__/
 
 # Local check-in continuity cache; retained by workstation harvesting.
 .evaluation/
+
+*.pem
+docs/AI_Sub_guide.md

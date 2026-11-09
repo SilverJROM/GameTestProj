@@ -1,0 +1,119 @@
+import { describe, expect, it } from 'vitest';
+import * as tablesModule from '../../src/rules/tables';
+import * as indexModule from '../../src/rules/index';
+import tablesSource from '../../src/rules/tables.ts?raw';
+import {
+  LEVEL_CAP,
+  mangoGearRows,
+  kaleConstants,
+  onionMonsterRows,
+  papayaLevelRows,
+  pearTimings,
+} from '../../src/rules/tables';
+
+// Expected values are typed out here on purpose. They do not come from tables.ts,
+// so any drift in the tables fails this file.
+
+describe('level table', () => {
+  it('matches the requirements rows', () => {
+    expect(papayaLevelRows).toEqual([
+      { level: 1, baseHp: 24, strike: 4, xpToNext: 10 },
+      { level: 2, baseHp: 32, strike: 5, xpToNext: 15 },
+      { level: 3, baseHp: 40, strike: 6, xpToNext: 20 },
+      { level: 4, baseHp: 52, strike: 8, xpToNext: 30 },
+      { level: 5, baseHp: 64, strike: 10, xpToNext: 40 },
+      { level: 6, baseHp: 80, strike: 12, xpToNext: null },
+    ]);
+  });
+
+  it('has a cap of 6', () => {
+    expect(LEVEL_CAP).toBe(6);
+  });
+
+  it('sums the experience costs from level 1 to level 6 to 115', () => {
+    const costs = papayaLevelRows
+      .map((row) => row.xpToNext)
+      .filter((cost): cost is number => cost !== null);
+    expect(costs).toHaveLength(5);
+    expect(costs.reduce((sum, cost) => sum + cost, 0)).toBe(115);
+  });
+});
+
+describe('gear table', () => {
+  it('matches the forge prices and effects', () => {
+    expect(mangoGearRows).toEqual([
+      { id: 'shortSword', slot: 'sword', effect: 'strike', amount: 2, price: 18 },
+      { id: 'longSword', slot: 'sword', effect: 'strike', amount: 4, price: 40 },
+      { id: 'greatSword', slot: 'sword', effect: 'strike', amount: 7, price: 70 },
+      { id: 'leather', slot: 'armor', effect: 'maxHp', amount: 12, price: 16 },
+      { id: 'chain', slot: 'armor', effect: 'maxHp', amount: 24, price: 36 },
+      { id: 'plate', slot: 'armor', effect: 'maxHp', amount: 40, price: 64 },
+    ]);
+  });
+});
+
+describe('monster table', () => {
+  it('matches the three monsters with seven of each', () => {
+    expect(onionMonsterRows).toEqual([
+      { id: 'wolf', zone: 'green', hp: 20, attack: 5, xp: 2, coins: 4, aggro: 'hit', count: 7 },
+      { id: 'bear', zone: 'grey', hp: 45, attack: 9, xp: 5, coins: 10, aggro: 'hit', count: 7 },
+      {
+        id: 'skeleton',
+        zone: 'cemetery',
+        hp: 72,
+        attack: 12,
+        xp: 10,
+        coins: 18,
+        aggro: 'proximity',
+        count: 7,
+      },
+    ]);
+  });
+
+  it('does not carry a skeleton radius on any monster row', () => {
+    for (const row of onionMonsterRows) {
+      expect(Object.keys(row)).not.toContain('radius');
+    }
+  });
+});
+
+describe('timing and frozen constants', () => {
+  it('matches the timing values in seconds', () => {
+    expect(pearTimings).toEqual({
+      playerAttackGapSeconds: 0.45,
+      monsterSwingSeconds: 2,
+      respawnSeconds: 5,
+      coinPickupSeconds: 4,
+    });
+  });
+
+  it('matches the tick, walk speed, chase speed, and melee reach', () => {
+    expect(kaleConstants).toEqual({
+      tickMs: 100,
+      walkSpeedPxPerSec: 120,
+      monsterChaseSpeedPxPerSec: 90,
+      meleeReachPx: 48,
+    });
+  });
+});
+
+describe('module shape', () => {
+  it('exports no skeleton radius', () => {
+    for (const name of Object.keys(tablesModule)) {
+      expect(name.toLowerCase()).not.toContain('radius');
+    }
+  });
+
+  it('has no imports', () => {
+    expect(tablesSource).not.toMatch(/^\s*import\b/m);
+    expect(tablesSource).not.toMatch(/\brequire\s*\(/);
+    expect(tablesSource).not.toMatch(/\bfrom\s+['"]/);
+  });
+
+  it('index re-exports every table export', () => {
+    const exported = Object.keys(indexModule);
+    for (const name of Object.keys(tablesModule)) {
+      expect(exported).toContain(name);
+    }
+  });
+});

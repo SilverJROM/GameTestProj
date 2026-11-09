@@ -1,0 +1,32 @@
+{
+  // One Worker: static assets, one D1 database, and one Durable Object (WorldRoom).
+  // The database_id is a local placeholder; set the real id from `wrangler d1 create` before deploying.
+  "name": "game",
+  "main": "src/server/index.ts",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./assets",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "game-db",
+      "database_id": "local-placeholder-game-db",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "WorldRoom",
+        "class_name": "WorldRoom",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["WorldRoom"],
+    },
+  ],
+}
