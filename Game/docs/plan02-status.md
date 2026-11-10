@@ -2,7 +2,7 @@
 
 Recovery file. If the session closes (out of memory, suspend, crash), read this first, then `docs/plan02.md` for the full plan. Update this file after every slice event: started, passed, failed.
 
-Last updated: 2026-11-10 05:40 UTC
+Last updated: 2026-11-10 06:05 UTC
 
 ## Where things stand
 
@@ -11,7 +11,7 @@ Last updated: 2026-11-10 05:40 UTC
 | Working branch | `update-02` (cut from `main` at `c30f690`) |
 | Old branch | `candidate-work` deleted on 2026-11-10 (it was fully merged, was at `ab9db1f`) |
 | Base commit for this update | `c30f690` "Add walk frames, ground map, overlays, approved mockups, and plan 02." |
-| Overall | 57% (slices 0 to 7 done, 8 of 14) |
+| Overall | 64% (slices 0 to 8 done, 9 of 14) |
 | Pushing / deploying | Not allowed. Push is disabled. No Cloudflare deploy in this plan. |
 
 ## Topology
@@ -33,9 +33,9 @@ Status values: `done`, `in progress`, `pending`, `waiting for user`, `blocked`.
 | 3 | One coin per kill with a value, pickup 2.25 s, gold "+N" | **done** | `793c547` | One seed per kill (value 4/10/18), `stepPickups` credits the whole value, client floats gold "+N" for your own coin. 314 tests pass. Checked in Chrome: wolf kill gave 1 coin, purse 0 to 4 in about 2.1 s; bear 0 to 10 in about 2.0 s; EXP also rose (2 and 5); the pet is back beside the owner afterwards. |
 | 4 | Failing test first: open Bag, kill a wolf, numbers must change | **done (merged into slice 5)** | `f3e5b31` | Written first by Grok and confirmed failing (Bag stayed at `Experience 0 / 10` after XP 2) so no red commit exists. |
 | 5 | Live Bag and Blacksmith panels, Close buttons, HUD | **done** | `f3e5b31` | Open panels follow every snapshot; Close button, Escape, and Bag toggle; HUD `Lv / XP / Coins` under the health bar. 319 tests pass. Checked in Chrome: bag open during a kill went `Experience 0/10` to `2/10`, coins `0` to `4` without reopening; Close and Escape work. Known cosmetic: the zoom slider overlaps the open Bag panel (fixed when the panels are rebuilt as centered panels in slices 11 and 12). Buying still closes the shop (to change in slice 11). |
-| 6 | Migration 0002 (accounts, wipe old data), password hashing, account routes; **merged with slice 7** (avatar routes, delete, play) | **done** | see git log | 336 tests pass. Checked against a running server: create/sign in/out, duplicate username (any case) 409, 2-avatar cap holds under 3 quick adds, name taken 409, other account's avatar 404 on play and delete, account cookie rejected as a character cookie, deleting a connected avatar closes its socket (4000), generic sign-in failure (266 ms either way), old `/api/login` 404. PBKDF2 10,000 iterations (about 17-37 ms locally). Known gap, fix in slice 8: coin seeds a deleted avatar left on the ground are never collected (only connected owners dig). |
-| 7 | Avatar routes: add, delete, play, 2 per account | **done (merged into slice 6)** | see git log | |
-| 8 | Sign-in, avatar list, add and delete screens | pending | - | |
+| 6 | Migration 0002 (accounts, wipe old data), password hashing, account routes; **merged with slice 7** (avatar routes, delete, play) | **done** | `51c46f1` | 336 tests pass. Checked against a running server: create/sign in/out, duplicate username (any case) 409, 2-avatar cap holds under 3 quick adds, name taken 409, other account's avatar 404 on play and delete, account cookie rejected as a character cookie, deleting a connected avatar closes its socket (4000), generic sign-in failure (266 ms either way), old `/api/login` 404. PBKDF2 10,000 iterations (about 17-37 ms locally). Known gap, fix in slice 8: coin seeds a deleted avatar left on the ground are never collected (only connected owners dig). |
+| 7 | Avatar routes: add, delete, play, 2 per account | **done (merged into slice 6)** | `51c46f1` | |
+| 8 | Sign-in, avatar list, add and delete screens (+ clear a deleted avatar's ground coins) | **done** | see git log | 344 tests pass. Checked in Chrome: wrong sign-in shows the generic message and clears the password box; create account; add Ayla (blank name refused); Man switches the preview; two slots filled and no Add button at 2; Delete needs a second click and reverts after 4 s; reload keeps you signed in and shows the avatars; Play enters the game with the zoom slider. Deleted avatar's ground coins are cleared. `docs/plan02-tools/investigate.mjs` still uses the old login (throwaway). |
 | 9 | New mockup section for the item row and drag, plus approval picture | pending | - | **Stops for your approval of the picture before slice 12.** |
 | 10 | Item bag data: `character_items`, buy-to-bag, equip, unequip | pending | - | |
 | 11 | Blacksmith panel from the mockup, with "Owned" | pending | - | |

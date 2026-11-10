@@ -14,7 +14,7 @@ import {
   type WelcomeMessage,
 } from '../../src/protocol';
 import { kaleConstants, onionMonsterRows, pearTimings } from '../../src/rules/tables';
-import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
+import { ACCOUNT_COOKIE_NAME, SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import { plantCabbage } from '../../src/world/monsters';
 import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
@@ -139,7 +139,13 @@ describe('axolotl coin pickup', () => {
     await saveFacts(kiwiDb, facts.id, patch);
     const joined = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, grape);
     openSockets.push(joined.socket);
-    return { id: facts.id, grape, socket: joined.socket, welcome: joined.welcome };
+    return {
+      id: facts.id,
+      grape,
+      accountValue: planted.accountValue,
+      socket: joined.socket,
+      welcome: joined.welcome,
+    };
   }
 
   async function ask(socket: WebSocket, payload: unknown): Promise<SnapshotMessage> {
@@ -252,5 +258,40 @@ describe('axolotl coin pickup', () => {
     expect(await coinsOf(owner.id)).toBe(wolfRow.coins);
     expect(seedsOf(snap, owner.id)).toHaveLength(0);
     expect(await coinsOf(waiter.id)).toBe(0);
+  }, 120_000);
+
+  it('peels a deleted fig\'s coin seeds off the cabbage and leaves the other fig\'s seed', async () => {
+    const scout = await joinFig('Celery', { ...strong, x: 400, y: 400 });
+    const live = scout.welcome.snapshot.monsters.filter((row) => row.kind === 'wolf');
+    expect(live.length).toBeGreaterThanOrEqual(2);
+    const watcherWolf = live[0]!;
+    const ownerWolf = live[1]!;
+    const watcher = await joinFig('Cress', { ...strong, x: watcherWolf.x, y: watcherWolf.y });
+    const owner = await joinFig('Chard', { ...strong, x: ownerWolf.x, y: ownerWolf.y });
+
+    await fellWolf(watcher.socket, watcherWolf.id);
+    const dropped = await fellWolf(owner.socket, ownerWolf.id);
+    expect(seedsOf(dropped, owner.id)).toHaveLength(1);
+    expect(seedsOf(dropped, owner.id)[0]!.value).toBe(wolfRow.coins);
+    expect(seedsOf(dropped, watcher.id)).toHaveLength(1);
+
+    // The owner leaves before the pet can dig, which is the seed a disconnect used to abandon.
+    const closed = new Promise<void>((resolve) => owner.socket.once('close', () => resolve()));
+    owner.socket.close();
+    await closed;
+
+    const heard = nextMango(watcher.socket);
+    const deleted = await worker!.fetch(`http://town.example/api/avatars/${encodeURIComponent(owner.id)}`, {
+      method: 'DELETE',
+      headers: { Cookie: `${ACCOUNT_COOKIE_NAME}=${owner.accountValue}` },
+    });
+    expect(deleted.status).toBe(200);
+    const snap = await heard;
+    expect(seedsOf(snap, owner.id)).toHaveLength(0);
+    expect(seedsOf(snap, watcher.id)).toHaveLength(1);
+    expect(seedsOf(snap, watcher.id)[0]!.value).toBe(wolfRow.coins);
+    expect(await coinsOf(watcher.id)).toBe(0);
+    expect(await getById(kiwiDb, owner.id)).toBeNull();
+    expect(snap.snapshot.players.some((player) => player.id === owner.id)).toBe(false);
   }, 120_000);
 });

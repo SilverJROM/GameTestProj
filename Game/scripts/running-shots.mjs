@@ -185,24 +185,31 @@ async function main() {
   const state = watchWorld(page);
   try {
     await page.goto(base, { waitUntil: 'domcontentloaded' });
+    const figUser = `lina${Date.now().toString(36)}`.slice(0, 20);
+    const figPass = 'pear-grove-8';
+    await page.locator('#kiwi-user').fill(figUser);
+    await page.locator('#kiwi-pass').fill(figPass);
+    await page.locator('#kiwi-create').click();
+    await page.waitForSelector('#fig-roster:not([hidden])');
+    await page.locator('#fig-add-0').click();
+    await page.waitForSelector('#fig-plant:not([hidden])');
     await page.waitForFunction(() => {
       const img = document.querySelector('#lime-preview');
       return img instanceof HTMLImageElement && img.src.length > 0;
     });
-    await shot(page, 'woman-select', page.locator('#apple-login'));
+    await shot(page, 'woman-select', page.locator('#fig-plant'));
 
     const manPicture = page.waitForResponse((reply) => reply.url().includes('/avatars/warrior-m/stand.png'));
     await page.locator('#lime-man').check();
     await manPicture;
     await page.waitForTimeout(200);
-    await shot(page, 'man-select', page.locator('#apple-login'));
+    await shot(page, 'man-select', page.locator('#fig-plant'));
 
     await page.locator('#lime-woman').check();
-    // Slice 6 removed POST /api/login. This script still drives the old login screen.
-    // Slice 8 rebuilds that screen around accounts and avatars. Until then, submitting
-    // the form cannot enter the world.
     await page.locator('#kiwi-name').fill('Lina');
-    await page.locator('#apple-form button[type="submit"]').click();
+    await page.locator('#fig-create').click();
+    await page.waitForSelector('#fig-roster:not([hidden])');
+    await page.locator('#fig-play-0').click();
     await page.waitForSelector('#papaya-canvas:not([hidden])');
     await waitFor(page, state, () => selfOf(state) !== null, 'welcome snapshot');
     await page.waitForTimeout(600);

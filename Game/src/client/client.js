@@ -1,24 +1,32 @@
-// First screen for the game: a woman or man choice and a name box. The form posts
-// /api/login and shows the server's refusal. On success it calls /api/me and reveals the
-// papaya canvas, which draws the world map picture from the assets directory.
+// Account screens: a gate, a two-slot fig roster, and a plant form.
+// The gate posts /api/signin or /api/account. The roster lists /api/avatars.
+// Play posts /api/play, then /api/me, and reveals the papaya canvas.
 // Plain script, no framework. The functions take the document and fetch as arguments so a test can drive them.
+// A password is only placed in the JSON body of a sign-in or account post. It is never written
+// into the page, a URL, or a log line, and the field is cleared before that request is sent.
 
 import { sproutAfterLogin } from './main.ts';
 import { removeMagenta } from './sprites.ts';
 
-const appleLoginPath = '/api/login';
 const cherryMePath = '/api/me';
 const melonMapPath = '/maps/world-map-wide.jpg';
 const figStandWoman = '/avatars/warrior-f/stand.png';
 const figStandMan = '/avatars/warrior-m/stand.png';
+const figSlotCount = 2;
+
+// How long the delete button stays armed. A second click inside this window pulls the fig.
+export const figDeleteWindowMs = 4000;
+
+// Armed delete buttons. The timer reverts the label when the window passes.
+const figDeleteArms = new WeakMap();
 
 // Woman is the default radio, so a gender is always sent.
 function pickedGender(peachDoc) {
   return peachDoc.getElementById('lime-man').checked ? 'man' : 'woman';
 }
 
-function standSrc(peachDoc) {
-  return pickedGender(peachDoc) === 'man' ? figStandMan : figStandWoman;
+function standSrcFor(gender) {
+  return gender === 'man' ? figStandMan : figStandWoman;
 }
 
 // Peels the magenta field off a loaded stand still. Returns null when this document cannot paint.
@@ -43,10 +51,9 @@ function peelStand(peachDoc, picture) {
   return canvas;
 }
 
-// Points the login portrait at the chosen stand still, then peels magenta once that still loads.
-function showLime(peachDoc) {
-  const lime = peachDoc.getElementById('lime-preview');
-  const src = standSrc(peachDoc);
+// Points one portrait at a stand still, then peels magenta once that still loads.
+function showStand(peachDoc, lime, gender) {
+  const src = standSrcFor(gender);
   lime.stand = src;
   lime.src = src;
   const ImageCtor = peachDoc.defaultView?.Image;
@@ -64,8 +71,13 @@ function showLime(peachDoc) {
   picture.src = src;
 }
 
-// The server's refusal arrives as JSON with an error string. Anything else gets a plain fallback.
-async function refusalText(pearResponse) {
+// The plant screen's portrait follows the woman/man radios.
+function showLime(peachDoc) {
+  showStand(peachDoc, peachDoc.getElementById('lime-preview'), pickedGender(peachDoc));
+}
+
+// The server's refusal arrives as JSON with an error string. Anything else gets the fallback.
+async function melonError(pearResponse, fallback) {
   try {
     const kiwiBody = await pearResponse.json();
     if (kiwiBody && typeof kiwiBody.error === 'string') {
@@ -74,7 +86,21 @@ async function refusalText(pearResponse) {
   } catch {
     // A body that is not JSON falls through to the fallback text.
   }
-  return 'Sign in failed.';
+  return fallback;
+}
+
+async function readJson(pearResponse) {
+  try {
+    return await pearResponse.json();
+  } catch {
+    return null;
+  }
+}
+
+function showScreen(peachDoc, which) {
+  peachDoc.getElementById('apple-login').hidden = which !== 'gate';
+  peachDoc.getElementById('fig-roster').hidden = which !== 'roster';
+  peachDoc.getElementById('fig-plant').hidden = which !== 'plant';
 }
 
 // Draws the map picture onto the canvas when the browser supports it. Test doubles skip this.
@@ -93,10 +119,10 @@ function drawMapPicture(peachDoc, papayaCanvas) {
   orangePicture.src = melonMapPath;
 }
 
-// Hides the peach login section and shows the papaya canvas with the map.
+// Hides the account screens and shows the papaya canvas with the map.
 // The kiwi zoom rail comes up with the canvas. It stays hidden until then.
 function revealMap(peachDoc) {
-  peachDoc.getElementById('apple-login').hidden = true;
+  showScreen(peachDoc, 'map');
   const papayaCanvas = peachDoc.getElementById('papaya-canvas');
   papayaCanvas.hidden = false;
   const kiwiZoom = peachDoc.getElementById('kiwi-zoom');
@@ -104,36 +130,193 @@ function revealMap(peachDoc) {
   drawMapPicture(peachDoc, papayaCanvas);
 }
 
-// One sign-in attempt. Returns true when the map is revealed, false when a refusal is shown.
-export async function submitLogin(peachDoc, fetchFn) {
-  const pearRefusal = peachDoc.getElementById('pear-refusal');
-  const kiwiName = peachDoc.getElementById('kiwi-name');
-  pearRefusal.textContent = '';
+function clearDeleteArm(button) {
+  const armed = figDeleteArms.get(button);
+  if (armed === undefined) return;
+  clearTimeout(armed.timer);
+  figDeleteArms.delete(button);
+}
 
-  const loginResponse = await fetchFn(appleLoginPath, {
+function paintRoster(peachDoc, avatars) {
+  const rows = Array.isArray(avatars) ? avatars.slice(0, figSlotCount) : [];
+  for (let index = 0; index < figSlotCount; index += 1) {
+    const fig = rows[index];
+    const filled = peachDoc.getElementById(`fig-filled-${index}`);
+    const empty = peachDoc.getElementById(`fig-empty-${index}`);
+    const play = peachDoc.getElementById(`fig-play-${index}`);
+    const del = peachDoc.getElementById(`fig-delete-${index}`);
+    clearDeleteArm(del);
+    del.textContent = 'Delete';
+    if (fig === undefined || fig === null || typeof fig.id !== 'string' || fig.id.length === 0) {
+      filled.hidden = true;
+      empty.hidden = false;
+      play.figId = '';
+      del.figId = '';
+      peachDoc.getElementById(`fig-name-${index}`).textContent = '';
+      peachDoc.getElementById(`fig-level-${index}`).textContent = '';
+      continue;
+    }
+    filled.hidden = false;
+    empty.hidden = true;
+    peachDoc.getElementById(`fig-name-${index}`).textContent = typeof fig.name === 'string' ? fig.name : '';
+    const level = typeof fig.level === 'number' && Number.isFinite(fig.level) ? fig.level : 1;
+    peachDoc.getElementById(`fig-level-${index}`).textContent = `Level ${level}`;
+    play.figId = fig.id;
+    del.figId = fig.id;
+    showStand(peachDoc, peachDoc.getElementById(`fig-preview-${index}`), fig.gender === 'man' ? 'man' : 'woman');
+  }
+}
+
+// Reads the gate fields and clears the password before any request is built.
+// The returned password is for the JSON body only.
+function readGate(peachDoc) {
+  const kiwiUser = peachDoc.getElementById('kiwi-user');
+  const kiwiPass = peachDoc.getElementById('kiwi-pass');
+  const username = kiwiUser.value;
+  const password = kiwiPass.value;
+  kiwiPass.value = '';
+  return { username, password };
+}
+
+function postJson(fetchFn, path, body) {
+  const mango = JSON.stringify(body);
+  // Drop the password off the object once the body string exists. The string is the request only.
+  if (typeof body.password === 'string') body.password = '';
+  return fetchFn(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
-    body: JSON.stringify({ name: kiwiName.value, gender: pickedGender(peachDoc) }),
+    body: mango,
   });
-  if (!loginResponse.ok) {
-    pearRefusal.textContent = await refusalText(loginResponse);
+}
+
+function screenError(peachDoc) {
+  const plant = peachDoc.getElementById('fig-plant');
+  if (plant !== null && plant.hidden === false) return peachDoc.getElementById('fig-plant-error');
+  const roster = peachDoc.getElementById('fig-roster');
+  if (roster !== null && roster.hidden === false) return peachDoc.getElementById('fig-roster-error');
+  return peachDoc.getElementById('pear-refusal');
+}
+
+async function refreshRoster(peachDoc, fetchFn) {
+  const response = await fetchFn('/api/avatars', { credentials: 'same-origin' });
+  if (!response.ok) {
+    showScreen(peachDoc, 'gate');
+    peachDoc.getElementById('pear-refusal').textContent = await melonError(response, 'Could not load your avatars.');
     return false;
   }
+  paintRoster(peachDoc, await readJson(response));
+  peachDoc.getElementById('fig-roster-error').textContent = '';
+  showScreen(peachDoc, 'roster');
+  return true;
+}
 
+// On load, a 200 from the avatar list skips the gate. A refusal shows the gate.
+export async function resumeFigs(peachDoc, fetchFn) {
+  const response = await fetchFn('/api/avatars', { credentials: 'same-origin' });
+  if (!response.ok) {
+    showScreen(peachDoc, 'gate');
+    return false;
+  }
+  paintRoster(peachDoc, await readJson(response));
+  peachDoc.getElementById('fig-roster-error').textContent = '';
+  showScreen(peachDoc, 'roster');
+  return true;
+}
+
+async function postGate(peachDoc, fetchFn, path, fallback) {
+  const pearRefusal = peachDoc.getElementById('pear-refusal');
+  const gate = readGate(peachDoc);
+  pearRefusal.textContent = '';
+  const response = await postJson(fetchFn, path, { username: gate.username, password: gate.password });
+  if (!response.ok) {
+    pearRefusal.textContent = await melonError(response, fallback);
+    return false;
+  }
+  await readJson(response);
+  return refreshRoster(peachDoc, fetchFn);
+}
+
+// One sign-in attempt. Returns true when the roster is shown.
+export async function submitSignIn(peachDoc, fetchFn) {
+  return postGate(peachDoc, fetchFn, '/api/signin', 'Sign in failed.');
+}
+
+// Creates an account, then shows the roster (empty until an avatar is planted).
+export async function submitCreateAccount(peachDoc, fetchFn) {
+  return postGate(peachDoc, fetchFn, '/api/account', 'Could not create the account.');
+}
+
+function openPlant(peachDoc) {
+  peachDoc.getElementById('lime-woman').checked = true;
+  peachDoc.getElementById('lime-man').checked = false;
+  peachDoc.getElementById('kiwi-name').value = '';
+  peachDoc.getElementById('fig-plant-error').textContent = '';
+  showScreen(peachDoc, 'plant');
+  showLime(peachDoc);
+}
+
+// Plants one fig. A refused name stays on this screen and shows the server's message.
+export async function submitPlant(peachDoc, fetchFn) {
+  const figError = peachDoc.getElementById('fig-plant-error');
+  const name = peachDoc.getElementById('kiwi-name').value;
+  const gender = pickedGender(peachDoc);
+  figError.textContent = '';
+  const response = await postJson(fetchFn, '/api/avatars', { name, gender });
+  if (!response.ok) {
+    figError.textContent = await melonError(response, 'Could not add the avatar.');
+    return false;
+  }
+  await readJson(response);
+  return refreshRoster(peachDoc, fetchFn);
+}
+
+// The first click arms the button. A second click inside the window deletes and refreshes the list.
+export async function confirmDelete(peachDoc, fetchFn, button, figId) {
+  const armed = figDeleteArms.get(button);
+  if (armed === undefined || armed.figId !== figId) {
+    if (armed !== undefined) clearDeleteArm(button);
+    const timer = setTimeout(() => {
+      const current = figDeleteArms.get(button);
+      if (current === undefined || current.timer !== timer) return;
+      figDeleteArms.delete(button);
+      button.textContent = 'Delete';
+    }, figDeleteWindowMs);
+    figDeleteArms.set(button, { timer, figId });
+    button.textContent = 'Click again to delete';
+    return false;
+  }
+  clearTimeout(armed.timer);
+  figDeleteArms.delete(button);
+  button.textContent = 'Delete';
+  const response = await fetchFn(`/api/avatars/${encodeURIComponent(figId)}`, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+  });
+  if (!response.ok) {
+    peachDoc.getElementById('fig-roster-error').textContent = await melonError(response, 'Could not delete that avatar.');
+    return false;
+  }
+  await readJson(response);
+  return refreshRoster(peachDoc, fetchFn);
+}
+
+// Posts /api/play, then the existing /api/me path, and sprouts the map.
+export async function playFig(peachDoc, fetchFn, figId) {
+  const rosterError = peachDoc.getElementById('fig-roster-error');
+  rosterError.textContent = '';
+  const playResponse = await postJson(fetchFn, '/api/play', { id: figId });
+  if (!playResponse.ok) {
+    rosterError.textContent = await melonError(playResponse, 'Could not enter the town.');
+    return false;
+  }
+  await readJson(playResponse);
   const meResponse = await fetchFn(cherryMePath, { credentials: 'same-origin' });
   if (!meResponse.ok) {
-    pearRefusal.textContent = 'Could not load your character.';
+    rosterError.textContent = await melonError(meResponse, 'Could not load your character.');
     return false;
   }
-
-  let figFacts = null;
-  try {
-    figFacts = await meResponse.json();
-  } catch {
-    figFacts = null;
-  }
-
+  const figFacts = await readJson(meResponse);
   revealMap(peachDoc);
   try {
     sproutAfterLogin(peachDoc, figFacts);
@@ -143,22 +326,80 @@ export async function submitLogin(peachDoc, fetchFn) {
   return true;
 }
 
-// Connects the form's submit event. A network failure shows a short note instead of an unhandled error.
-export function wireLogin(peachDoc, fetchFn) {
-  const appleForm = peachDoc.getElementById('apple-form');
-  appleForm.addEventListener('submit', (event) => {
+// Clears both cookies and returns to the gate.
+export async function signOutFig(peachDoc, fetchFn) {
+  peachDoc.getElementById('kiwi-pass').value = '';
+  const response = await fetchFn('/api/signout', { method: 'POST', credentials: 'same-origin' });
+  if (!response.ok) {
+    peachDoc.getElementById('fig-roster-error').textContent = await melonError(response, 'Could not sign out.');
+    return false;
+  }
+  await readJson(response);
+  peachDoc.getElementById('kiwi-user').value = '';
+  peachDoc.getElementById('pear-refusal').textContent = '';
+  showScreen(peachDoc, 'gate');
+  return true;
+}
+
+function onClick(peachDoc, fetchFn, id, run) {
+  peachDoc.getElementById(id).addEventListener('click', (event) => {
     event.preventDefault();
-    submitLogin(peachDoc, fetchFn).catch(() => {
-      peachDoc.getElementById('pear-refusal').textContent = 'Could not reach the server.';
+    run().catch(() => {
+      const line = screenError(peachDoc);
+      if (line !== null) line.textContent = 'Could not reach the server.';
     });
   });
+}
+
+// Connects every screen. A returning player with a live cookie resumes on the roster.
+export function wireScreens(peachDoc, fetchFn) {
+  onClick(peachDoc, fetchFn, 'kiwi-signin', () => submitSignIn(peachDoc, fetchFn));
+  onClick(peachDoc, fetchFn, 'kiwi-create', () => submitCreateAccount(peachDoc, fetchFn));
+  onClick(peachDoc, fetchFn, 'fig-create', () => submitPlant(peachDoc, fetchFn));
+  onClick(peachDoc, fetchFn, 'fig-back', () => refreshRoster(peachDoc, fetchFn));
+  onClick(peachDoc, fetchFn, 'fig-signout', () => signOutFig(peachDoc, fetchFn));
+  for (let index = 0; index < figSlotCount; index += 1) {
+    onClick(peachDoc, fetchFn, `fig-add-${index}`, () => {
+      openPlant(peachDoc);
+      return Promise.resolve();
+    });
+    onClick(peachDoc, fetchFn, `fig-play-${index}`, () => {
+      const figId = peachDoc.getElementById(`fig-play-${index}`).figId;
+      if (typeof figId !== 'string' || figId.length === 0) return Promise.resolve(false);
+      return playFig(peachDoc, fetchFn, figId);
+    });
+    onClick(peachDoc, fetchFn, `fig-delete-${index}`, () => {
+      const button = peachDoc.getElementById(`fig-delete-${index}`);
+      const figId = button.figId;
+      if (typeof figId !== 'string' || figId.length === 0) return Promise.resolve(false);
+      return confirmDelete(peachDoc, fetchFn, button, figId);
+    });
+  }
   const onPick = () => showLime(peachDoc);
   peachDoc.getElementById('lime-woman').addEventListener('change', onPick);
   peachDoc.getElementById('lime-man').addEventListener('change', onPick);
+  peachDoc.getElementById('apple-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    submitSignIn(peachDoc, fetchFn).catch(() => {
+      peachDoc.getElementById('pear-refusal').textContent = 'Could not reach the server.';
+    });
+  });
+  peachDoc.getElementById('fig-plant-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    submitPlant(peachDoc, fetchFn).catch(() => {
+      peachDoc.getElementById('fig-plant-error').textContent = 'Could not reach the server.';
+    });
+  });
   showLime(peachDoc);
+  // Hold the gate closed until the cookie check answers, so a returning fig skips screen 1.
+  peachDoc.getElementById('apple-login').hidden = true;
+  return resumeFigs(peachDoc, fetchFn).catch(() => {
+    showScreen(peachDoc, 'gate');
+    peachDoc.getElementById('pear-refusal').textContent = 'Could not reach the server.';
+  });
 }
 
 // Browser start-up. Guarded so importing this file in a test does not touch a document.
 if (typeof document !== 'undefined' && document.getElementById('apple-form')) {
-  wireLogin(document, (input, init) => window.fetch(input, init));
+  wireScreens(document, (input, init) => window.fetch(input, init));
 }

@@ -6,8 +6,70 @@
     <title>Town Game</title>
     <style>
       body { margin: 0; background: #1b1a17; color: #f4ead7; font-family: Georgia, serif; }
-      #apple-login { max-width: 28rem; margin: 2rem auto; padding: 1rem 1.25rem; }
-      #lime-preview { display: block; height: 240px; width: auto; margin: 0.75rem 0; background: transparent; }
+      #apple-login, #fig-roster, #fig-plant {
+        max-width: 40rem;
+        margin: 2rem auto;
+        padding: 1.25rem 1.5rem 1.5rem;
+      }
+      #apple-login h1, #fig-roster h1, #fig-plant h1 {
+        margin: 0 0 0.75rem;
+        font-size: 1.7rem;
+        font-weight: normal;
+      }
+      #apple-login label, #fig-plant label { display: block; margin: 0.55rem 0; }
+      #kiwi-user, #kiwi-pass, #kiwi-name {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        margin-top: 0.3rem;
+        padding: 0.45rem 0.55rem;
+        background: #2a261f;
+        color: #f4ead7;
+        border: 1px solid #6b5344;
+        font: inherit;
+      }
+      #apple-login .fig-actions, #fig-plant .fig-actions, .fig-filled .fig-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.85rem;
+      }
+      #apple-login button, #fig-roster button, #fig-plant button {
+        background: #c4552a;
+        color: #f4ead7;
+        border: 1px solid #8a3a1c;
+        padding: 0.4rem 0.85rem;
+        font: inherit;
+        cursor: pointer;
+      }
+      #fig-slots { display: flex; gap: 1rem; flex-wrap: wrap; }
+      .fig-slot {
+        flex: 1 1 14rem;
+        background: #24211c;
+        border: 1px solid #6b5344;
+        padding: 0.75rem;
+      }
+      .fig-name { margin: 0; font-size: 1.25rem; }
+      .fig-level { margin: 0.2rem 0 0; color: #e0b15a; }
+      #lime-preview, .fig-preview {
+        display: block;
+        height: 240px;
+        width: auto;
+        margin: 0.75rem 0;
+        background: transparent;
+      }
+      .fig-slot .fig-preview { height: 160px; }
+      #fig-plant fieldset { border: 1px solid #6b5344; margin: 0 0 0.5rem; }
+      #fig-signout { color: #e0b15a; }
+      .fig-signout-row { margin: 1rem 0 0; }
+      #pear-note { color: #cbbba0; margin: 0.9rem 0 0; }
+      #pear-refusal, #fig-plant-error, #fig-roster-error {
+        color: #e07a5f;
+        min-height: 1.25em;
+        margin: 0.6rem 0 0;
+      }
+      #apple-login[hidden], #fig-roster[hidden], #fig-plant[hidden],
+      .fig-filled[hidden], .fig-empty[hidden] { display: none !important; }
       /* The melon stage hugs the papaya picture, so the kiwi rail stays on its right edge when CSS scales the canvas. */
       #melon-stage { position: relative; width: 100%; }
       #papaya-canvas { display: block; width: 100%; height: auto; background: #000; }
@@ -53,9 +115,60 @@
     </style>
   </head>
   <body>
-    <!-- The peach section is the first screen: a woman or man choice and a name box. -->
+    <!-- Gate: username and password. The password field is cleared after every submit. -->
     <section id="apple-login">
-      <form id="apple-form">
+      <h1>Sign in / Create account</h1>
+      <form id="apple-form" method="post" action="">
+        <label>Username <input type="text" id="kiwi-user" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
+        <label>Password <input type="password" id="kiwi-pass" name="password" autocomplete="current-password" /></label>
+        <div class="fig-actions">
+          <button type="button" id="kiwi-signin">Sign in</button>
+          <button type="button" id="kiwi-create">Create account</button>
+        </div>
+        <p id="pear-refusal" role="alert"></p>
+        <p id="pear-note">No email is needed. A forgotten password cannot be recovered.</p>
+      </form>
+    </section>
+    <!-- Two fig slots. A filled slot plays or deletes; an empty slot opens the plant screen. -->
+    <section id="fig-roster" hidden>
+      <h1>Your avatars</h1>
+      <div id="fig-slots">
+        <div class="fig-slot" id="fig-slot-0">
+          <div class="fig-filled" id="fig-filled-0" hidden>
+            <p class="fig-name" id="fig-name-0"></p>
+            <p class="fig-level" id="fig-level-0"></p>
+            <img class="fig-preview" id="fig-preview-0" alt="" />
+            <div class="fig-actions">
+              <button type="button" id="fig-play-0">Play</button>
+              <button type="button" id="fig-delete-0">Delete</button>
+            </div>
+          </div>
+          <div class="fig-empty" id="fig-empty-0">
+            <button type="button" id="fig-add-0">Add avatar</button>
+          </div>
+        </div>
+        <div class="fig-slot" id="fig-slot-1">
+          <div class="fig-filled" id="fig-filled-1" hidden>
+            <p class="fig-name" id="fig-name-1"></p>
+            <p class="fig-level" id="fig-level-1"></p>
+            <img class="fig-preview" id="fig-preview-1" alt="" />
+            <div class="fig-actions">
+              <button type="button" id="fig-play-1">Play</button>
+              <button type="button" id="fig-delete-1">Delete</button>
+            </div>
+          </div>
+          <div class="fig-empty" id="fig-empty-1">
+            <button type="button" id="fig-add-1">Add avatar</button>
+          </div>
+        </div>
+      </div>
+      <p id="fig-roster-error" role="alert"></p>
+      <p class="fig-signout-row"><a href="#signout" id="fig-signout">Sign out</a></p>
+    </section>
+    <!-- Plant one fig: woman or man, a stand-still preview, and a name. -->
+    <section id="fig-plant" hidden>
+      <h1>Add avatar</h1>
+      <form id="fig-plant-form" method="post" action="">
         <fieldset>
           <legend>Character</legend>
           <label><input type="radio" id="lime-woman" name="gender" value="woman" checked /> Woman</label>
@@ -63,8 +176,11 @@
         </fieldset>
         <img id="lime-preview" alt="" />
         <label>Name <input type="text" id="kiwi-name" name="name" autocomplete="off" /></label>
-        <button type="submit">Enter the town</button>
-        <p id="pear-refusal" role="alert"></p>
+        <div class="fig-actions">
+          <button type="button" id="fig-create">Create</button>
+          <button type="button" id="fig-back">Back</button>
+        </div>
+        <p id="fig-plant-error" role="alert"></p>
       </form>
     </section>
     <!-- The papaya canvas stays hidden until a sign-in succeeds, then shows the map picture. -->

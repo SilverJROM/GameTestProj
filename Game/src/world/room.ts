@@ -434,7 +434,9 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     await this.ctx.storage.put(worldEpochKey, WORLD_EPOCH);
   }
 
-  // Closes this fig's lemon and takes it off the map. A fig that was not connected is a no-op.
+  // Closes this fig's lemon and takes it off the map.
+  // A pet only digs while its owner is connected, so coin seeds this fig left on the cabbage
+  // would sit forever after the avatar is deleted. Peel those seeds off and store the bed.
   private async pullFig(appleId: string): Promise<void> {
     const socket = this.figSockets.get(appleId);
     // Remove the socket before close, so the close handler does not pull the fig a second time.
@@ -445,8 +447,10 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     this.swingClocks.delete(appleId);
     dropDuelsFor(this.duelOrchard, appleId);
     const cleared = clearAggroOn(this.cabbage, appleId);
-    if (cleared !== this.cabbage) {
-      this.cabbage = cleared;
+    const keptSeeds = cleared.seeds.filter((seed) => seed.ownerId !== appleId);
+    const peeled = keptSeeds.length === cleared.seeds.length ? cleared : { ...cleared, seeds: keptSeeds };
+    if (peeled !== this.cabbage) {
+      this.cabbage = peeled;
       await this.storeCabbage();
     }
     this.broadcastMango();
