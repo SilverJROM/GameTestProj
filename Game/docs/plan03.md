@@ -64,3 +64,42 @@ Requested by the user after playing the merged plan 02 build on 2026-11-10. Same
 - "On screen" means the player's view plus a margin of about 150 px, so monsters just outside the edge are already moving when they walk in.
 - Patrol patches use about 70 px radius or less, scaled down in crowded zones; the wolves, bears and skeletons keep their current speeds.
 - Not in this plan: the shared account bag and seven-day coin expiry from the manager notes (still undecided, see `docs/plan02-status.md`).
+
+
+## Revision 2026-11-10 (user decisions): topology, new slices, schedule
+
+New rules approved by the user: **shared account bag** (an item worn by one avatar cannot be used by the other; deleting an avatar returns its gear to the bag) and **seven-day coin expiry** (per-pickup lots, oldest spent first, existing balances start their clock at go-live, duel winnings are new lots, pickup stays 2.25 s). Details in `docs/plan03-test-plan.md`.
+
+### Topology by level
+
+| Level | Meaning (Claude's reading, to be confirmed) | Implementer | Tester / validator |
+| --- | --- | --- | --- |
+| L1 | Small, local, one area (client only, or one table) | Grok 4.7 | Claude Sonnet 5.5 |
+| L2 | Medium, a few files, one system, no stored-data change | Grok 4.7 | Claude Sonnet 5.5 |
+| L3 | Hard: server rules plus stored data, migrations, or cross-system behavior | Claude Sonnet 5.5 | Claude Opus (separate agent, did not write the code) |
+
+Every slice: implement, unit tests, full `npm test` (default workers), review of the diff by the tester, browser checks in Chrome (Claude Chrome extension for looking and dragging; Playwright on the same Chrome for two players, per-frame numbers and the test clock), commit after PASS. Three failed reviews on a slice stops the run and is reported. Every update ends with the `date time PHT, % complete, ETA` line. Grok is told the reporting-coordinator rule (it reports to the check-in server only when asked).
+
+### Slices (final)
+
+| Slice | What | Level |
+| --- | --- | --- |
+| 0 | Branch `update-03`; before-screenshots and measurements of all four problems (gates, frozen bears, click misses, coin size) | L1 |
+| 1 | Gate routing and wall sliding | L2 |
+| 2 | Smooth walking (client interpolation) | L2 |
+| 3 | Everything on screen patrols (watched zones by view) | L2 |
+| 4 | Own patrol patch per monster, no overlap | L2 |
+| 5 | Sprite-rectangle click area, cursor, outline | L1 |
+| 6 | Click to walk to the enemy and fight (server attack target) | L3 |
+| 7 | Coin 24 px, walk-on pickup, pet fallback | L2 |
+| 8 | Checkpoint: full suite, screenshots, merge of slices 0 to 7 to `main` (user-visible fixes done) | L2 |
+| 9 | Shared account bag: migration, equip rules, Bag and shop screens | L3 |
+| 10 | Coin expiry: coin lots, 7-day expiry, spending order, duel coins, HUD | L3 |
+| 11 | Final: full suite, regression list, screenshots, merge to `main` | L2 |
+
+Order is chosen so the four play-test fixes land first. Slices 9 and 10 are the data changes and go last.
+
+### Schedule and safety
+
+- Next suspend expected about 2026-11-11 04:06 PHT (20:06 UTC). Commit after every slice. Hard save (tracker plus a commit, even if unreviewed, labelled WIP) every 30 minutes. Stop starting new slices at 03:30 PHT and do a final save by 03:45 PHT.
+- ETA: about 5.5 hours of work (range 4.5 to 7), so finish near 02:15 PHT. If it runs long, slices 9 and 10 stop at a committed, tested point on `update-03`, and slices 0 to 8 are already merged and safe.
