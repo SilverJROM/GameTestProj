@@ -8,6 +8,8 @@ interface FakeElement {
   checked: boolean;
   hidden: boolean;
   textContent: string;
+  src: string;
+  stand: string;
   listeners: Record<string, Array<(event: { preventDefault(): void }) => void>>;
   addEventListener(type: string, listener: (event: { preventDefault(): void }) => void): void;
 }
@@ -18,6 +20,8 @@ function fakeElement(initial: Partial<FakeElement> = {}): FakeElement {
     checked: false,
     hidden: false,
     textContent: '',
+    src: '',
+    stand: '',
     listeners: {},
     addEventListener(type, listener) {
       (element.listeners[type] ??= []).push(listener);
@@ -34,6 +38,7 @@ function fakeDocument() {
     ['apple-form', fakeElement()],
     ['lime-woman', fakeElement({ checked: true })],
     ['lime-man', fakeElement()],
+    ['lime-preview', fakeElement()],
     ['kiwi-name', fakeElement()],
     ['pear-refusal', fakeElement()],
     ['papaya-canvas', fakeElement({ hidden: true })],
@@ -114,5 +119,29 @@ describe('first-screen login UI', () => {
 
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(peachDoc.getElementById('papaya-canvas').hidden).toBe(true);
+  });
+
+  it('shows the woman stand on load and swaps it when the radio changes, before submit', () => {
+    const peachDoc = fakeDocument();
+    const fetchMock = vi.fn();
+    wireLogin(peachDoc as unknown as Document, fetchMock);
+
+    const preview = peachDoc.getElementById('lime-preview');
+    expect(preview.src).toBe('/avatars/warrior-f/stand.png');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    peachDoc.getElementById('lime-woman').checked = false;
+    peachDoc.getElementById('lime-man').checked = true;
+    const [manChange] = peachDoc.getElementById('lime-man').listeners['change'] ?? [];
+    manChange?.({ preventDefault() {} });
+    expect(preview.src).toBe('/avatars/warrior-m/stand.png');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    peachDoc.getElementById('lime-man').checked = false;
+    peachDoc.getElementById('lime-woman').checked = true;
+    const [womanChange] = peachDoc.getElementById('lime-woman').listeners['change'] ?? [];
+    womanChange?.({ preventDefault() {} });
+    expect(preview.src).toBe('/avatars/warrior-f/stand.png');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

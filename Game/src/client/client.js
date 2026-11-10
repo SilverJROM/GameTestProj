@@ -4,14 +4,64 @@
 // Plain script, no framework. The functions take the document and fetch as arguments so a test can drive them.
 
 import { sproutAfterLogin } from './main.ts';
+import { removeMagenta } from './sprites.ts';
 
 const appleLoginPath = '/api/login';
 const cherryMePath = '/api/me';
 const melonMapPath = '/maps/world-map-wide.jpg';
+const figStandWoman = '/avatars/warrior-f/stand.png';
+const figStandMan = '/avatars/warrior-m/stand.png';
 
 // Woman is the default radio, so a gender is always sent.
 function pickedGender(peachDoc) {
   return peachDoc.getElementById('lime-man').checked ? 'man' : 'woman';
+}
+
+function standSrc(peachDoc) {
+  return pickedGender(peachDoc) === 'man' ? figStandMan : figStandWoman;
+}
+
+// Peels the magenta field off a loaded stand still. Returns null when this document cannot paint.
+function peelStand(peachDoc, picture) {
+  const width = picture.naturalWidth ?? 0;
+  const height = picture.naturalHeight ?? 0;
+  if (width === 0 || height === 0 || typeof peachDoc.createElement !== 'function') {
+    return null;
+  }
+  const canvas = peachDoc.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext?.('2d');
+  if (!ctx || ctx.getImageData === undefined || ctx.putImageData === undefined) {
+    return null;
+  }
+  ctx.drawImage(picture, 0, 0);
+  const pixels = ctx.getImageData(0, 0, width, height);
+  const peeled = removeMagenta({ width, height, data: pixels.data });
+  pixels.data.set(peeled.data);
+  ctx.putImageData(pixels, 0, 0);
+  return canvas;
+}
+
+// Points the login portrait at the chosen stand still, then peels magenta once that still loads.
+function showLime(peachDoc) {
+  const lime = peachDoc.getElementById('lime-preview');
+  const src = standSrc(peachDoc);
+  lime.stand = src;
+  lime.src = src;
+  const ImageCtor = peachDoc.defaultView?.Image;
+  if (typeof ImageCtor !== 'function' || typeof peachDoc.createElement !== 'function') {
+    return;
+  }
+  const picture = new ImageCtor();
+  picture.onload = () => {
+    if (lime.stand !== src) return;
+    const peeled = peelStand(peachDoc, picture);
+    if (peeled && typeof peeled.toDataURL === 'function' && lime.stand === src) {
+      lime.src = peeled.toDataURL('image/png');
+    }
+  };
+  picture.src = src;
 }
 
 // The server's refusal arrives as JSON with an error string. Anything else gets a plain fallback.
@@ -99,6 +149,10 @@ export function wireLogin(peachDoc, fetchFn) {
       peachDoc.getElementById('pear-refusal').textContent = 'Could not reach the server.';
     });
   });
+  const onPick = () => showLime(peachDoc);
+  peachDoc.getElementById('lime-woman').addEventListener('change', onPick);
+  peachDoc.getElementById('lime-man').addEventListener('change', onPick);
+  showLime(peachDoc);
 }
 
 // Browser start-up. Guarded so importing this file in a test does not touch a document.
