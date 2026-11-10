@@ -71,3 +71,16 @@ Searched OpenGameArt and Kenney listings on 2026-11-10. Listed license is what t
 - Skeleton: nothing found yet. Options: a bone rattle from a CC0 pack, or a short synthesized clatter we make ourselves.
 - Avoid: "Dark Ambience Loop" (CC-BY/GPL) and "Monster and Creatures Sound Effects Pack 001" (CC-BY 3.0) unless you accept the credit line.
 - Every sound used goes into docs/asset-provenance.md with its page link and license, and downloading each file needs your yes.
+
+### Sound behaviour (developer, 2026-11-10) — confirmed design, not started
+
+- Developer approved the downloaded sounds.
+- Settings has separate volume sliders for background music and for effects (the "active" sounds), each configurable, plus mute.
+- Defaults are light: low volume for both (proposal: music 25%, effects 35%), not loud. Saved per browser.
+- Creature sounds (wolf, bear, skeleton): only one creature sound plays at a time on the player's device, even with several
+  enemies nearby, so they never overlap or get busy. While one is playing, other creature sounds are skipped (not queued).
+- A creature sound plays when the player is close to that enemy or fighting it: within 2 to 3 times the melee reach.
+  Melee reach is 48 px, so the trigger distance is about 96 to 144 px (proposal 120 px, 2.5x).
+- Proposal for the details: the nearest enemy inside that distance is the one that plays; each creature repeats no faster than
+  about once every 6 seconds; the sword sound (when you attack) and the stab sound (when you are hit) follow the same
+  one-at-a-time rule among themselves, but a hit sound may cut in over a creature sound.
