@@ -7,7 +7,7 @@
 
 import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
 import { maxHealth, purchase, type Hero } from '../rules/logic';
-import { hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, townSpawn, zoneAt } from '../rules/regions';
+import { firstSolidWallCrossing, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, townSpawn, zoneAt } from '../rules/regions';
 import { kaleConstants } from '../rules/tables';
 import type { ApricotFacing, CoinSnapshot, PickupSnapshot, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
 
@@ -209,6 +209,8 @@ export function buyQuince(fig: FigWalk, quinceId: string): CharacterFactsPatch |
   };
 }
 
+const WALL_STOP_GAP_PX = 0.5;
+
 function applyPear(fig: FigWalk, nextX: number, nextY: number): CharacterFactsPatch | null {
   const previous = fig.facts;
   const plumZone = zoneAt(nextX, nextY);
@@ -252,6 +254,18 @@ export function ripenFig(fig: FigWalk, elapsedMs: number): CharacterFactsPatch |
     nextX = fig.facts.x + dx * scale;
     nextY = fig.facts.y + dy * scale;
   } else {
+    fig.guavaArmed = false;
+  }
+  // A solid wall stops the step just short of the hit; open gates are not solid.
+  const crossing = firstSolidWallCrossing([fig.facts.x, fig.facts.y], [nextX, nextY]);
+  if (crossing !== null) {
+    const hitDx = crossing[0] - fig.facts.x;
+    const hitDy = crossing[1] - fig.facts.y;
+    const hitDist = Math.hypot(hitDx, hitDy);
+    const back = Math.min(WALL_STOP_GAP_PX, hitDist);
+    const keep = hitDist > 0 ? (hitDist - back) / hitDist : 0;
+    nextX = fig.facts.x + hitDx * keep;
+    nextY = fig.facts.y + hitDy * keep;
     fig.guavaArmed = false;
   }
   return applyPear(fig, nextX, nextY);

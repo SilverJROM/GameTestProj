@@ -11,7 +11,7 @@ import { getPlatformProxy, unstable_dev, type PlatformProxy, type Unstable_DevWo
 import WebSocket from 'ws';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PAPAYA_CLOCK_HEADER, PAPAYA_CLOCK_RIPE, type SnapshotMessage, type WelcomeMessage } from '../../src/protocol';
-import { MAP_HEIGHT, MAP_WIDTH, townSpawn, zoneAt } from '../../src/rules/regions';
+import { firstSolidWallCrossing, inRing, MAP_HEIGHT, MAP_WIDTH, pearTownWalls, townSpawn, zoneAt } from '../../src/rules/regions';
 import { kaleConstants, type ZoneName } from '../../src/rules/tables';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, type CharacterDb, type CharacterFacts } from '../../src/server/db';
@@ -123,8 +123,7 @@ describe('papaya clock walk', () => {
     expect(fig.facts.y).toBe(200);
     expect(figMoving(fig)).toBe(false);
 
-    const [spawnX, spawnY] = townSpawn;
-    expect(zoneAt(spawnX, spawnY)).toBe('town');
+    const [spawnX, spawnY] = [420, 620];
     expect(zoneAt(greenGuava.x, greenGuava.y)).toBe('green');
     const walker = freshFig('fig-kiwi', spawnX, spawnY, 'town');
     const greenClock = openOrchard(walker);
@@ -151,18 +150,20 @@ describe('papaya clock walk', () => {
   });
 
   it('clamps an off-map guava onto the map', () => {
-    const fig = freshFig('fig-melon', townSpawn[0], townSpawn[1], 'town');
+    const startX = 100;
+    const startY = 700;
+    const fig = freshFig('fig-melon', startX, startY, 'town');
     const { clock, orchard } = openOrchard(fig);
     const rawX = -80;
-    const rawY = townSpawn[1];
+    const rawY = startY;
     orderGuava(fig, rawX, rawY);
     expect(fig.guavaX).toBe(0);
-    expect(fig.guavaY).toBe(townSpawn[1]);
+    expect(fig.guavaY).toBe(startY);
     expect(fig.apricotFacing).toBe('left');
-    const ticks = guavaTicks(townSpawn[0], townSpawn[1], fig.guavaX, fig.guavaY);
+    const ticks = guavaTicks(startX, startY, fig.guavaX, fig.guavaY);
     sproutTicks(orchard, clock, ticks);
     expect(fig.facts.x).toBe(0);
-    expect(fig.facts.y).toBe(townSpawn[1]);
+    expect(fig.facts.y).toBe(startY);
     expect(fig.facts.x).not.toBe(rawX);
     expect(figMoving(fig)).toBe(false);
 
@@ -244,6 +245,54 @@ async function countN(db: CharacterDb, table: 'place_touches' | 'fig_writes', fi
     .first<{ n: number }>();
   return Number(row?.n ?? 0);
 }
+
+describe('solid walls stop a walking fig', () => {
+  function walk(fig: FigWalk, x: number, y: number): void {
+    const { clock, orchard } = openOrchard(fig);
+    orderGuava(fig, x, y);
+    sproutTicks(orchard, clock, 200);
+  }
+
+  it('stops a courtyard fig at the town wall', () => {
+    const fig = freshFig('fig-wall-town', 300, 450, 'town');
+    const hit = firstSolidWallCrossing([300, 450], [700, 450]);
+    expect(hit).not.toBeNull();
+    walk(fig, 700, 450);
+    expect(Math.abs(fig.facts.x - hit![0])).toBeLessThanOrEqual(1);
+    expect(Math.abs(fig.facts.y - hit![1])).toBeLessThanOrEqual(1);
+    expect(fig.facts.x).toBeLessThan(hit![0]);
+    expect(firstSolidWallCrossing([300, 450], [fig.facts.x, fig.facts.y])).toBeNull();
+    expect(fig.facts.x).not.toBe(700);
+    expect(inRing(pearTownWalls, fig.facts.x, fig.facts.y)).toBe(true);
+    expect(figMoving(fig)).toBe(false);
+  });
+
+  it('lets a fig leave through the town gate', () => {
+    const fig = freshFig('fig-gate-town', 430, 540, 'town');
+    walk(fig, 410, 593 + 20);
+    expect(fig.facts.x).toBeCloseTo(410, 5);
+    expect(fig.facts.y).toBeCloseTo(613, 5);
+  });
+
+  it('stops a cemetery fig at the cemetery wall', () => {
+    const fig = freshFig('fig-wall-cem', 200, 150, 'cemetery');
+    const targetY = 300;
+    const hit = firstSolidWallCrossing([200, 150], [200, targetY]);
+    expect(hit).not.toBeNull();
+    walk(fig, 200, targetY);
+    expect(Math.abs(fig.facts.x - hit![0])).toBeLessThanOrEqual(1);
+    expect(Math.abs(fig.facts.y - hit![1])).toBeLessThanOrEqual(1);
+    expect(fig.facts.y).toBeLessThan(hit![1]);
+    expect(firstSolidWallCrossing([200, 150], [fig.facts.x, fig.facts.y])).toBeNull();
+  });
+
+  it('lets a cemetery fig through the cemetery gate', () => {
+    const fig = freshFig('fig-gate-cem', 340, 150, 'cemetery');
+    walk(fig, 340, 222 + 20);
+    expect(fig.facts.x).toBeCloseTo(340, 5);
+    expect(fig.facts.y).toBeCloseTo(242, 5);
+  });
+});
 
 describe('lemon click-to-walk on the worker', () => {
   let worker: Unstable_DevWorker | undefined;
@@ -327,10 +376,19 @@ describe('lemon click-to-walk on the worker', () => {
 
     const ada = await postFig('Cora', 'woman');
     const bea = await postFig('Dale', 'man');
+    // The town spawn sits inside the walls, so start both figs on open ground south of the town.
+    const openStart: readonly [number, number] = [420, 700];
+    for (const fig of [ada, bea]) {
+      await kiwiDb
+        .prepare('UPDATE characters SET x = ?, y = ? WHERE id = ?')
+        .bind(openStart[0], openStart[1], fig.facts.id)
+        .run();
+    }
+    const setupWrites = await countN(kiwiDb, 'fig_writes', ada.facts.id);
     const berryStep = berryStepPx(kaleConstants.tickMs);
     expect(berryStep).toBe(12);
     expect(zoneAt(greenGuava.x, greenGuava.y)).toBe('green');
-    const expectedTicks = guavaTicks(townSpawn[0], townSpawn[1], greenGuava.x, greenGuava.y);
+    const expectedTicks = guavaTicks(openStart[0], openStart[1], greenGuava.x, greenGuava.y);
     expect(expectedTicks).toBeGreaterThan(2);
 
     const wsUrl = `ws://127.0.0.1:${worker.port}/ws`;
@@ -338,12 +396,12 @@ describe('lemon click-to-walk on the worker', () => {
     const beaJoin = await connectFig(wsUrl, bea.grape);
     openSockets.push(adaJoin.socket, beaJoin.socket);
 
-    expect([adaJoin.welcome.character.x, adaJoin.welcome.character.y]).toEqual([townSpawn[0], townSpawn[1]]);
+    expect([adaJoin.welcome.character.x, adaJoin.welcome.character.y]).toEqual([openStart[0], openStart[1]]);
     expect(adaJoin.welcome.character.place).toBe('town');
     const adaStart = adaJoin.welcome.snapshot.players.find((player) => player.id === ada.facts.id);
     expect(adaStart).toMatchObject({
-      x: townSpawn[0],
-      y: townSpawn[1],
+      x: openStart[0],
+      y: openStart[1],
       facing: sproutApricot,
       moving: false,
       place: 'town',
@@ -362,15 +420,15 @@ describe('lemon click-to-walk on the worker', () => {
     const adaAimed = aimed.senderSnap.snapshot.players.find((player) => player.id === ada.facts.id);
     const beaAimed = aimed.otherSnap.snapshot.players.find((player) => player.id === bea.facts.id);
     expect(adaAimed).toMatchObject({
-      x: townSpawn[0],
-      y: townSpawn[1],
+      x: openStart[0],
+      y: openStart[1],
       facing: 'right',
       moving: true,
       place: 'town',
     });
     expect(beaAimed).toMatchObject({
-      x: townSpawn[0],
-      y: townSpawn[1],
+      x: openStart[0],
+      y: openStart[1],
       moving: false,
       place: 'town',
     });
@@ -378,11 +436,11 @@ describe('lemon click-to-walk on the worker', () => {
     const firstTick = await broadcastMango(adaJoin.socket, beaJoin.socket, { type: 'ripen', steps: 1 });
     const adaFirst = firstTick.senderSnap.snapshot.players.find((player) => player.id === ada.facts.id);
     expect(adaFirst).toBeDefined();
-    const moved = Math.hypot((adaFirst?.x ?? 0) - townSpawn[0], (adaFirst?.y ?? 0) - townSpawn[1]);
+    const moved = Math.hypot((adaFirst?.x ?? 0) - openStart[0], (adaFirst?.y ?? 0) - openStart[1]);
     expect(moved).toBeCloseTo(berryStep, 6);
     expect(adaFirst).toMatchObject({ moving: true, place: 'town', facing: 'right' });
     expect(await countN(kiwiDb, 'place_touches', ada.facts.id)).toBe(0);
-    expect(await countN(kiwiDb, 'fig_writes', ada.facts.id)).toBe(1);
+    expect(await countN(kiwiDb, 'fig_writes', ada.facts.id)).toBe(setupWrites + 1);
 
     const almost = await broadcastMango(adaJoin.socket, beaJoin.socket, {
       type: 'ripen',
@@ -408,17 +466,17 @@ describe('lemon click-to-walk on the worker', () => {
     expect(landed.senderSnap.character.y).toBe(greenGuava.y);
     expect(landed.senderSnap.character.place).toBe('green');
     expect(landed.otherSnap.character.id).toBe(bea.facts.id);
-    expect([landed.otherSnap.character.x, landed.otherSnap.character.y]).toEqual([townSpawn[0], townSpawn[1]]);
+    expect([landed.otherSnap.character.x, landed.otherSnap.character.y]).toEqual([openStart[0], openStart[1]]);
 
     const stored = await getById(kiwiDb, ada.facts.id);
     expect(stored?.x).toBe(greenGuava.x);
     expect(stored?.y).toBe(greenGuava.y);
     expect(stored?.place).toBe('green');
     expect(await countN(kiwiDb, 'place_touches', ada.facts.id)).toBe(1);
-    expect(await countN(kiwiDb, 'fig_writes', ada.facts.id)).toBe(expectedTicks);
+    expect(await countN(kiwiDb, 'fig_writes', ada.facts.id)).toBe(setupWrites + expectedTicks);
     expect(await getById(kiwiDb, bea.facts.id)).toMatchObject({
-      x: townSpawn[0],
-      y: townSpawn[1],
+      x: openStart[0],
+      y: openStart[1],
       place: 'town',
     });
 
@@ -455,11 +513,11 @@ describe('lemon click-to-walk on the worker', () => {
     });
 
     const rawX = -80;
-    const rawY = townSpawn[1];
+    const rawY = openStart[1];
     expect(rawX < 0).toBe(true);
     const clampedX = 0;
-    const clampedY = townSpawn[1];
-    const clampTicks = guavaTicks(townSpawn[0], townSpawn[1], clampedX, clampedY);
+    const clampedY = openStart[1];
+    const clampTicks = guavaTicks(openStart[0], openStart[1], clampedX, clampedY);
     const clampAim = await broadcastMango(beaJoin.socket, adaAgain.socket, {
       type: 'move',
       x: rawX,
@@ -469,8 +527,8 @@ describe('lemon click-to-walk on the worker', () => {
     });
     const beaAim = clampAim.senderSnap.snapshot.players.find((player) => player.id === bea.facts.id);
     expect(beaAim).toMatchObject({
-      x: townSpawn[0],
-      y: townSpawn[1],
+      x: openStart[0],
+      y: openStart[1],
       facing: 'left',
       moving: true,
     });
