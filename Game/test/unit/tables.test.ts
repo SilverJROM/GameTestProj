@@ -109,6 +109,7 @@ describe('timing and frozen constants', () => {
       patchGapShare: 0.45,
       loopRadiusShare: 0.8,
       loopStops: 3,
+      coinPickupPx: 24,
     });
   });
 

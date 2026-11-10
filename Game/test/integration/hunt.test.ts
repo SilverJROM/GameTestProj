@@ -190,23 +190,38 @@ describe('G4 hunt flow', () => {
     expect(beetIn(heard.senderSnap, wolf.id)!.swung).toBe(false);
     expect(heard.otherSnap.character.hp).toBe(basilStart.hp);
 
-    // Walk both figs onto the wolf's current patch, one tick at a time, until both stand in reach. The strike follows at once.
-    const inReach = (snap: SnapshotMessage, at: MonsterSnapshot) =>
-      Math.hypot(at.x - snap.character.x, at.y - snap.character.y) <= kaleConstants.meleeReachPx / 2;
-    for (let step = 0; step < 300; step += 1) {
+    // Stand in melee, outside the coin pickup, so the pet still has to dig the seed.
+    // Fern stands on one side of the wolf and Basil on the other.
+    const oliveStand = kaleConstants.coinPickupPx + 12;
+    const distTo = (snap: SnapshotMessage, at: MonsterSnapshot) =>
+      Math.hypot(at.x - snap.character.x, at.y - snap.character.y);
+    const inBand = (snap: SnapshotMessage, at: MonsterSnapshot) => {
+      const dist = distTo(snap, at);
+      return dist > kaleConstants.coinPickupPx && dist <= kaleConstants.meleeReachPx;
+    };
+    const standSpot = (x: number, y: number, side: number) => {
+      const alongX = { x: x + side * oliveStand, y };
+      if (zoneAt(alongX.x, alongX.y) === 'green') return alongX;
+      return { x, y: y + side * oliveStand };
+    };
+    for (let step = 0; step < 400; step += 1) {
       const wolfNow = beetIn(heard.senderSnap, wolf.id)!;
-      if (inReach(heard.senderSnap, wolfNow) && inReach(heard.otherSnap, wolfNow)) {
+      if (inBand(heard.senderSnap, wolfNow) && inBand(heard.otherSnap, wolfNow)) {
+        await fromFern({ type: 'move', x: heard.senderSnap.character.x, y: heard.senderSnap.character.y });
+        await fromBasil({ type: 'move', x: heard.otherSnap.character.x, y: heard.otherSnap.character.y });
         break;
       }
-      await fromFern({ type: 'move', x: wolfNow.x, y: wolfNow.y });
-      await fromBasil({ type: 'move', x: wolfNow.x, y: wolfNow.y });
+      const fernSpot = standSpot(wolfNow.x, wolfNow.y, -1);
+      const basilSpot = standSpot(wolfNow.x, wolfNow.y, 1);
+      await fromFern({ type: 'move', x: fernSpot.x, y: fernSpot.y });
+      await fromBasil({ type: 'move', x: basilSpot.x, y: basilSpot.y });
       heard = await fromFern({ type: 'ripen', steps: 1 });
       expect(beetIn(heard.senderSnap, wolf.id)!.swung).toBe(false);
       expect(heard.otherSnap.character.hp).toBe(basilStart.hp);
     }
     const wolfReady = beetIn(heard.senderSnap, wolf.id)!;
-    expect(inReach(heard.senderSnap, wolfReady)).toBe(true);
-    expect(inReach(heard.otherSnap, wolfReady)).toBe(true);
+    expect(inBand(heard.senderSnap, wolfReady)).toBe(true);
+    expect(inBand(heard.otherSnap, wolfReady)).toBe(true);
 
     heard = await fromBasil({ type: 'attack', once: true, monsterId: wolf.id });
     expect(beetIn(heard.senderSnap, wolf.id)!.hp).toBe(wolfRow.hp - basilStrike);

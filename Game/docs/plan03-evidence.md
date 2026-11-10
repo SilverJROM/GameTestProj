@@ -21,3 +21,8 @@ Draw calls were counted in the page during a 3.5 s walk: about 52 painted frames
 
 ## Slices 3-4 after-check (real server, same measurement as before)
 Player in the green at (800,330), 12 s: 11 monsters on screen, all 11 moved (before: 5 of 12; all 7 bears moved 0 px, now the 5 visible bears moved 17 to 22 px). Closest same-zone pair: 56 px (before 15 px). Tests: 397 pass.
+
+## Slices 5-7 after-check (real Chrome + Opus validation of slice 6)
+- Click area: from 69 px (wolf) and 106 px (bear) away, clicking the HEAD walked the avatar to the monster and killed it (1.1 s and 2.3 s). Opus: head, chest and legs clicks all engaged; a click 12 px outside the padded rectangle was a ground move; hover shows the hand cursor and a rounded outline (screenshots in the scratchpad `opus/` folder).
+- Opus validation of slice 6: first verdict FAIL (a chase resumed after a reconnect, plus three low findings); all four fixed in `488ff98`; re-validation PASS (22/22 tests, reconnect scenario shows no resumed chase).
+- Coin: pet pickup 2.28 s after the drop; walk-on pickup 0.48 s; purse 0 to 4 each time; no coin left on the ground. Coin drawn 24 px. Tests: 422 pass.

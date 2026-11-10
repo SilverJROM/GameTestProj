@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 import {
   APPLE_SCALE_PX,
+  COIN_DRAW_PX,
   coinCrop,
   isMagentaField,
   removeMagenta,
@@ -242,6 +243,10 @@ describe('scaleFor and scaledSize', () => {
 
 describe('ground coin still', () => {
   const COIN_PATH = fileURLToPath(new URL('../../assets/items/coin.png', import.meta.url));
+
+  it('draws the ground coin at 24 px', () => {
+    expect(COIN_DRAW_PX).toBe(24);
+  });
 
   it('is a magenta-field square that removeMagenta clears at the corners and keeps the disc', () => {
     const coin = decodePng(readFileSync(COIN_PATH));

@@ -310,6 +310,8 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
         ownerId: seed.ownerId,
         still: 'coin',
         src: COIN_SRC,
+        // x is the disc's centre. y is the bottom, the same seat as before,
+        // so a smaller width stays centred on the seed.
         x: seed.x,
         y: seed.y,
         width: COIN_DRAW_PX,

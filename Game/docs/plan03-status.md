@@ -2,13 +2,13 @@
 
 Recovery file. If the session closes, read this first, then `docs/plan03.md`. Times in UTC. Same topology and rules as `docs/plan02-status.md` (Grok implements, Claude reviews and commits, user-approved plan only).
 
-Last updated: 2026-11-10 16:12 UTC
+Last updated: 2026-11-10 16:30 UTC
 
 | Item | Value |
 | --- | --- |
 | Base | `main` at `cde3469` |
 | Working branch | `update-03` (cut from `main`) |
-| Overall | 58% (slices 0-6 done, 7 running) |
+| Overall | 67% (slices 0-7 done, 8 running; 9-11 left) |
 
 | Slice | What | Status | Commit |
 | --- | --- | --- | --- |
@@ -18,9 +18,9 @@ Last updated: 2026-11-10 16:12 UTC
 | 3 | Everything on screen patrols (merged with 4) | **done** | see git log |
 | 4 | Own patrol patch, no overlap (merged into 3) | **done** | see git log |
 | 5 | Sprite click area | **done** | `d71390c` |
-| 6 | Click to chase and fight (L3, Claude implements, Opus validates) | **fixes committed, re-validation by Opus pending** (Opus found 1 medium + 3 low; all 4 fixed in the next commit; 7 chase tests pass) | `e1e077d` + fix commit |
-| 7 | Coin 24 px, walk-on pickup | **in progress** (Grok started 15:40 UTC, marker `slices/p3-slice-7.done`) | - |
-| 8 | Checkpoint: full suite, screenshots, merge slices 0-7 to main | pending | - |
+| 6 | Click to chase and fight (L3, Claude implements, Opus validates) | **done, Opus PASS** | `e1e077d` + `488ff98` |
+| 7 | Coin 24 px, walk-on pickup | **done** | see git log |
+| 8 | Checkpoint: full suite, screenshots, merge slices 0-7 to main | **in progress** | - |
 | 9 | Shared account bag (L3) | pending | - |
 | 10 | Coin expiry (L3) | pending | - |
 | 11 | Final suite, regression, merge | pending | - |

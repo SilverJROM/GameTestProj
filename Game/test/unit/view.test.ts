@@ -283,6 +283,26 @@ describe('damage numbers', () => {
     expect(melonRisen.x).toBe(melon!.x);
     expect(board.damageNumbers(now + 1000).some((row) => row.id === 'melon:coin-mine')).toBe(false);
   });
+
+  it('floats +N in gold when a walk-on pickup removes the owner coin', () => {
+    const { board } = openBoard();
+    const wolfCoins = onionMonsterRows.find((row) => row.id === 'wolf')!.coins;
+    const players = [fig({ id: 'fig-self', x: 400, y: 400, place: 'green' })];
+    const mine = { id: 'coin-walk', ownerId: 'fig-self', x: 410, y: 400, value: wolfCoins };
+    const snap = (coins: typeof mine[]) => ({
+      type: 'snapshot',
+      character: { id: 'fig-self', place: 'green', gender: 'woman', hp: 70, maxHp: 70, coins: 0 },
+      snapshot: { players, monsters: [], coins, pickups: [] },
+    });
+    board.ingest(snap([mine]));
+    const before = Date.now();
+    expect(board.damageNumbers(before)).toEqual([]);
+    board.ingest(snap([]));
+    const floated = board.damageNumbers(Date.now());
+    expect(floated).toEqual([
+      expect.objectContaining({ id: 'melon:coin-walk', amount: wolfCoins, color: '#e0b15a', text: `+${wolfCoins}` }),
+    ]);
+  });
 });
 
 describe('world view', () => {
@@ -443,8 +463,9 @@ describe('world view', () => {
     expect(ground.src).toBe('/items/coin.png');
     expect(ground.x).toBe(coin.x);
     expect(ground.y).toBe(coin.y);
-    expect(ground.width).toBe(COIN_DRAW_PX);
-    expect(ground.height).toBe(COIN_DRAW_PX);
+    expect(COIN_DRAW_PX).toBe(24);
+    expect(ground.width).toBe(24);
+    expect(ground.height).toBe(24);
     expect(board.draw().filter((still) => still.role === 'coin')).toHaveLength(1);
 
     // The dig row is gone, so the pet stands on the owner again, even after the owner walks off.

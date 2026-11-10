@@ -3,12 +3,15 @@
 // When the dig finishes, the purse gains that seed's value in one {coins} write.
 // Only the seed's owner is ever stepped, and only while that owner's lemon socket is open.
 // The owner may walk during the dig; the timer follows the lime clock, not the fig's feet.
+// A fig standing on its own seed, in that seed's zone, pockets the whole value on that tick
+// and the pet's dig for that seed is dropped, so the purse is written once.
 // The bed stays the one seed pile. This module keeps the live dig timers, which are never stored.
 
+import { zoneAt } from '../rules/regions';
 import { kaleConstants, pearTimings } from '../rules/tables';
 import type { PickupSnapshot } from '../protocol';
 import type { PersimmonWrite, FigWalk } from './core';
-import type { CabbageBed } from './monsters';
+import type { CabbageBed, CoinSeed } from './monsters';
 
 // One dig in progress. startMs and the elapsed stamp are lime-clock time.
 export interface RadishDig {
@@ -27,6 +30,24 @@ export interface PickupStep {
 
 const digMs = (): number => pearTimings.coinPickupSeconds * 1000;
 
+// The seed's zone, and the fig's place, are the same plum. A fig in another zone never pockets it.
+function samePlum(fig: FigWalk, seed: CoinSeed): boolean {
+  const plumZone = zoneAt(seed.x, seed.y);
+  return plumZone !== null && fig.facts.place === plumZone;
+}
+
+// Feet to the seed's centre. The reach lives in kaleConstants and is not copied here.
+function feetOnMelon(fig: FigWalk, seed: CoinSeed): boolean {
+  return Math.hypot(fig.facts.x - seed.x, fig.facts.y - seed.y) <= kaleConstants.coinPickupPx;
+}
+
+// Purse write for one seed. The patch is only {coins}, the same shape as a ripe dig.
+function pocketMelon(fig: FigWalk, seed: CoinSeed, writes: PersimmonWrite[]): void {
+  const coins = fig.facts.coins + seed.value;
+  fig.facts = { ...fig.facts, coins };
+  writes.push({ id: fig.facts.id, patch: { coins } });
+}
+
 // Step every connected owner's dig through one rules tick that ends at tickEndMs.
 // connectedAt holds the lime-clock moment each owner's lemon opened, so a fresh dig never
 // starts before the owner returned. An owner without a figs entry is skipped and has no dig.
@@ -41,6 +62,18 @@ export function stepPickups(
   let changed = false;
   const writes: PersimmonWrite[] = [];
   for (const [ownerId, fig] of figs) {
+    // Walk-on first, so a step onto the seed this tick pays once and the dig for it stops.
+    const pocketed = current.seeds.filter(
+      (seed) => seed.ownerId === ownerId && samePlum(fig, seed) && feetOnMelon(fig, seed),
+    );
+    for (const seed of pocketed) {
+      pocketMelon(fig, seed, writes);
+      current = { ...current, seeds: current.seeds.filter((row) => row.id !== seed.id) };
+      changed = true;
+      if (digs.get(ownerId)?.seedId === seed.id) {
+        digs.delete(ownerId);
+      }
+    }
     let dig = digs.get(ownerId);
     if (dig !== undefined && !current.seeds.some((seed) => seed.id === dig!.seedId)) {
       digs.delete(ownerId);
@@ -67,9 +100,13 @@ export function stepPickups(
       const ripe = current.seeds.find((seed) => seed.id === seedId);
       current = { ...current, seeds: current.seeds.filter((seed) => seed.id !== seedId) };
       changed = true;
-      const coins = fig.facts.coins + (ripe === undefined ? 1 : ripe.value);
-      fig.facts = { ...fig.facts, coins };
-      writes.push({ id: ownerId, patch: { coins } });
+      if (ripe === undefined) {
+        const coins = fig.facts.coins + 1;
+        fig.facts = { ...fig.facts, coins };
+        writes.push({ id: ownerId, patch: { coins } });
+      } else {
+        pocketMelon(fig, ripe, writes);
+      }
       digs.delete(ownerId);
       dig = undefined;
       // The next owned coin starts where this one ended; round 1 stamps its elapsed time.
