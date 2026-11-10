@@ -17,7 +17,7 @@ Last updated: 2026-11-10 15:03 UTC
 | 2 | Smooth walking (interpolation) | **done** | see git log |
 | 3 | Everything on screen patrols (merged with 4) | **done** | see git log |
 | 4 | Own patrol patch, no overlap (merged into 3) | **done** | see git log |
-| 5 | Sprite click area | pending | - |
+| 5 | Sprite click area | **in progress** (Grok started 15:05 UTC, marker `slices/p3-slice-5.done`) | - |
 | 6 | Click to chase and fight | pending | - |
 | 7 | Coin 24 px, walk-on pickup | pending | - |
 | 8 | Checkpoint: full suite, screenshots, merge slices 0-7 to main | pending | - |
