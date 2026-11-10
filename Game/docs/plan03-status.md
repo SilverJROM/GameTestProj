@@ -2,7 +2,7 @@
 
 Recovery file. If the session closes, read this first, then `docs/plan03.md`. Times in UTC. Same topology and rules as `docs/plan02-status.md` (Grok implements, Claude reviews and commits, user-approved plan only).
 
-Last updated: 2026-11-10 13:35 UTC
+Last updated: 2026-11-10 14:09 UTC
 
 | Item | Value |
 | --- | --- |
@@ -14,7 +14,7 @@ Last updated: 2026-11-10 13:35 UTC
 | --- | --- | --- | --- |
 | 0 | Branch and measurement (evidence in `docs/plan03-evidence.md`) | **done** | see git log |
 | 1 | Gate routing and wall sliding | **done** | see git log |
-| 2 | Smooth walking (interpolation) | **in progress** (Grok started 13:35 UTC, marker `slices/p3-slice-2.done`) | - |
+| 2 | Smooth walking (interpolation) | **in progress** (Grok started 13:35 UTC; WIP checkpoint 14:09 UTC is UNREVIEWED, resume by waiting for marker `slices/p3-slice-2.done` or rerun Grok on top) | - |
 | 3 | Everything on screen patrols | pending | - |
 | 4 | Own patrol patch, no overlap | pending | - |
 | 5 | Sprite click area | pending | - |

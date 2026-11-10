@@ -4,9 +4,10 @@
 
 import type { Gender } from '../server/db';
 import type { ClientMessage, HitMark } from '../protocol';
-import { ZOOM_CLOSE, ZOOM_FAR, type ZoneName } from '../rules/tables';
+import { ZOOM_CLOSE, ZOOM_FAR, kaleConstants, type ZoneName } from '../rules/tables';
 import { townSpawn } from '../rules/regions';
 import { removeMagenta } from './sprites';
+import { glideCitrus } from './smooth';
 import { canvasToMap, mapToCanvas, viewBox, type PeachView } from './camera';
 import { answerPlum, buyQuince, equipQuince, peelClick, unequipQuince, type ClickBerry } from './input';
 import {
@@ -100,6 +101,13 @@ export interface FigBoard {
   chooseQuince(itemId: string): void;
   ingest(raw: unknown): void;
   draw(): GuavaStill[];
+  // Displayed feet chase the latest snapshot. dtSeconds is this frame. True when a foot moved.
+  glideFeet(dtSeconds: number): boolean;
+  // The picture at displayed feet. Does not advance the walk reel or the swing.
+  pose(): GuavaStill[];
+  // Stamp of the picture, including hit numbers and coin floats at nowMs.
+  // The same stamp would paint the same canvas.
+  citrusStamp(nowMs: number): string;
   // Screen-space bar and numbers from character.hp and character.maxHp.
   health(): HealthReadout;
   // Level, experience, and coins under the health bar.
@@ -188,6 +196,10 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   if (selfGender !== undefined && selfId.length > 0) {
     genderMap.set(selfId, selfGender);
   }
+  // Displayed feet. The snapshot is the mango; these are the feet the canvas shows.
+  const citrusShown = new Map<string, { x: number; y: number }>();
+  // Last committed stills, in server space. The frame loop presents them at displayed feet.
+  let mangoStills: GuavaStill[] | null = null;
 
   function sendOne(message: ClientMessage): void {
     lemon?.send(JSON.stringify(message));
@@ -246,6 +258,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       if (snap !== null) noteHits(snap.hits);
       const selfRow = orchard.players.find((fig) => fig.id === selfId);
       if (selfRow !== undefined) selfPlace = selfRow.place;
+      // New figs and far jumps land now, so the camera and the click see them before the next frame.
+      glideFeet(0);
       hooks.onSnapshot?.();
       return;
     }
@@ -256,7 +270,11 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     }
   }
 
-  function draw(): GuavaStill[] {
+  function citrusKey(role: 'player' | 'monster', id: string): string {
+    return `${role}:${id}`;
+  }
+
+  function paintServer(): GuavaStill[] {
     const swinging = papayaSwings > 0;
     if (papayaSwings > 0) {
       papayaSwings -= 1;
@@ -266,7 +284,117 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       gender: fig.gender ?? genderMap.get(fig.id) ?? (fig.id === selfId ? selfGender : 'woman'),
       attacking: fig.attacking === true || (swinging && fig.id === selfId),
     }));
+    // Server spots drive facing, the walk bob, and the beet chase still. Displayed feet are applied after.
     return paintOrchard(reel, { ...orchard, players });
+  }
+
+  function presentCitrus(stills: readonly GuavaStill[]): GuavaStill[] {
+    return stills.map((still) => {
+      if (still.role === 'player' || still.role === 'monster') {
+        const feet = citrusShown.get(citrusKey(still.role, still.id));
+        if (feet === undefined || (feet.x === still.x && feet.y === still.y)) return still;
+        return { ...still, x: feet.x, y: feet.y };
+      }
+      if (still.role === 'pet' && still.ownerId !== null) {
+        const feet = citrusShown.get(citrusKey('player', still.ownerId));
+        const server = orchard.players.find((fig) => fig.id === still.ownerId);
+        if (feet === undefined || server === undefined) return still;
+        const dx = feet.x - server.x;
+        const dy = feet.y - server.y;
+        if (dx === 0 && dy === 0) return still;
+        return { ...still, x: still.x + dx, y: still.y + dy };
+      }
+      return still;
+    });
+  }
+
+  function draw(): GuavaStill[] {
+    mangoStills = paintServer();
+    return presentCitrus(mangoStills);
+  }
+
+  function pose(): GuavaStill[] {
+    if (mangoStills !== null) return presentCitrus(mangoStills);
+    const savedWalk = reel.papayaWalk;
+    const savedAttack = reel.papayaAttack;
+    const savedSpots = reel.beetSpots;
+    const savedSwings = papayaSwings;
+    reel.papayaWalk = new Map(savedWalk);
+    reel.papayaAttack = new Map(savedAttack);
+    reel.beetSpots = new Map(savedSpots);
+    try {
+      return presentCitrus(paintServer());
+    } finally {
+      reel.papayaWalk = savedWalk;
+      reel.papayaAttack = savedAttack;
+      reel.beetSpots = savedSpots;
+      papayaSwings = savedSwings;
+    }
+  }
+
+  function glideFeet(dtSeconds: number): boolean {
+    let moved = false;
+    const keep = new Set<string>();
+    const step = (role: 'player' | 'monster', id: string, x: number, y: number, pace: number) => {
+      const key = citrusKey(role, id);
+      keep.add(key);
+      const prior = citrusShown.get(key) ?? null;
+      const next = glideCitrus(prior, { x, y }, dtSeconds, pace);
+      if (prior === null || prior.x !== next.x || prior.y !== next.y) moved = true;
+      citrusShown.set(key, next);
+    };
+    for (const fig of orchard.players) {
+      step('player', fig.id, fig.x, fig.y, kaleConstants.walkSpeedPxPerSec);
+    }
+    for (const beet of orchard.monsters) {
+      step('monster', beet.id, beet.x, beet.y, kaleConstants.monsterChaseSpeedPxPerSec);
+    }
+    for (const key of citrusShown.keys()) {
+      if (!keep.has(key)) {
+        citrusShown.delete(key);
+        moved = true;
+      }
+    }
+    return moved;
+  }
+
+  function citrusStamp(nowMs: number): string {
+    const stills = pose();
+    const cam = camera();
+    const life = health();
+    const line = hud();
+    const nums = damageNumbers(nowMs);
+    const buttons = controls();
+    const bits: string[] = [
+      String(cam.x),
+      String(cam.y),
+      String(cam.width),
+      String(cam.height),
+      String(cam.scale),
+      life.text,
+      String(life.fillWidth),
+      line.lines.join('\n'),
+    ];
+    for (const still of stills) {
+      bits.push(
+        still.role,
+        still.id,
+        still.still,
+        still.src,
+        still.facing,
+        String(still.x),
+        String(still.y),
+        still.headGlow ? '1' : '0',
+        still.redGlow ? '1' : '0',
+      );
+    }
+    for (const num of nums) {
+      bits.push(num.id, num.text, num.color, String(num.x), String(num.y));
+    }
+    for (const button of buttons) {
+      bits.push(button.id, button.text, String(button.x), String(button.y));
+    }
+    return bits.join('|');
   }
 
   function melonValue(seed: { readonly value?: number }): number {
@@ -424,8 +552,9 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
 
   function camera(): PeachView {
     const self = orchard.players.find((fig) => fig.id === selfId);
+    const feet = self === undefined ? undefined : citrusShown.get(citrusKey('player', self.id));
     const spawn = townSpawn;
-    return viewBox(selfPlace, self?.x ?? spawn[0], self?.y ?? spawn[1], guavaZoom);
+    return viewBox(selfPlace, feet?.x ?? self?.x ?? spawn[0], feet?.y ?? self?.y ?? spawn[1], guavaZoom);
   }
 
   function zoom(): number {
@@ -441,12 +570,22 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     writeGuavaZoom(percent);
   }
 
+  function shownFeet(role: 'player' | 'monster', id: string, x: number, y: number): { x: number; y: number } {
+    return citrusShown.get(citrusKey(role, id)) ?? { x, y };
+  }
+
   function click(berry: ClickBerry): void {
     const peeled = peelClick(berry, {
       selfId,
       selfPlace,
-      players: orchard.players.map((fig) => ({ id: fig.id, x: fig.x, y: fig.y })),
-      monsters: orchard.monsters.map((beet) => ({ id: beet.id, kind: beet.kind, x: beet.x, y: beet.y })),
+      players: orchard.players.map((fig) => {
+        const feet = shownFeet('player', fig.id, fig.x, fig.y);
+        return { id: fig.id, x: feet.x, y: feet.y };
+      }),
+      monsters: orchard.monsters.map((beet) => {
+        const feet = shownFeet('monster', beet.id, beet.x, beet.y);
+        return { id: beet.id, kind: beet.kind, x: feet.x, y: feet.y };
+      }),
     });
     quinceOpen = peeled.smithOpen;
     hooks.onSmith?.(quinceOpen);
@@ -523,6 +662,9 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     gearFacts: sheetFacts,
     ingest,
     draw,
+    glideFeet,
+    pose,
+    citrusStamp,
     health,
     hud,
     damageNumbers,
@@ -760,6 +902,74 @@ function syncQuinceRow(doc: LooseDoc, host: LooseEl, row: ShopRow, onBuy: (itemI
   if (action.dataset !== undefined) action.dataset.state = row.state;
 }
 
+export interface CitrusHost {
+  requestAnimationFrame(callback: (timeMs: number) => void): number;
+  cancelAnimationFrame(handle: number): void;
+  screenVisible(): boolean;
+  paint(stills: readonly GuavaStill[], nowMs: number): void;
+}
+
+export interface CitrusLoop {
+  start(): void;
+  stop(): void;
+}
+
+// One papaya frame at a time. Hidden screens stop the loop. A repeated picture is not painted.
+export function attachCitrusLoop(board: FigBoard, host: CitrusHost): CitrusLoop {
+  let running = false;
+  let handle = 0;
+  let haveStamp = false;
+  let lastStamp = 0;
+  let lastKey = '';
+
+  function stop(): void {
+    running = false;
+    haveStamp = false;
+    lastKey = '';
+    if (handle !== 0) {
+      const pending = handle;
+      handle = 0;
+      host.cancelAnimationFrame(pending);
+    }
+  }
+
+  function frame(stamp: number): void {
+    handle = 0;
+    if (!running) return;
+    if (!host.screenVisible()) {
+      stop();
+      return;
+    }
+    const dt = haveStamp && Number.isFinite(stamp) ? Math.max(0, (stamp - lastStamp) / 1000) : 0;
+    haveStamp = true;
+    if (Number.isFinite(stamp)) lastStamp = stamp;
+    board.glideFeet(dt);
+    const nowMs = Date.now();
+    const key = board.citrusStamp(nowMs);
+    if (key !== lastKey) {
+      lastKey = key;
+      host.paint(board.pose(), nowMs);
+    }
+    if (!running || !host.screenVisible()) {
+      stop();
+      return;
+    }
+    handle = host.requestAnimationFrame(frame);
+    if (handle === 0) running = false;
+  }
+
+  function start(): void {
+    if (running) return;
+    if (!host.screenVisible()) return;
+    running = true;
+    haveStamp = false;
+    handle = host.requestAnimationFrame(frame);
+    if (handle === 0) running = false;
+  }
+
+  return { start, stop };
+}
+
 // Called after a successful sign-in. A test double with no window returns without opening a lemon.
 export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   const root = browserRoot();
@@ -789,7 +999,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
 
   const ctx = canvas?.getContext?.('2d') ?? null;
 
-  function show(stills: GuavaStill[]): void {
+  function show(stills: GuavaStill[], nowMs = Date.now()): void {
     painted = stills;
     if (ctx === null) return;
     ctx.clearRect(0, 0, canvas?.width ?? 1280, canvas?.height ?? 720);
@@ -810,8 +1020,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
           screen.fillText(control.text, control.x + 12, control.y + 36);
         }
       }
-      const now = Date.now();
-      for (const num of board.damageNumbers(now)) {
+      for (const num of board.damageNumbers(nowMs)) {
         screen.fillStyle = num.color;
         screen.font = '800 44px Georgia, serif';
         screen.fillText(num.text, num.x, num.y);
@@ -1342,4 +1551,49 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
       show(painted);
     });
   }
+
+  // Snapshots update the mango. This loop glides the displayed feet and repaints between them.
+  const screenOpen = (): boolean => {
+    const page = root.document as { hidden?: boolean } | undefined;
+    if (page?.hidden === true) return false;
+    const canvasEl = doc.getElementById('papaya-canvas');
+    if (canvasEl == null || canvasEl.hidden === true) return false;
+    return true;
+  };
+  const citrus = attachCitrusLoop(board, {
+    requestAnimationFrame(callback) {
+      const raf = (root as { requestAnimationFrame?: (cb: (timeMs: number) => void) => number }).requestAnimationFrame;
+      if (typeof raf !== 'function') return 0;
+      return raf.call(root, callback);
+    },
+    cancelAnimationFrame(id) {
+      const cancel = (root as { cancelAnimationFrame?: (id: number) => void }).cancelAnimationFrame;
+      if (typeof cancel === 'function') cancel.call(root, id);
+    },
+    screenVisible: screenOpen,
+    paint(stills, nowMs) {
+      for (const still of stills) loadSrc(still.src);
+      show(stills, nowMs);
+    },
+  });
+  const page = root.document as LooseDoc & {
+    addEventListener?(type: string, listener: () => void): void;
+  };
+  page?.addEventListener?.('visibilitychange', () => {
+    if (screenOpen()) citrus.start();
+    else citrus.stop();
+  });
+  const Observer = (root as { MutationObserver?: new (cb: () => void) => { observe(target: unknown, options: { attributes: boolean; attributeFilter: string[] }): void } }).MutationObserver;
+  if (typeof Observer === 'function' && canvas != null) {
+    try {
+      const watch = new Observer(() => {
+        if (screenOpen()) citrus.start();
+        else citrus.stop();
+      });
+      watch.observe(canvas, { attributes: true, attributeFilter: ['hidden'] });
+    } catch {
+      // A test double is not a node. The next frame still stops when the canvas is hidden.
+    }
+  }
+  citrus.start();
 }
