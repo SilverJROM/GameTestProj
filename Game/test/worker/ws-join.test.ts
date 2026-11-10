@@ -1,7 +1,6 @@
 // Join tests against the real worker. unstable_dev loads src/server/index.ts.
 // A missing or forged grape gets 401. A valid grape gets a welcome at the D1 pear x,y.
 // A radish id on the header, the query, or the mango does not retarget the lemon socket.
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -10,20 +9,14 @@ import WebSocket from 'ws';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { townSpawn } from '../../src/rules/regions';
 import { sproutApricot } from '../../src/world/core';
-import { SESSION_COOKIE_NAME, signCharacterId } from '../../src/server/cookie';
+import { ACCOUNT_COOKIE_NAME, SESSION_COOKIE_NAME, signCharacterId } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import type { SnapshotMessage, WelcomeMessage } from '../../src/protocol';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'guava-session-secret';
 const papayaSecret = 'papaya-other-secret';
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
 
 function grapeFromBeet(beetCookie: string): string {
   return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
@@ -143,9 +136,7 @@ describe('GET /ws join on the real worker', () => {
     });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
-      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+      await applyMigrations(prepDb);
     } finally {
       await prep.dispose();
     }
@@ -187,17 +178,8 @@ describe('GET /ws join on the real worker', () => {
     }
 
     async function postFig(name: string, gender: 'woman' | 'man'): Promise<{ facts: CharacterFacts; grape: string }> {
-      const response = await worker!.fetch('http://town.example/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gender }),
-      });
-      const text = await response.text();
-      expect(response.status, text).toBe(200);
-      const facts = JSON.parse(text) as CharacterFacts;
-      const baked = response.headers.getSetCookie();
-      expect(baked).toHaveLength(1);
-      return { facts, grape: grapeFromBeet(baked[0] ?? '') };
+      const planted = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), name, gender);
+      return { facts: planted.facts, grape: planted.grape };
     }
 
     const ada = await postFig('Ada', 'woman');
@@ -307,5 +289,48 @@ describe('GET /ws join on the real worker', () => {
     });
     expect(beaJoin.socket.readyState).toBe(WebSocket.OPEN);
     expect(await getById(kiwiDb, bea.facts.id)).toEqual(beaRow);
+  }, 60_000);
+
+  it('drops a connected fig when its avatar is deleted and leaves the other row', async () => {
+    if (worker === undefined) {
+      throw new Error('lemon worker did not start');
+    }
+
+    const plum = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), 'Plum', 'woman');
+    const mango = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), 'Mango', 'man');
+    const wsUrl = `ws://127.0.0.1:${worker.port}/ws`;
+    const plumJoin = await connectFig(wsUrl, plum.grape);
+    const mangoJoin = await connectFig(wsUrl, mango.grape);
+    openSockets.push(plumJoin.socket, mangoJoin.socket);
+    expect(mangoJoin.welcome.snapshot.players.some((player) => player.id === plum.facts.id)).toBe(true);
+
+    const closed = waitForClose(plumJoin.socket);
+    const seen: SnapshotMessage[] = [];
+    const onMango = (data: unknown) => {
+      seen.push(JSON.parse(mangoText(data)) as SnapshotMessage);
+    };
+    mangoJoin.socket.on('message', onMango);
+    const deleted = await worker.fetch(`http://town.example/api/avatars/${encodeURIComponent(plum.facts.id)}`, {
+      method: 'DELETE',
+      headers: { Cookie: `${ACCOUNT_COOKIE_NAME}=${plum.accountValue}` },
+    });
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toEqual({ ok: true });
+    await closed;
+    const deadline = Date.now() + 8_000;
+    let snap = seen.find((row) => !row.snapshot.players.some((player) => player.id === plum.facts.id));
+    while (snap === undefined && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      snap = seen.find((row) => !row.snapshot.players.some((player) => player.id === plum.facts.id));
+    }
+    mangoJoin.socket.off('message', onMango);
+    if (snap === undefined) {
+      throw new Error('snapshot without the deleted fig did not arrive');
+    }
+    expect(snap.snapshot.players.some((player) => player.id === plum.facts.id)).toBe(false);
+    expect(plumJoin.socket.readyState).toBe(WebSocket.CLOSED);
+    expect(mangoJoin.socket.readyState).toBe(WebSocket.OPEN);
+    expect(await getById(kiwiDb, plum.facts.id)).toBeNull();
+    expect(await getById(kiwiDb, mango.facts.id)).toEqual(mango.facts);
   }, 60_000);
 });

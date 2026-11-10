@@ -4,11 +4,11 @@
 
 import type { Gender } from '../server/db';
 import type { ClientMessage, HitMark } from '../protocol';
-import type { ZoneName } from '../rules/tables';
+import { ZOOM_CLOSE, ZOOM_FAR, type ZoneName } from '../rules/tables';
 import { townSpawn } from '../rules/regions';
 import { removeMagenta } from './sprites';
 import { canvasToMap, mapToCanvas, viewBox, type PeachView } from './camera';
-import { answerPlum, buyQuince, peelClick, type ClickBerry } from './input';
+import { answerPlum, buyQuince, equipQuince, peelClick, unequipQuince, type ClickBerry } from './input';
 import {
   CEMETERY_WALL_SRC,
   GROUND_SRC,
@@ -16,18 +16,31 @@ import {
   TOWN_WALL_NEAR_SRC,
   controlAt,
   createOliveReel,
+  figStandSrc,
   inventorySheet,
+  oliveCarryFromText,
+  oliveCarryText,
+  oliveDragFace,
+  oliveDrop,
   paintOrchard,
   healthReadout,
+  hudReadout,
   paintHealth,
+  paintHud,
   paintStack,
   shopSheet,
   townControls,
+  type ShopRow,
+  type OliveAction,
+  type OliveCarry,
+  type OliveTarget,
   type BlitCtx,
   type ScreenCtx,
   type FigPaint,
   type GuavaStill,
   type HealthReadout,
+  type HudReadout,
+  type InventoryFacts,
   type InventorySheet,
   type OliveReel,
   type OrchardPaint,
@@ -49,11 +62,18 @@ export interface DamageNumber {
   readonly color: string;
   readonly x: number;
   readonly y: number;
+  // What the canvas paints. A coin delivery is "+N"; a hit is the bare amount.
+  readonly text: string;
 }
 
 interface FloatHit extends HitMark {
   readonly at: number;
+  // Set for a delivered coin. Hits leave it unset and keep the white or red ink.
+  readonly melonInk?: string;
 }
+
+// Gold ink for a coin the local fig's pet just delivered.
+const MELON_INK = '#e0b15a';
 
 export interface FigHooks {
   onSmith?: (open: boolean) => void;
@@ -82,18 +102,57 @@ export interface FigBoard {
   draw(): GuavaStill[];
   // Screen-space bar and numbers from character.hp and character.maxHp.
   health(): HealthReadout;
+  // Level, experience, and coins under the health bar.
+  hud(): HudReadout;
   // Numbers still on screen. White is monster damage, red is player damage. Each id is drawn once.
   damageNumbers(nowMs: number): DamageNumber[];
   // Window onto the map around the local player, for the player's current zone.
   camera(): PeachView;
+  // Area share of the current section. The guava rail moves this between the close and far ends.
+  zoom(): number;
+  setZoom(zoom: number): void;
   controls(): ScreenControl[];
   shop(): ShopSheet | null;
   inventory(): InventorySheet | null;
+  equipOwned(itemId: string): void;
+  unequipWorn(slot: 'sword' | 'armor'): void;
+  bagGear(): { readonly items: readonly string[]; readonly sword: string | null; readonly armor: string | null };
+  gearFacts(): InventoryFacts;
+  // Hides the Bag and the Blacksmith and clears both open flags.
+  closePanels(): void;
   readonly smithOpen: boolean;
   readonly bagOpen: boolean;
 }
 
 const EMPTY_ORCHARD: OrchardPaint = { players: [], monsters: [], coins: [], pickups: [] };
+
+// The jar keeps the slider's percent ("60" to "75"). A blocked or bad read starts at the close end.
+const GUAVA_ZOOM_KEY = 'game.zoom';
+
+function guavaShareFromJar(raw: string | null): number {
+  if (raw === null || raw.trim() === '') return ZOOM_CLOSE;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return ZOOM_CLOSE;
+  if (n >= 60 && n <= 75) return Math.round(n) / 100;
+  if (n >= ZOOM_CLOSE && n <= ZOOM_FAR) return Math.round(n * 100) / 100;
+  return ZOOM_CLOSE;
+}
+
+function readGuavaZoom(): number {
+  try {
+    return guavaShareFromJar(globalThis.localStorage.getItem(GUAVA_ZOOM_KEY));
+  } catch {
+    return ZOOM_CLOSE;
+  }
+}
+
+function writeGuavaZoom(percent: number): void {
+  try {
+    globalThis.localStorage.setItem(GUAVA_ZOOM_KEY, String(percent));
+  } catch {
+    // A blocked jar still leaves the fig window at the chosen share.
+  }
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -115,11 +174,13 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   let selfCoins = 0;
   let selfSword: string | null = null;
   let selfArmor: string | null = null;
+  let selfItems: string[] = [];
   const seenHits = new Set<string>();
   let floats: FloatHit[] = [];
   const selfGender = options.selfGender;
   let quinceOpen = false;
   let bagOpen = false;
+  let guavaZoom = readGuavaZoom();
   let askerHeld = '';
   let oliveDepth = 0;
   let papayaSwings = 0;
@@ -149,6 +210,9 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     if (typeof fig.coins === 'number') selfCoins = fig.coins;
     if (typeof fig.sword === 'string' || fig.sword === null) selfSword = fig.sword as string | null;
     if (typeof fig.armor === 'string' || fig.armor === null) selfArmor = fig.armor as string | null;
+    if (Array.isArray(fig.items)) {
+      selfItems = fig.items.filter((id): id is string => typeof id === 'string');
+    }
   }
 
   function ingest(raw: unknown): void {
@@ -164,16 +228,22 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     if (row === null) return;
     if (row.type === 'welcome' || row.type === 'snapshot') {
       const snap = asRecord(row.snapshot);
+      const priorCoins = orchard.coins;
       if (snap !== null && Array.isArray(snap.players) && Array.isArray(snap.monsters)) {
+        const coinsListed = Array.isArray(snap.coins);
+        const nextCoins = coinsListed ? (snap.coins as OrchardPaint['coins']) : [];
         orchard = {
           players: snap.players as FigPaint[],
           monsters: snap.monsters as OrchardPaint['monsters'],
-          coins: Array.isArray(snap.coins) ? (snap.coins as OrchardPaint['coins']) : [],
+          coins: nextCoins,
           pickups: Array.isArray(snap.pickups) ? (snap.pickups as OrchardPaint['pickups']) : [],
         };
+        readFig(row.character);
+        if (coinsListed) noteMelonCoins(priorCoins, nextCoins);
+      } else {
+        readFig(row.character);
       }
-      readFig(row.character);
-      noteHits(snap.hits);
+      if (snap !== null) noteHits(snap.hits);
       const selfRow = orchard.players.find((fig) => fig.id === selfId);
       if (selfRow !== undefined) selfPlace = selfRow.place;
       hooks.onSnapshot?.();
@@ -197,6 +267,35 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       attacking: fig.attacking === true || (swinging && fig.id === selfId),
     }));
     return paintOrchard(reel, { ...orchard, players });
+  }
+
+  function melonValue(seed: { readonly value?: number }): number {
+    return typeof seed.value === 'number' && Number.isFinite(seed.value) ? seed.value : 1;
+  }
+
+  // A coin that belonged to this fig and has left the snapshot was delivered.
+  // Another fig's coin never floats here. The rise and the one-second life match the hit numbers.
+  function noteMelonCoins(prior: readonly OrchardPaint['coins'][number][], next: readonly OrchardPaint['coins'][number][]): void {
+    if (selfId.length === 0) return;
+    const kept = new Set(next.map((seed) => seed.id));
+    const now = Date.now();
+    for (const seed of prior) {
+      if (seed.ownerId !== selfId || kept.has(seed.id)) continue;
+      const melonId = `melon:${seed.id}`;
+      if (seenHits.has(melonId)) continue;
+      seenHits.add(melonId);
+      const quinceValue = melonValue(seed);
+      floats.push({
+        id: melonId,
+        targetKind: 'player',
+        targetId: seed.id,
+        amount: quinceValue,
+        x: seed.x,
+        y: seed.y,
+        at: now,
+        melonInk: MELON_INK,
+      });
+    }
   }
 
   function noteHits(value: unknown): void {
@@ -224,18 +323,24 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     return healthReadout(selfHp, selfMaxHp);
   }
 
+  function hud(): HudReadout {
+    return hudReadout({ level: selfLevel, xp: selfXp, coins: selfCoins });
+  }
+
   function damageNumbers(nowMs: number): DamageNumber[] {
     const view = camera();
     floats = floats.filter((hit) => nowMs - hit.at < 1000);
     return floats.map((hit) => {
       const spot = mapToCanvas(view, hit.x, hit.y);
       const rise = ((nowMs - hit.at) / 1000) * 36;
+      const melonInk = hit.melonInk;
       return {
         id: hit.id,
         amount: hit.amount,
-        color: hit.targetKind === 'monster' ? '#ffffff' : '#ff3030',
+        color: melonInk ?? (hit.targetKind === 'monster' ? '#ffffff' : '#ff3030'),
         x: spot.x,
         y: spot.y - rise,
+        text: melonInk !== undefined ? `+${hit.amount}` : String(hit.amount),
       };
     });
   }
@@ -250,21 +355,49 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       maxHp: selfMaxHp,
       xp: selfXp,
       place: selfPlace,
+      items: selfItems,
+      gender: genderMap.get(selfId) ?? selfGender,
     };
   }
 
   function controls(): ScreenControl[] {
-    return townControls(camera());
+    // The blacksmith's bubble belongs to the town. The Bag button stays everywhere.
+    return townControls(camera()).filter((row) => row.id !== 'bubble' || selfPlace === 'town');
   }
 
   function shop(): ShopSheet | null {
     if (!quinceOpen) return null;
-    return shopSheet(selfCoins);
+    return shopSheet(selfCoins, selfItems);
+  }
+
+  function equipOwned(itemId: string): void {
+    if (!selfItems.includes(itemId)) return;
+    if (itemId === selfSword || itemId === selfArmor) return;
+    sendOne(equipQuince(itemId));
+  }
+
+  function unequipWorn(slot: 'sword' | 'armor'): void {
+    if (slot === 'sword' && (selfSword === null || selfSword.length === 0)) return;
+    if (slot === 'armor' && (selfArmor === null || selfArmor.length === 0)) return;
+    sendOne(unequipQuince(slot));
+  }
+
+  function bagGear(): { readonly items: readonly string[]; readonly sword: string | null; readonly armor: string | null } {
+    return { items: selfItems, sword: selfSword, armor: selfArmor };
   }
 
   function inventory(): InventorySheet | null {
     if (!bagOpen) return null;
     return inventorySheet(sheetFacts());
+  }
+
+  function closePanels(): void {
+    const smithWas = quinceOpen;
+    const bagWas = bagOpen;
+    quinceOpen = false;
+    bagOpen = false;
+    if (smithWas) hooks.onSmith?.(false);
+    if (bagWas) hooks.onBag?.(false);
   }
 
   function pressScreen(x: number, y: number): boolean {
@@ -274,6 +407,11 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       quinceOpen = true;
       bagOpen = false;
       hooks.onSmith?.(true);
+      hooks.onBag?.(false);
+      return true;
+    }
+    if (bagOpen) {
+      bagOpen = false;
       hooks.onBag?.(false);
       return true;
     }
@@ -287,7 +425,20 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   function camera(): PeachView {
     const self = orchard.players.find((fig) => fig.id === selfId);
     const spawn = townSpawn;
-    return viewBox(selfPlace, self?.x ?? spawn[0], self?.y ?? spawn[1]);
+    return viewBox(selfPlace, self?.x ?? spawn[0], self?.y ?? spawn[1], guavaZoom);
+  }
+
+  function zoom(): number {
+    return guavaZoom;
+  }
+
+  // Percent steps match the kiwi slider. A share outside the rail is pulled onto the nearer end.
+  function setZoom(next: number): void {
+    if (!Number.isFinite(next)) return;
+    const clamped = Math.min(ZOOM_FAR, Math.max(ZOOM_CLOSE, next));
+    const percent = Math.round(clamped * 100);
+    guavaZoom = percent / 100;
+    writeGuavaZoom(percent);
   }
 
   function click(berry: ClickBerry): void {
@@ -325,8 +476,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
 
   function chooseQuince(itemId: string): void {
     if (itemId.length === 0) return;
-    quinceOpen = false;
-    hooks.onSmith?.(false);
+    // The fig panel stays open. The next snapshot repaints the purse and the row.
     sendOne(buyQuince(itemId));
   }
 
@@ -367,14 +517,22 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     accept,
     decline,
     chooseQuince,
+    equipOwned,
+    unequipWorn,
+    bagGear,
+    gearFacts: sheetFacts,
     ingest,
     draw,
     health,
+    hud,
     damageNumbers,
     camera,
+    zoom,
+    setZoom,
     controls,
     shop,
     inventory,
+    closePanels,
     get smithOpen() {
       return quinceOpen;
     },
@@ -390,18 +548,34 @@ interface LooseCtx extends BlitCtx {
   putImageData?(data: { data: Uint8ClampedArray }, x: number, y: number): void;
 }
 
+interface LooseTransfer {
+  effectAllowed?: string;
+  dropEffect?: string;
+  setData?(type: string, value: string): void;
+  getData?(type: string): string;
+  setDragImage?(image: unknown, x: number, y: number): void;
+}
+
 interface LooseEl {
   hidden?: boolean;
   textContent?: string;
+  value?: string;
   width?: number;
   height?: number;
   src?: string;
   type?: string;
   disabled?: boolean;
+  draggable?: boolean;
+  className?: string;
+  tagName?: string;
+  dataset?: Record<string, string>;
+  children?: ArrayLike<LooseEl>;
   onload?: (() => void) | null;
   naturalWidth?: number;
   naturalHeight?: number;
   appendChild?(child: LooseEl): void;
+  replaceChild?(next: LooseEl, prev: LooseEl): void;
+  removeChild?(child: LooseEl): void;
   addEventListener?(type: string, listener: (event: LooseEvent) => void): void;
   getContext?(kind: string): LooseCtx | null;
   getBoundingClientRect?(): { left: number; top: number; width: number; height: number };
@@ -411,8 +585,12 @@ interface LooseEvent {
   button?: number;
   clientX?: number;
   clientY?: number;
+  key?: string;
+  target?: unknown;
   preventDefault?: () => void;
+  stopPropagation?: () => void;
   data?: unknown;
+  dataTransfer?: LooseTransfer;
 }
 
 interface LooseDoc {
@@ -458,6 +636,130 @@ function mapBerry(canvas: LooseEl, event: LooseEvent): { x: number; y: number } 
 
 let papayaPlanted = false;
 
+function figChildren(el: LooseEl): LooseEl[] {
+  if (el.children === undefined) return [];
+  return Array.from(el.children);
+}
+
+function melonBits(el: LooseEl): Record<string, string> {
+  if (el.dataset === undefined) el.dataset = {};
+  return el.dataset;
+}
+
+function leafText(node: LooseEl | null, text: string): void {
+  if (node !== null && node.textContent !== text) node.textContent = text;
+}
+
+// Centers the lime label in the white box when the canvas can measure it.
+function limePen(screen: ScreenCtx, text: string, boxX: number, boxW: number): number {
+  const measure = (screen as ScreenCtx & { measureText?(value: string): { width: number } }).measureText;
+  if (typeof measure !== 'function') return boxX + 4;
+  const width = measure.call(screen, text).width;
+  return boxX + Math.max(0, (boxW - width) / 2);
+}
+
+function quinceCopy(row: ShopRow): { text: string; className: string; disabled: boolean } {
+  if (row.state === 'owned') return { text: 'Owned', className: 'buy own', disabled: true };
+  if (row.state === 'need') return { text: `Need ${row.price} coins`, className: 'buy no', disabled: true };
+  return { text: 'Buy', className: 'buy', disabled: false };
+}
+
+function makeQuinceAction(doc: LooseDoc, row: ShopRow, onBuy: (itemId: string) => void): LooseEl {
+  const owned = row.state === 'owned';
+  const node = doc.createElement(owned ? 'span' : 'button');
+  const copy = quinceCopy(row);
+  node.className = copy.className;
+  node.textContent = copy.text;
+  node.disabled = copy.disabled;
+  if (!owned) node.type = 'button';
+  melonBits(node).state = row.state;
+  if (!owned) {
+    const itemId = row.id;
+    node.addEventListener?.('click', () => {
+      onBuy(itemId);
+    });
+  }
+  return node;
+}
+
+function makeQuinceRow(doc: LooseDoc, row: ShopRow, onBuy: (itemId: string) => void): LooseEl {
+  const host = doc.createElement('div');
+  host.className = 'row';
+  melonBits(host).item = row.id;
+  const name = doc.createElement('span');
+  name.className = 'name';
+  name.textContent = row.name;
+  const effect = doc.createElement('span');
+  effect.className = 'effect';
+  effect.textContent = row.effect;
+  const price = doc.createElement('span');
+  price.className = 'price';
+  price.textContent = String(row.price);
+  host.appendChild?.(name);
+  host.appendChild?.(effect);
+  host.appendChild?.(price);
+  host.appendChild?.(makeQuinceAction(doc, row, onBuy));
+  return host;
+}
+
+function quinceRowsMatch(list: LooseEl, rows: readonly ShopRow[]): boolean {
+  const kids = figChildren(list);
+  let index = 0;
+  let group = '';
+  for (const row of rows) {
+    if (row.group !== group) {
+      const heading = kids[index];
+      if (heading === undefined || heading.textContent !== row.group) return false;
+      group = row.group;
+      index += 1;
+    }
+    if (kids[index]?.dataset?.item !== row.id) return false;
+    index += 1;
+  }
+  return rows.length > 0 && index === kids.length;
+}
+
+function plantQuinceRows(
+  doc: LooseDoc,
+  list: LooseEl,
+  rows: readonly ShopRow[],
+  onBuy: (itemId: string) => void,
+): void {
+  if ((list.textContent ?? '') !== '' || figChildren(list).length > 0) list.textContent = '';
+  let group = '';
+  for (const row of rows) {
+    if (row.group !== group) {
+      const heading = doc.createElement('h4');
+      heading.textContent = row.group;
+      list.appendChild?.(heading);
+      group = row.group;
+    }
+    list.appendChild?.(makeQuinceRow(doc, row, onBuy));
+  }
+}
+
+function syncQuinceRow(doc: LooseDoc, host: LooseEl, row: ShopRow, onBuy: (itemId: string) => void): void {
+  const kids = figChildren(host);
+  leafText(kids.find((child) => child.className === 'name') ?? null, row.name);
+  leafText(kids.find((child) => child.className === 'effect') ?? null, row.effect);
+  leafText(kids.find((child) => child.className === 'price') ?? null, String(row.price));
+  const action = kids[kids.length - 1];
+  if (action === undefined) return;
+  const prior = action.dataset?.state;
+  const ownedNow = row.state === 'owned';
+  const ownedBefore = prior === 'owned';
+  if (prior !== row.state && ownedNow !== ownedBefore) {
+    const next = makeQuinceAction(doc, row, onBuy);
+    host.replaceChild?.(next, action);
+    return;
+  }
+  const copy = quinceCopy(row);
+  leafText(action, copy.text);
+  if (action.className !== copy.className) action.className = copy.className;
+  if (action.disabled !== copy.disabled) action.disabled = copy.disabled;
+  if (action.dataset !== undefined) action.dataset.state = row.state;
+}
+
 // Called after a successful sign-in. A test double with no window returns without opening a lemon.
 export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   const root = browserRoot();
@@ -495,18 +797,24 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     const screen = ctx as BlitCtx & ScreenCtx;
     if (typeof screen.fillRect === 'function' && typeof screen.fillText === 'function') {
       paintHealth(screen, board.health());
+      paintHud(screen, board.hud());
       for (const control of board.controls()) {
         screen.fillStyle = control.id === 'bag' ? '#1c1814' : '#ffffff';
         screen.fillRect(control.x, control.y, control.width, control.height);
         screen.fillStyle = control.id === 'bag' ? '#ffffff' : '#1a140c';
-        screen.font = '800 22px Georgia, serif';
-        screen.fillText(control.text, control.x + 12, control.y + 36);
+        screen.font = control.font;
+        if (control.id === 'bubble') {
+          const pen = limePen(screen, control.text, control.x, control.width);
+          screen.fillText(control.text, pen, control.y + 28);
+        } else {
+          screen.fillText(control.text, control.x + 12, control.y + 36);
+        }
       }
       const now = Date.now();
       for (const num of board.damageNumbers(now)) {
         screen.fillStyle = num.color;
         screen.font = '800 44px Georgia, serif';
-        screen.fillText(String(num.amount), num.x, num.y);
+        screen.fillText(num.text, num.x, num.y);
       }
     }
   }
@@ -554,6 +862,318 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     }
   }
 
+  let oliveSig = '';
+  let oliveCarryStash: OliveCarry | null = null;
+  // True only between dragstart and dragend. A late drop still reads the stash.
+  let oliveDragLive = false;
+  // A drag's click must not also equip or unequip. The next pointer down clears it.
+  let oliveDragMoved = false;
+
+  function oliveText(id: string, text: string): void {
+    const node = doc.getElementById(id);
+    if (node !== null && node.textContent !== text) node.textContent = text;
+  }
+
+  function findField(root: LooseEl, field: string): LooseEl | null {
+    const kids = figChildren(root);
+    for (const child of kids) {
+      if (child.dataset?.field === field) return child;
+      const nested = findField(child, field);
+      if (nested !== null) return nested;
+    }
+    return null;
+  }
+
+  function ensureSlot(slot: LooseEl, kindLabel: string): void {
+    if (findField(slot, 'name') !== null) return;
+    slot.textContent = '';
+    const copy = doc.createElement('div');
+    const kind = doc.createElement('div');
+    kind.className = 'kind';
+    kind.textContent = kindLabel;
+    const name = doc.createElement('div');
+    name.className = 'what';
+    if (name.dataset !== undefined) name.dataset.field = 'name';
+    copy.appendChild?.(kind);
+    copy.appendChild?.(name);
+    const drop = doc.createElement('div');
+    drop.className = 'dropword';
+    drop.hidden = true;
+    drop.textContent = 'Drop to equip';
+    if (drop.dataset !== undefined) drop.dataset.field = 'drop';
+    const bonus = doc.createElement('b');
+    if (bonus.dataset !== undefined) bonus.dataset.field = 'bonus';
+    slot.appendChild?.(copy);
+    slot.appendChild?.(drop);
+    slot.appendChild?.(bonus);
+  }
+
+  function keepClass(node: LooseEl, rest: string): void {
+    const name = node.className ?? '';
+    if (name.includes('lime') || name.includes('peach')) return;
+    if (name !== rest) node.className = rest;
+  }
+
+  function readCarry(event: LooseEvent): OliveCarry | null {
+    const raw = event.dataTransfer?.getData?.('text/plain') ?? '';
+    if (raw.length > 0) {
+      const parsed = oliveCarryFromText(raw);
+      if (parsed !== null) return parsed;
+    }
+    return oliveCarryStash;
+  }
+
+  function wornNow(): { sword: string | null; armor: string | null } {
+    const gear = board.bagGear();
+    return { sword: gear.sword, armor: gear.armor };
+  }
+
+  function applyOlive(action: OliveAction): void {
+    if (action.type === 'equip') board.equipOwned(action.itemId);
+    else board.unequipWorn(action.slot);
+  }
+
+  function showDragFace(carry: OliveCarry | null): void {
+    const sword = doc.getElementById('olive-sword');
+    const armor = doc.getElementById('olive-armor');
+    const row = doc.getElementById('olive-items');
+    const hint = doc.getElementById('olive-hint');
+    const face = carry === null ? null : oliveDragFace(board.gearFacts(), carry);
+    const moodOf = (slot: 'sword' | 'armor'): 'lime' | 'peach' | 'rest' => {
+      if (face === null) return 'rest';
+      return slot === 'sword' ? face.sword : face.armor;
+    };
+    for (const pair of [
+      [sword, 'sword'],
+      [armor, 'armor'],
+    ] as const) {
+      const node = pair[0];
+      if (node === null) continue;
+      const mood = moodOf(pair[1]);
+      const next = mood === 'rest' ? 'slot' : `slot ${mood}`;
+      if (node.className !== next) node.className = next;
+      const drop = findField(node, 'drop');
+      if (drop !== null) drop.hidden = mood !== 'lime';
+    }
+    if (row !== null) {
+      const next = face?.row === 'lime' ? 'plum-row lime' : 'plum-row';
+      if (row.className !== next) row.className = next;
+    }
+    if (hint !== null) {
+      const text = face?.hint ?? '';
+      if (hint.textContent !== text) hint.textContent = text;
+      hint.hidden = text.length === 0;
+    }
+  }
+
+  function beginCarry(event: LooseEvent, carry: OliveCarry): void {
+    oliveDragMoved = true;
+    oliveDragLive = true;
+    oliveCarryStash = carry;
+    if (event.dataTransfer !== undefined) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData?.('text/plain', oliveCarryText(carry));
+    }
+    showDragFace(carry);
+  }
+
+  function forgetCarry(): void {
+    oliveDragLive = false;
+    oliveCarryStash = null;
+    showDragFace(null);
+  }
+
+  function endCarry(): void {
+    // A pointer drag can end before the drop lands. Keep the stash for that drop.
+    oliveDragLive = false;
+    showDragFace(null);
+  }
+
+  // A dragover after that early end paints the lime slot again.
+  function acceptCarry(event: LooseEvent, target: OliveTarget): OliveAction | null {
+    const carry = readCarry(event);
+    if (carry === null) return null;
+    showDragFace(carry);
+    const action = oliveDrop(carry, target, wornNow());
+    allowDrop(event, action);
+    return action;
+  }
+
+  function allowDrop(event: LooseEvent, action: OliveAction | null): boolean {
+    if (action === null) return false;
+    event.preventDefault?.();
+    if (event.dataTransfer !== undefined) event.dataTransfer.dropEffect = 'move';
+    return true;
+  }
+
+  function paintOliveFig(src: string): void {
+    const lime = doc.getElementById('olive-fig');
+    if (lime === null || lime === undefined) return;
+    if (lime.dataset === undefined) lime.dataset = {};
+    if (lime.dataset.stand === src) return;
+    lime.dataset.stand = src;
+    lime.draggable = false;
+    lime.src = src;
+    const Picture = root.Image;
+    if (typeof Picture !== 'function') return;
+    const picture = new Picture();
+    picture.onload = () => {
+      if (lime.dataset?.stand !== src) return;
+      const peeled = peelImage(picture);
+      const canvas = peeled as LooseEl & { toDataURL?(kind: string): string };
+      if (peeled !== picture && typeof canvas.toDataURL === 'function' && lime.dataset?.stand === src) {
+        lime.src = canvas.toDataURL('image/png');
+      }
+    };
+    picture.src = src;
+  }
+
+  function syncGrape(node: LooseEl, tile: { id: string; name: string; bonus: string; worn: boolean; slot: 'sword' | 'armor' }): void {
+    const nextClass = tile.worn ? 'grape worn' : 'grape';
+    if (node.className !== nextClass) node.className = nextClass;
+    if (node.draggable !== true) node.draggable = true;
+    if (node.dataset !== undefined) {
+      node.dataset.item = tile.id;
+      node.dataset.slot = tile.slot;
+    }
+    const name = figChildren(node).find((child) => child.className === 'nm') ?? null;
+    const bonus = figChildren(node).find((child) => child.className === 'bn') ?? null;
+    leafText(name, tile.name);
+    leafText(bonus, tile.bonus);
+    const seal = figChildren(node).find((child) => child.className === 'seal') ?? null;
+    if (tile.worn && seal === null) {
+      const mark = doc.createElement('span');
+      mark.className = 'seal';
+      mark.textContent = 'Equipped';
+      node.appendChild?.(mark);
+    } else if (!tile.worn && seal !== null) {
+      node.removeChild?.(seal);
+    }
+  }
+
+  function makeGrape(tile: { id: string; name: string; bonus: string; worn: boolean; slot: 'sword' | 'armor' }): LooseEl {
+    const node = doc.createElement('div');
+    node.className = tile.worn ? 'grape worn' : 'grape';
+    node.draggable = true;
+    if (node.dataset !== undefined) {
+      node.dataset.item = tile.id;
+      node.dataset.slot = tile.slot;
+    }
+    const name = doc.createElement('span');
+    name.className = 'nm';
+    name.textContent = tile.name;
+    const bonus = doc.createElement('span');
+    bonus.className = 'bn';
+    bonus.textContent = tile.bonus;
+    node.appendChild?.(name);
+    node.appendChild?.(bonus);
+    if (tile.worn) {
+      const mark = doc.createElement('span');
+      mark.className = 'seal';
+      mark.textContent = 'Equipped';
+      node.appendChild?.(mark);
+    }
+    const arm = () => {
+      oliveDragMoved = false;
+      if (!oliveDragLive) oliveCarryStash = null;
+    };
+    node.addEventListener?.('pointerdown', arm);
+    node.addEventListener?.('mousedown', arm);
+    node.addEventListener?.('click', () => {
+      if (oliveDragMoved) {
+        oliveDragMoved = false;
+        return;
+      }
+      const itemId = node.dataset?.item ?? '';
+      if (itemId.length > 0) board.equipOwned(itemId);
+    });
+    node.addEventListener?.('dragstart', (event) => {
+      const itemId = node.dataset?.item ?? '';
+      const slot = node.dataset?.slot;
+      if (itemId.length === 0 || (slot !== 'sword' && slot !== 'armor')) return;
+      beginCarry(event, { from: 'tile', itemId, slot });
+    });
+    node.addEventListener?.('dragend', () => {
+      endCarry();
+    });
+    return node;
+  }
+
+  function paintOlive(): void {
+    if (!board.bagOpen) return;
+    const sheet = board.inventory();
+    if (sheet === null) return;
+    oliveText('olive-coins', `Coins: ${sheet.coins}`);
+    oliveText('olive-level', String(sheet.level));
+    oliveText('olive-health', sheet.health);
+    oliveText('olive-strike', String(sheet.strike));
+    oliveText('olive-xp', sheet.experience);
+    const sword = doc.getElementById('olive-sword');
+    const armor = doc.getElementById('olive-armor');
+    if (sword !== null) {
+      ensureSlot(sword, 'Sword');
+      keepClass(sword, 'slot');
+      leafText(findField(sword, 'name'), sheet.sword);
+      leafText(findField(sword, 'bonus'), sheet.swordBonus);
+      sword.draggable = sheet.swordBonus.length > 0;
+    }
+    if (armor !== null) {
+      ensureSlot(armor, 'Armor');
+      keepClass(armor, 'slot');
+      leafText(findField(armor, 'name'), sheet.armor);
+      leafText(findField(armor, 'bonus'), sheet.armorBonus);
+      armor.draggable = sheet.armorBonus.length > 0;
+    }
+    paintOliveItems(sheet.tiles);
+    paintOliveFig(sheet.portrait);
+    if (oliveDragLive && oliveCarryStash !== null) showDragFace(oliveCarryStash);
+  }
+
+  function paintOliveItems(tiles: readonly { id: string; name: string; bonus: string; worn: boolean; slot: 'sword' | 'armor' }[]): void {
+    const host = doc.getElementById('olive-items');
+    if (host === null || host === undefined) return;
+    keepClass(host, 'plum-row');
+    const next = tiles.map((tile) => tile.id).join(',');
+    if (next !== oliveSig) {
+      oliveSig = next;
+      host.textContent = '';
+      for (const tile of tiles) host.appendChild?.(makeGrape(tile));
+      return;
+    }
+    const kids = figChildren(host);
+    tiles.forEach((tile, index) => {
+      const node = kids[index];
+      if (node !== undefined) syncGrape(node, tile);
+    });
+  }
+
+  function paintQuince(): void {
+    if (!board.smithOpen || smithList === null) return;
+    const sheet = board.shop();
+    const purse = doc.getElementById('quince-purse');
+    const purseText = sheet === null ? '' : `Your coins: ${sheet.coins}`;
+    if (purse !== null && purse.textContent !== purseText) purse.textContent = purseText;
+    if (sheet === null) return;
+    // Keep a fig row whose words did not change, so a click on it is not thrown away.
+    if (!quinceRowsMatch(smithList, sheet.rows)) {
+      plantQuinceRows(doc, smithList, sheet.rows, (itemId) => {
+        const fresh = board.shop()?.rows.find((candidate) => candidate.id === itemId);
+        if (fresh?.state !== 'buy') return;
+        board.chooseQuince(itemId);
+      });
+      return;
+    }
+    const hosts = figChildren(smithList).filter((child) => child.dataset?.item !== undefined);
+    sheet.rows.forEach((row, index) => {
+      const host = hosts[index];
+      if (host !== undefined) syncQuinceRow(doc, host, row, (itemId) => {
+        const fresh = board.shop()?.rows.find((candidate) => candidate.id === itemId);
+        if (fresh?.state !== 'buy') return;
+        board.chooseQuince(itemId);
+      });
+    });
+  }
+
   const board = plantFigBoard({
     createSocket: (_url, _plumCookie) => new root.WebSocket!(lemonUrl(root)),
     plumCookie: '',
@@ -563,44 +1183,13 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     hooks: {
       onSmith(open) {
         if (smith !== null) smith.hidden = !open;
-        if (smithList === null || !open) return;
-        smithList.textContent = '';
-        const purse = doc.getElementById('quince-purse');
-        const sheet = board.shop();
-        if (purse !== null) purse.textContent = sheet === null ? '' : `Your coins: ${sheet.coins}`;
-        if (sheet === null) return;
-        for (const row of sheet.rows) {
-          const button = doc.createElement('button');
-          button.type = 'button';
-          button.textContent = row.canBuy
-            ? `${row.name} (${row.price})`
-            : `${row.name} (Need ${row.price} coins)`;
-          button.disabled = !row.canBuy;
-          if (row.canBuy) {
-            button.addEventListener?.('click', () => {
-              board.chooseQuince(row.id);
-            });
-          }
-          smithList.appendChild?.(button);
-        }
+        if (open) paintQuince();
       },
       onBag(open) {
         const sheetEl = doc.getElementById('olive-sheet');
         if (sheetEl !== null) sheetEl.hidden = !open;
-        if (!open) return;
-        const sheet = board.inventory();
-        const write = (id: string, text: string) => {
-          const node = doc.getElementById(id);
-          if (node !== null) node.textContent = text;
-        };
-        if (sheet === null) return;
-        write('olive-coins', `Coins: ${sheet.coins}`);
-        write('olive-sword', sheet.sword);
-        write('olive-armor', sheet.armor);
-        write('olive-level', `Level ${sheet.level}`);
-        write('olive-health', sheet.health);
-        write('olive-strike', `Strike ${sheet.strike}`);
-        write('olive-xp', `Experience ${sheet.experience}`);
+        if (!open) forgetCarry();
+        if (open) paintOlive();
       },
       onOffer(offer) {
         if (plumDuel !== null) plumDuel.hidden = offer === null;
@@ -609,6 +1198,8 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
         }
       },
       onSnapshot() {
+        paintOlive();
+        paintQuince();
         const stills = board.draw();
         for (const still of stills) loadSrc(still.src);
         show(stills);
@@ -622,9 +1213,92 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   plumDecline?.addEventListener?.('click', () => {
     board.decline();
   });
+  function carryFromSlot(slot: 'sword' | 'armor'): OliveCarry | null {
+    const gear = board.bagGear();
+    const itemId = slot === 'sword' ? gear.sword : gear.armor;
+    if (itemId === null || itemId.length === 0) return null;
+    return { from: 'slot', itemId, slot };
+  }
+
+  function wireSlot(id: string, slot: 'sword' | 'armor'): void {
+    const node = doc.getElementById(id);
+    if (node === null) return;
+    const arm = () => {
+      oliveDragMoved = false;
+      if (!oliveDragLive) oliveCarryStash = null;
+    };
+    node.addEventListener?.('pointerdown', arm);
+    node.addEventListener?.('mousedown', arm);
+    node.addEventListener?.('click', () => {
+      if (oliveDragMoved) {
+        oliveDragMoved = false;
+        return;
+      }
+      board.unequipWorn(slot);
+    });
+    node.addEventListener?.('dragstart', (event) => {
+      const carry = carryFromSlot(slot);
+      if (carry === null) return;
+      beginCarry(event, carry);
+    });
+    node.addEventListener?.('dragend', () => {
+      endCarry();
+    });
+    const accept = (event: LooseEvent) => {
+      acceptCarry(event, { kind: 'slot', slot });
+    };
+    node.addEventListener?.('dragenter', accept);
+    node.addEventListener?.('dragover', accept);
+    node.addEventListener?.('drop', (event) => {
+      const action = acceptCarry(event, { kind: 'slot', slot });
+      if (action === null) return;
+      applyOlive(action);
+      forgetCarry();
+    });
+  }
+
+  function wireRow(): void {
+    const node = doc.getElementById('olive-items');
+    if (node === null) return;
+    const accept = (event: LooseEvent) => {
+      acceptCarry(event, { kind: 'row' });
+    };
+    node.addEventListener?.('dragenter', accept);
+    node.addEventListener?.('dragover', accept);
+    node.addEventListener?.('drop', (event) => {
+      const action = acceptCarry(event, { kind: 'row' });
+      if (action === null) return;
+      applyOlive(action);
+      forgetCarry();
+    });
+  }
+
+  function shutPanels(): void {
+    forgetCarry();
+    board.closePanels();
+  }
+
+  doc.getElementById('quince-close')?.addEventListener?.('click', () => {
+    shutPanels();
+  });
+  doc.getElementById('olive-close')?.addEventListener?.('click', () => {
+    shutPanels();
+  });
+  wireSlot('olive-sword', 'sword');
+  wireSlot('olive-armor', 'armor');
+  wireRow();
+  const keyHost = doc as LooseDoc & {
+    addEventListener?(type: string, listener: (event: LooseEvent) => void): void;
+  };
+  keyHost.addEventListener?.('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (!board.smithOpen && !board.bagOpen) return;
+    shutPanels();
+  });
 
   canvas?.addEventListener?.('mousedown', (event) => {
     if (event.button !== 0 && event.button !== 2) return;
+    if (event.target !== undefined && event.target !== null && event.target !== canvas) return;
     event.preventDefault?.();
     const pixel = mapBerry(canvas, event);
     if (board.pressScreen(pixel.x, pixel.y)) return;
@@ -634,4 +1308,38 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   canvas?.addEventListener?.('contextmenu', (event) => {
     event.preventDefault?.();
   });
+
+  // The kiwi rail is a real control over the picture. Presses on it must not become a walk or an attack.
+  const kiwiZoom = doc.getElementById('kiwi-zoom');
+  const guavaSlider = doc.getElementById('zoom-slider');
+  if (guavaSlider !== null) {
+    const applyGuava = () => {
+      const raw = Number(guavaSlider.value);
+      if (!Number.isFinite(raw)) return;
+      board.setZoom(raw / 100);
+      show(painted);
+    };
+    guavaSlider.value = String(Math.round(board.zoom() * 100));
+    const swallow = (event: LooseEvent) => {
+      event.stopPropagation?.();
+    };
+    for (const type of ['pointerdown', 'mousedown', 'click', 'touchstart']) {
+      guavaSlider.addEventListener?.(type, swallow);
+      kiwiZoom?.addEventListener?.(type, swallow);
+    }
+    guavaSlider.addEventListener?.('input', applyGuava);
+    // The half-turn that puts 60 at the top also flips the arrow keys. Point them back at the picture.
+    guavaSlider.addEventListener?.('keydown', (event) => {
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      const current = Number(guavaSlider.value);
+      const base = Number.isFinite(current) ? current : Math.round(ZOOM_CLOSE * 100);
+      const next = Math.min(Math.round(ZOOM_FAR * 100), Math.max(Math.round(ZOOM_CLOSE * 100), base + step));
+      guavaSlider.value = String(next);
+      board.setZoom(next / 100);
+      show(painted);
+    });
+  }
 }

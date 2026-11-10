@@ -1,6 +1,8 @@
 // Axolotl pickup: the owner's pet digs up one coin seed at a time from the cabbage bed.
 // The dig lasts pearTimings.coinPickupSeconds on the papaya clock; this module copies no number.
+// When the dig finishes, the purse gains that seed's value in one {coins} write.
 // Only the seed's owner is ever stepped, and only while that owner's lemon socket is open.
+// The owner may walk during the dig; the timer follows the lime clock, not the fig's feet.
 // The bed stays the one seed pile. This module keeps the live dig timers, which are never stored.
 
 import { kaleConstants, pearTimings } from '../rules/tables';
@@ -60,11 +62,12 @@ export function stepPickups(
       if (dig.elapsedMs < digMs()) {
         break;
       }
-      // The dig is ripe: one seed leaves the ground and one coin enters the purse, in this tick.
+      // The dig is ripe: the seed leaves the ground and its whole value enters the purse, in this tick.
       const seedId = dig.seedId;
+      const ripe = current.seeds.find((seed) => seed.id === seedId);
       current = { ...current, seeds: current.seeds.filter((seed) => seed.id !== seedId) };
       changed = true;
-      const coins = fig.facts.coins + 1;
+      const coins = fig.facts.coins + (ripe === undefined ? 1 : ripe.value);
       fig.facts = { ...fig.facts, coins };
       writes.push({ id: ownerId, patch: { coins } });
       digs.delete(ownerId);

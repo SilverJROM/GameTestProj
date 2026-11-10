@@ -144,14 +144,35 @@ function mangoText(data) {
 }
 
 async function logIn(base, name, gender) {
-  const reply = await fetch(`${base}/api/login`, {
+  const password = 'pear-orchard-pass';
+  const account = await fetch(`${base}/api/account`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: name, password }),
+  });
+  const accountText = await account.text();
+  if (account.status !== 200) {
+    throw new Error(`account ${name} -> ${account.status} ${accountText}`);
+  }
+  const accountCookie = (account.headers.getSetCookie()[0] ?? '').split(';')[0].trim();
+  const avatar = await fetch(`${base}/api/avatars`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: accountCookie },
     body: JSON.stringify({ name, gender }),
+  });
+  const avatarText = await avatar.text();
+  if (avatar.status !== 200) {
+    throw new Error(`avatar ${name} -> ${avatar.status} ${avatarText}`);
+  }
+  const avatarFacts = JSON.parse(avatarText);
+  const reply = await fetch(`${base}/api/play`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: accountCookie },
+    body: JSON.stringify({ id: avatarFacts.id }),
   });
   const text = await reply.text();
   if (reply.status !== 200) {
-    throw new Error(`login ${name} -> ${reply.status} ${text}`);
+    throw new Error(`play ${name} -> ${reply.status} ${text}`);
   }
   const beet = (reply.headers.getSetCookie()[0] ?? '').split(';')[0].trim();
   return { facts: JSON.parse(text), beet };

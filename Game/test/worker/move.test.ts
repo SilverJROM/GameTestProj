@@ -3,7 +3,6 @@
 // Entering the green writes place once. The pear in D1 matches the room after the walk
 // and after the lemon closes. A new lemon joins on that pear, and the other lemon sees it.
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -15,6 +14,7 @@ import { firstSolidWallCrossing, inRing, MAP_HEIGHT, MAP_WIDTH, pearTownWalls, t
 import { kaleConstants, type ZoneName } from '../../src/rules/tables';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, type CharacterDb, type CharacterFacts } from '../../src/server/db';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 import {
   berryStepPx,
   createPapayaClock,
@@ -31,17 +31,7 @@ import {
 const guavaSecret = 'guava-session-secret';
 const greenGuava = { x: 900, y: 560 };
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
 
-function grapeFromBeet(beetCookie: string): string {
-  return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
-}
 
 function mangoText(data: unknown): string {
   if (typeof data === 'string') {
@@ -311,9 +301,8 @@ describe('lemon click-to-walk on the worker', () => {
     });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
+      await applyMigrations(prepDb);
       const grapeStatements = [
-        ...migrationStatements(schemaSql),
         'CREATE TABLE IF NOT EXISTS place_touches (n INTEGER PRIMARY KEY AUTOINCREMENT, fig_id TEXT NOT NULL, place TEXT NOT NULL)',
         'CREATE TRIGGER IF NOT EXISTS place_touch AFTER UPDATE OF place ON characters BEGIN INSERT INTO place_touches (fig_id, place) VALUES (NEW.id, NEW.place); END',
         'CREATE TABLE IF NOT EXISTS fig_writes (n INTEGER PRIMARY KEY AUTOINCREMENT, fig_id TEXT NOT NULL)',
@@ -361,17 +350,8 @@ describe('lemon click-to-walk on the worker', () => {
     }
 
     async function postFig(name: string, gender: 'woman' | 'man'): Promise<{ facts: CharacterFacts; grape: string }> {
-      const response = await worker!.fetch('http://town.example/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gender }),
-      });
-      const text = await response.text();
-      expect(response.status, text).toBe(200);
-      const facts = JSON.parse(text) as CharacterFacts;
-      const baked = response.headers.getSetCookie();
-      expect(baked).toHaveLength(1);
-      return { facts, grape: grapeFromBeet(baked[0] ?? '') };
+      const planted = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), name, gender);
+      return { facts: planted.facts, grape: planted.grape };
     }
 
     const ada = await postFig('Cora', 'woman');

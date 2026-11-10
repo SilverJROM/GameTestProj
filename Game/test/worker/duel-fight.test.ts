@@ -1,7 +1,6 @@
 // Duel fight: damage, settlement, town exit, and the shared attack clock, on the injected papaya clock.
 // No real sleep: time moves only by ripen messages, and every wait is a socket message.
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -15,22 +14,16 @@ import {
   type SnapshotMessage,
   type WelcomeMessage,
 } from '../../src/protocol';
-import { strike, type Hero } from '../../src/rules/logic';
+import { maxHealth, strike, type Hero } from '../../src/rules/logic';
 import { townSpawn } from '../../src/rules/regions';
-import { pearTimings } from '../../src/rules/tables';
+import { kaleConstants, pearTimings } from '../../src/rules/tables';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import { plantCabbage } from '../../src/world/monsters';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'duel-fight-session-secret';
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
 
 function grapeFromBeet(beetCookie: string): string {
   return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
@@ -90,7 +83,9 @@ function bootLemon(orchardDir: string): Promise<Unstable_DevWorker> {
 const wolves = plantCabbage().beets.filter((beet) => beet.kind === 'wolf');
 const wolfSpot = wolves[0]!;
 const gapMs = Math.round(pearTimings.playerAttackGapSeconds * 1000);
-const tickMs = 100;
+const tickMs = kaleConstants.tickMs;
+// Whole milliseconds still inside the rules gap, on a tick boundary. The next tick crosses the gap.
+const insideGapMs = Math.floor((gapMs - 1) / tickMs) * tickMs;
 
 describe('duel fight', () => {
   let worker: Unstable_DevWorker | undefined;
@@ -105,9 +100,7 @@ describe('duel fight', () => {
     const prep = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: { path: v3Path } });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
-      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+      await applyMigrations(prepDb);
     } finally {
       await prep.dispose();
     }
@@ -133,15 +126,9 @@ describe('duel fight', () => {
   const inTown = { place: 'town' as const, coins: 5, x: townSpawn[0], y: townSpawn[1] };
 
   async function joinFig(name: string, patch: Partial<CharacterFacts>): Promise<PlumFig> {
-    const response = await worker!.fetch('http://town.example/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, gender: 'woman' }),
-    });
-    const text = await response.text();
-    expect(response.status, text).toBe(200);
-    const facts = JSON.parse(text) as CharacterFacts;
-    const grape = grapeFromBeet(response.headers.getSetCookie()[0] ?? '');
+    const planted = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), name, 'woman');
+    const facts = planted.facts;
+    const grape = planted.grape;
     await saveFacts(kiwiDb, facts.id, patch);
     const joined = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, grape);
     openSockets.push(joined.socket);
@@ -224,10 +211,20 @@ describe('duel fight', () => {
   }
 
   async function settle(winnerCoins: number, loserCoins: number, tag: string) {
+    // Full max health is the level row plus the worn armor. The old ladder's 52 is not that number any more.
+    const loserMax = maxHealth({
+      level: inGreen.level,
+      xp: 5,
+      health: 1,
+      coins: loserCoins,
+      sword: 'shortSword',
+      armor: 'leather',
+      place: 'green',
+    });
     const { asker: winner, target: loser } = await pairUp(`Win${tag}`, `Lose${tag}`, { coins: winnerCoins, xp: 3 }, {
       coins: loserCoins,
       hp: 1,
-      maxHp: 52,
+      maxHp: loserMax,
       xp: 5,
       sword: 'shortSword',
       armor: 'leather',
@@ -323,19 +320,47 @@ describe('duel fight', () => {
 
   describe('shared attack clock with a real wolf', () => {
     const wolfHpOf = (snap: SnapshotMessage, wolfId: string) => snap.snapshot.monsters.find((beet) => beet.id === wolfId)!.hp;
+    const wolfInReach = (snap: SnapshotMessage, wolfId: string) => {
+      const beet = snap.snapshot.monsters.find((row) => row.id === wolfId)!;
+      expect(Math.hypot(beet.x - snap.character.x, beet.y - snap.character.y)).toBeLessThanOrEqual(kaleConstants.meleeReachPx);
+    };
+
+    // Beets patrol off the spawn the cabbage was planted on. Walk onto the live beet and stop
+    // close enough that one rules gap of patrol still leaves it inside melee reach.
+    async function ripenOntoBeet(fig: PlumFig, beetId: string): Promise<void> {
+      const patrolPx = (kaleConstants.monsterPatrolSpeedPxPerSec * tickMs) / 1000;
+      const holdTicks = Math.ceil(gapMs / tickMs);
+      const slackPx = kaleConstants.meleeReachPx - patrolPx * (holdTicks + 1);
+      expect(slackPx).toBeGreaterThan(0);
+      for (let step = 0; step < 400; step += 1) {
+        const snap = await ask(fig, { type: 'ping' });
+        const beet = snap.snapshot.monsters.find((row) => row.id === beetId);
+        if (beet === undefined) {
+          throw new Error('beet left the bed');
+        }
+        if (Math.hypot(beet.x - snap.character.x, beet.y - snap.character.y) <= slackPx) {
+          return;
+        }
+        await ask(fig, { type: 'move', x: beet.x, y: beet.y });
+        await ripenMs(fig, tickMs);
+      }
+      throw new Error('beet never in reach');
+    }
 
     it('a duel swing at 0 blocks a monster swing at 400 ms, and either lands at the rules gap', async () => {
       const wolf = wolves[1]!;
       const { asker, target } = await pairUp('ClockA', 'ClockB', { x: wolf.x, y: wolf.y }, { hp: 40, maxHp: 40 });
+      await ripenOntoBeet(asker, wolf.id);
       const startHp = wolfHpOf(await ask(asker, { type: 'ping' }), wolf.id);
       const targetStart = (await factsOf(target.id)).hp;
       await ask(asker, { type: 'attack', playerId: target.id });
       const targetOnce = await hpBelow(asker, target.id, targetStart);
-      await ripenMs(asker, 400);
+      await ripenMs(asker, insideGapMs);
       const blocked = await ask(asker, { type: 'attack', monsterId: wolf.id });
+      wolfInReach(blocked, wolf.id);
       expect(wolfHpOf(blocked, wolf.id)).toBe(startHp);
-      // The next whole tick after 400 ms is 500 ms, past the 450 ms rules gap.
-      await ripenMs(asker, 100);
+      // The next whole tick crosses the rules gap, so the same swing lands.
+      await ripenMs(asker, tickMs);
       await ask(asker, { type: 'attack', monsterId: wolf.id });
       await wolfBelow(asker, wolf.id, startHp);
       // The monster swing stamped the clock: a duel swing a full gap later lands.
@@ -347,23 +372,24 @@ describe('duel fight', () => {
     it('a monster swing at 0 blocks a duel swing at 400 ms, and either lands at the rules gap', async () => {
       const wolf = wolves[2]!;
       const { asker, target } = await pairUp('ClockC', 'ClockD', { x: wolf.x, y: wolf.y, hp: 40, maxHp: 40 }, { hp: 40, maxHp: 40 });
+      await ripenOntoBeet(asker, wolf.id);
       const startHp = wolfHpOf(await ask(asker, { type: 'ping' }), wolf.id);
       await ask(asker, { type: 'attack', monsterId: wolf.id });
       const wolfOnce = await wolfBelow(asker, wolf.id, startHp);
       const targetStart = (await factsOf(target.id)).hp;
-      await ripenMs(asker, 400);
+      await ripenMs(asker, insideGapMs);
       await ask(asker, { type: 'attack', playerId: target.id });
       expect((await factsOf(target.id)).hp).toBe(targetStart);
-      // The next whole tick after 400 ms is 500 ms, past the 450 ms rules gap.
-      await ripenMs(asker, 100);
+      // The next whole tick crosses the rules gap, so the duel swing lands.
+      await ripenMs(asker, tickMs);
       await ask(asker, { type: 'attack', playerId: target.id });
       const targetOnce = await hpBelow(asker, target.id, targetStart);
-      // The duel swing at 500 stamped the clock: a monster swing at 400 more is blocked, at 450 lands.
-      await ripenMs(asker, 400);
+      // The duel swing stamped the clock: a monster swing still inside the gap is blocked, and the next tick lands.
+      await ripenMs(asker, insideGapMs);
       const blocked = await ask(asker, { type: 'attack', monsterId: wolf.id });
+      wolfInReach(blocked, wolf.id);
       expect(wolfHpOf(blocked, wolf.id)).toBe(wolfOnce);
-      // The next whole tick after 400 ms is 500 ms, past the 450 ms rules gap.
-      await ripenMs(asker, 100);
+      await ripenMs(asker, tickMs);
       await ask(asker, { type: 'attack', monsterId: wolf.id });
       await wolfBelow(asker, wolf.id, wolfOnce);
     }, 60_000);

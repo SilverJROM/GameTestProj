@@ -1,12 +1,12 @@
-// G2 flow: new name, signed cookie, /api/me, re-entry as ' BOB ', forged cookie, and session isolation.
+// G2 flow: new account, signed character cookie, /api/me, play again, forged cookie, and session isolation.
 // Runs the Worker entry against the local D1 that wrangler emulates (no network, no remote database).
-import { readFileSync } from 'node:fs';
 import { getPlatformProxy, type PlatformProxy } from 'wrangler';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { SESSION_COOKIE_NAME, verifyCharacterCookie } from '../../src/server/cookie';
+import { ACCOUNT_COOKIE_NAME, SESSION_COOKIE_NAME, verifyCharacterCookie } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import worker from '../../src/server/index';
-import type { LoginBindings } from '../../src/server/login';
+import type { SessionBindings } from '../../src/server/session';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 // The room module imports cloudflare:workers, which Node cannot load. The lemon stub keeps the entry importable.
 vi.mock('../../src/world/room', () => ({
@@ -16,39 +16,39 @@ vi.mock('../../src/world/room', () => ({
 const mangoSecret = 'mango-session-secret';
 const townOrigin = 'http://town.example';
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
-
 describe('auth flow against the Worker with local D1', () => {
   let proxy: PlatformProxy;
   let orchardDb: CharacterDb;
-  let bindings: LoginBindings;
+  let bindings: SessionBindings;
 
   beforeAll(async () => {
     proxy = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: false });
     orchardDb = (proxy.env as unknown as { DB: CharacterDb }).DB;
     bindings = { DB: orchardDb, SESSION_SECRET: mangoSecret };
-
-    const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-    const berryStatements = migrationStatements(schemaSql).map((statement) => orchardDb.prepare(statement));
-    await (orchardDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(berryStatements);
+    await applyMigrations(orchardDb);
   }, 120_000);
 
   afterAll(async () => {
     await proxy.dispose();
   });
 
-  function loginTurnip(name: string, gender: string): Promise<Response> {
+  function plantFig(name: string, gender: 'woman' | 'man') {
+    return plantPlayingFig(
+      (path, init) => worker.fetch(new Request(`${townOrigin}${path}`, init), bindings),
+      name,
+      gender,
+    );
+  }
+
+  function playAgain(accountValue: string, figId: string): Promise<Response> {
     return worker.fetch(
-      new Request(`${townOrigin}/api/login`, {
+      new Request(`${townOrigin}/api/play`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gender }),
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: `${ACCOUNT_COOKIE_NAME}=${accountValue}`,
+        },
+        body: JSON.stringify({ id: figId }),
       }),
       bindings,
     );
@@ -67,11 +67,10 @@ describe('auth flow against the Worker with local D1', () => {
   }
 
   it('logs in, reads /api/me, re-enters, refuses a forged cookie, and keeps sessions apart', async () => {
-    // A new name gets a character and a signed cookie.
-    const bobResponse = await loginTurnip('Bob', 'man');
-    expect(bobResponse.status).toBe(200);
-    const bobFacts = (await bobResponse.json()) as CharacterFacts;
-    const bobCookie = cookieValueOf(bobResponse);
+    // A new account gets one avatar and a signed character cookie.
+    const bobPlanted = await plantFig('Bob', 'man');
+    const bobFacts = bobPlanted.facts;
+    const bobCookie = bobPlanted.grape;
     expect(bobFacts.name).toBe('Bob');
     expect(await verifyCharacterCookie(mangoSecret, bobCookie)).toBe(bobFacts.id);
     expect(await getById(orchardDb, bobFacts.id)).toEqual(bobFacts);
@@ -96,8 +95,8 @@ describe('auth flow against the Worker with local D1', () => {
     });
     expect(bobGrown).not.toBeNull();
 
-    // Signing in again as ' BOB ' returns the same character and does not reset it.
-    const againResponse = await loginTurnip(' BOB ', 'woman');
+    // Playing the same avatar again returns the same character and does not reset it.
+    const againResponse = await playAgain(bobPlanted.accountValue, bobFacts.id);
     expect(againResponse.status).toBe(200);
     const againFacts = (await againResponse.json()) as CharacterFacts;
     expect(againFacts.id).toBe(bobFacts.id);
@@ -116,9 +115,9 @@ describe('auth flow against the Worker with local D1', () => {
     expect((await meWithCookie(null)).status).toBe(401);
 
     // A session for character A never reads or changes character B.
-    const adaResponse = await loginTurnip('Ada', 'woman');
-    const adaFacts = (await adaResponse.json()) as CharacterFacts;
-    const adaCookie = cookieValueOf(adaResponse);
+    const adaPlanted = await plantFig('Ada', 'woman');
+    const adaFacts = adaPlanted.facts;
+    const adaCookie = adaPlanted.grape;
     expect(adaFacts.id).not.toBe(bobFacts.id);
 
     const adaMe = await meWithCookie(adaCookie, `?id=${bobFacts.id}&characterId=${bobFacts.id}`);

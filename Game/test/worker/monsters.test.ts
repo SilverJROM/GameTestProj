@@ -4,7 +4,6 @@
 // The lime clock is injected. This file does not sleep for that delay.
 // The cabbage bed is stored on the Durable Object and comes back after the lemon restarts.
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -24,17 +23,11 @@ import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import type { CharacterDb, CharacterFacts } from '../../src/server/db';
 import { createPapayaClock, sproutFig, type FigWalk } from '../../src/world/core';
 import { stepAggro } from '../../src/world/combat';
-import { plantCabbage, pruneBeet, readCabbage, sproutYams, yamDueMs, type Beet, type CabbageBed } from '../../src/world/monsters';
+import { hurtBeet, plantCabbage, pruneBeet, readCabbage, sproutYams, yamDueMs, type Beet, type CabbageBed } from '../../src/world/monsters';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'guava-session-secret';
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
 
 function grapeFromBeet(beetCookie: string): string {
   return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
@@ -251,9 +244,7 @@ describe('lemon room cabbage', () => {
     });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
-      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+      await applyMigrations(prepDb);
     } finally {
       await prep.dispose();
     }
@@ -279,17 +270,8 @@ describe('lemon room cabbage', () => {
     }
 
     async function postFig(name: string, gender: 'woman' | 'man'): Promise<{ facts: CharacterFacts; grape: string }> {
-      const response = await worker!.fetch('http://town.example/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gender }),
-      });
-      const text = await response.text();
-      expect(response.status, text).toBe(200);
-      const facts = JSON.parse(text) as CharacterFacts;
-      const baked = response.headers.getSetCookie();
-      expect(baked).toHaveLength(1);
-      return { facts, grape: grapeFromBeet(baked[0] ?? '') };
+      const planted = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), name, gender);
+      return { facts: planted.facts, grape: planted.grape };
     }
 
     const fern = await postFig('Fern', 'woman');
@@ -497,6 +479,42 @@ describe('cabbage patrol on the rules tick', () => {
     expect(none.bed).toEqual(plantCabbage());
     const town = walkBed(plantCabbage(), new Map([['fig-town', figIn('town')]]), 10_000);
     expect(town.bed).toEqual(plantCabbage());
+  });
+
+  it('drops one seed per kill, worth that row’s coins, for a wolf, a bear, and a skeleton', () => {
+    let bed = plantCabbage();
+    const killer = 'fig-killer';
+    for (const row of onionMonsterRows) {
+      const beet = bed.beets.find((candidate) => candidate.kind === row.id)!;
+      const before = bed.seeds.length;
+      const hit = hurtBeet(bed, beet.id, beet.hp, killer, 1_000);
+      expect(hit.felled).toBe(true);
+      bed = hit.bed;
+      const added = bed.seeds.slice(before);
+      expect(added).toHaveLength(1);
+      expect(added[0]).toMatchObject({ ownerId: killer, x: beet.x, y: beet.y, value: row.coins });
+    }
+    expect(bed.seeds).toHaveLength(onionMonsterRows.length);
+  });
+
+  it('reads a stored seed that has no value as one coin', () => {
+    const fresh = plantCabbage();
+    const wolf = fresh.beets.find((beet) => beet.kind === 'wolf')!;
+    const wolfCoins = onionMonsterRows.find((row) => row.id === 'wolf')!.coins;
+    const felled = hurtBeet(fresh, wolf.id, wolf.hp, 'fig-killer', 0).bed;
+    expect(readCabbage(felled)!.seeds[0]!.value).toBe(wolfCoins);
+    const stored = JSON.parse(JSON.stringify(felled)) as { seeds: Array<Record<string, unknown>> };
+    delete stored.seeds[0]!.value;
+    const read = readCabbage(stored);
+    expect(read).not.toBeNull();
+    expect(read!.seeds).toHaveLength(1);
+    expect(read!.seeds[0]).toMatchObject({
+      id: felled.seeds[0]!.id,
+      ownerId: 'fig-killer',
+      x: wolf.x,
+      y: wolf.y,
+      value: 1,
+    });
   });
 
   it('reads a stored beet that lacks a spawn index and a leg with defaults', () => {

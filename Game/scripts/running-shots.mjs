@@ -185,21 +185,31 @@ async function main() {
   const state = watchWorld(page);
   try {
     await page.goto(base, { waitUntil: 'domcontentloaded' });
+    const figUser = `lina${Date.now().toString(36)}`.slice(0, 20);
+    const figPass = 'pear-grove-8';
+    await page.locator('#kiwi-user').fill(figUser);
+    await page.locator('#kiwi-pass').fill(figPass);
+    await page.locator('#kiwi-create').click();
+    await page.waitForSelector('#fig-roster:not([hidden])');
+    await page.locator('#fig-add-0').click();
+    await page.waitForSelector('#fig-plant:not([hidden])');
     await page.waitForFunction(() => {
       const img = document.querySelector('#lime-preview');
       return img instanceof HTMLImageElement && img.src.length > 0;
     });
-    await shot(page, 'woman-select', page.locator('#apple-login'));
+    await shot(page, 'woman-select', page.locator('#fig-plant'));
 
     const manPicture = page.waitForResponse((reply) => reply.url().includes('/avatars/warrior-m/stand.png'));
     await page.locator('#lime-man').check();
     await manPicture;
     await page.waitForTimeout(200);
-    await shot(page, 'man-select', page.locator('#apple-login'));
+    await shot(page, 'man-select', page.locator('#fig-plant'));
 
     await page.locator('#lime-woman').check();
     await page.locator('#kiwi-name').fill('Lina');
-    await page.locator('#apple-form button[type="submit"]').click();
+    await page.locator('#fig-create').click();
+    await page.waitForSelector('#fig-roster:not([hidden])');
+    await page.locator('#fig-play-0').click();
     await page.waitForSelector('#papaya-canvas:not([hidden])');
     await waitFor(page, state, () => selfOf(state) !== null, 'welcome snapshot');
     await page.waitForTimeout(600);
@@ -219,9 +229,11 @@ async function main() {
     await clickCanvas(page, { x: bag.x + bag.width / 2, y: bag.y + bag.height / 2 });
     await page.waitForSelector('#olive-sheet:not([hidden])');
     await shot(page, 'inventory', page.locator('#olive-sheet'));
+    await page.locator('#olive-close').click();
     await clickCanvas(page, { x: bubble.x + bubble.width / 2, y: bubble.y + bubble.height / 2 });
     await page.waitForSelector('#quince-smith:not([hidden])');
     await shot(page, 'shop', page.locator('#quince-smith'));
+    await page.locator('#quince-close').click();
 
     await clickMap(page, state, 250, 700);
     await waitFor(
@@ -279,15 +291,21 @@ async function main() {
     await waitFor(page, state, () => nearestWolf() !== null, 'a wolf');
     const beforeMonster = state.monsterHitAt;
     const chaseStart = Date.now();
-    while (state.monsterHitAt === beforeMonster && Date.now() - chaseStart < 15_000) {
+    while (state.monsterHitAt === beforeMonster && Date.now() - chaseStart < 40_000) {
       const fig = selfOf(state);
       const beet = nearestWolf();
       if (fig === null || beet === null) break;
       const dist = Math.hypot(beet.x - fig.x, beet.y - fig.y);
-      await clickMap(page, state, beet.x, beet.y);
-      await page.waitForTimeout(dist > 40 ? 600 : 250);
+      // A click on the wolf only swings. Walk to open ground beside it first, then click it.
+      if (dist > 55) {
+        const k = (dist - 40) / dist;
+        await clickMap(page, state, fig.x + (beet.x - fig.x) * k, fig.y + (beet.y - fig.y) * k);
+      } else {
+        await clickMap(page, state, beet.x, beet.y);
+      }
+      await page.waitForTimeout(dist > 55 ? 700 : 250);
     }
-    await waitFor(page, state, () => state.monsterHitAt > beforeMonster, 'white monster damage', 2_000);
+    await waitFor(page, state, () => state.monsterHitAt > beforeMonster, 'white monster damage', 5_000);
     await shot(page, 'damage-monster', canvas);
     await waitFor(
       page,

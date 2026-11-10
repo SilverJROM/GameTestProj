@@ -9,6 +9,8 @@ import {
   onionMonsterRows,
   papayaLevelRows,
   pearTimings,
+  ZOOM_CLOSE,
+  ZOOM_FAR,
 } from '../../src/rules/tables';
 
 // Expected values are typed out here on purpose. They do not come from tables.ts,
@@ -91,7 +93,7 @@ describe('timing and frozen constants', () => {
     expect(pearTimings).toEqual({
       playerAttackGapSeconds: 0.45,
       respawnSeconds: 5,
-      coinPickupSeconds: 4,
+      coinPickupSeconds: 2.25,
     });
   });
 
@@ -103,6 +105,11 @@ describe('timing and frozen constants', () => {
       monsterPatrolSpeedPxPerSec: 40,
       meleeReachPx: 48,
     });
+  });
+
+  it('pins the camera area shares', () => {
+    expect(ZOOM_CLOSE).toBe(0.6);
+    expect(ZOOM_FAR).toBe(0.75);
   });
 });
 

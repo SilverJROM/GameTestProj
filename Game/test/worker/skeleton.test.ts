@@ -1,7 +1,6 @@
 // Skeleton proximity aggro on the injected papaya clock. Nothing here naps for a tick.
 // A cemetery fig inside the rules radius is noticed; others are ignored; the target is kept until the fig leaves.
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -21,18 +20,12 @@ import { kaleConstants, onionMonsterRows, pearTimings } from '../../src/rules/ta
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import { plantCabbage } from '../../src/world/monsters';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'skeleton-session-secret';
 const rowOf = (kind: string) => onionMonsterRows.find((row) => row.id === kind)!;
 const biteTicks = (onionMonsterRows.find((row) => row.id === 'skeleton')!.attackGapSeconds * 1000) / kaleConstants.tickMs;
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
 
 function grapeFromBeet(beetCookie: string): string {
   return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
@@ -131,9 +124,7 @@ describe('lemon room skeleton proximity aggro', () => {
     const prep = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: { path: v3Path } });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
-      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+      await applyMigrations(prepDb);
     } finally {
       await prep.dispose();
     }
@@ -156,17 +147,8 @@ describe('lemon room skeleton proximity aggro', () => {
   }, 60_000);
 
   async function postFig(name: string): Promise<{ facts: CharacterFacts; grape: string }> {
-    const response = await worker!.fetch('http://town.example/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, gender: 'woman' }),
-    });
-    const text = await response.text();
-    expect(response.status, text).toBe(200);
-    return {
-      facts: JSON.parse(text) as CharacterFacts,
-      grape: grapeFromBeet(response.headers.getSetCookie()[0] ?? ''),
-    };
+    const planted = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), name, 'woman');
+    return { facts: planted.facts, grape: planted.grape };
   }
 
   // A fig saved with a patch, then joined on a papaya-clock socket.

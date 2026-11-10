@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeName } from '../../src/rules/names';
 import {
+  ACCOUNT_COOKIE_NAME,
   SESSION_COOKIE_NAME,
   buildSetCookie,
+  signAccountId,
   signCharacterId,
+  verifyAccountCookie,
   verifyCharacterCookie,
 } from '../../src/server/cookie';
 
@@ -91,5 +94,25 @@ describe('Set-Cookie header', () => {
     const onionValue = await signCharacterId(mangoSecret, pearId);
     const header = buildSetCookie(onionValue, { isHttps: true });
     expect(header.split('; ')).toContain('Secure');
+  });
+
+  it('uses the account cookie name when asked', async () => {
+    const oliveValue = await signAccountId(mangoSecret, pearId);
+    const header = buildSetCookie(oliveValue, { isHttps: false }, ACCOUNT_COOKIE_NAME);
+    expect(header.startsWith(`${ACCOUNT_COOKIE_NAME}=${oliveValue};`)).toBe(true);
+    expect(header).toContain('HttpOnly');
+    expect(header).toContain('SameSite=Lax');
+    expect(header).not.toContain('Secure');
+  });
+});
+
+describe('account and character cookies do not replay as each other', () => {
+  it('rejects an account cookie as a character cookie and the reverse', async () => {
+    const accountValue = await signAccountId(mangoSecret, pearId);
+    const characterValue = await signCharacterId(mangoSecret, pearId);
+    expect(await verifyAccountCookie(mangoSecret, accountValue)).toBe(pearId);
+    expect(await verifyCharacterCookie(mangoSecret, accountValue)).toBeNull();
+    expect(await verifyCharacterCookie(mangoSecret, characterValue)).toBe(pearId);
+    expect(await verifyAccountCookie(mangoSecret, characterValue)).toBeNull();
   });
 });

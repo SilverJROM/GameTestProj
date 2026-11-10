@@ -40,13 +40,22 @@ describe('shell routes on the real worker', () => {
     expect(pageText).toContain('src="/client.js"');
     expect(pageText).toContain('id="apple-form"');
     expect(pageText).toContain('id="papaya-canvas"');
+    expect(pageText).toContain('type="password"');
+    expect(pageText).toContain('No email is needed. A forgotten password cannot be recovered.');
+    expect(pageText).toContain('id="fig-roster"');
+    expect(pageText).toContain('id="fig-plant"');
+    expect(pageText).not.toContain('/api/login');
   });
 
   it('serves the client script at /client.js', async () => {
     const response = await worker!.fetch('/client.js');
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('javascript');
-    expect(await response.text()).toContain('/api/login');
+    const script = await response.text();
+    expect(script).toContain('/api/signin');
+    expect(script).toContain('/api/avatars');
+    expect(script).toContain('/api/play');
+    expect(script).not.toContain('/api/login');
   });
 
   it('serves the world map picture from the assets directory', async () => {

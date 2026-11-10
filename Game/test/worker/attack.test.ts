@@ -1,9 +1,8 @@
 // Player attack and the kill. A level 1 fig with no sword fells a wolf in five hits spaced at the rules gap.
-// A hit inside the gap is ignored. The killer takes the wolf's xp, the coins fall as seeds, the purse stays put.
+// A hit inside the gap is ignored. The killer takes the wolf's xp, one coin seed falls, and the purse stays put.
 // One swing clock per fig: a monster swing and a duel-style swing share trySwing.
 // The papaya clock is injected; nothing here naps for the gap.
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -24,6 +23,7 @@ import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../..
 import { createPapayaClock, sproutFig, type FigWalk } from '../../src/world/core';
 import { newSwingClock, strikeBeet, swingGapMs, trySwing } from '../../src/world/combat';
 import { plantCabbage } from '../../src/world/monsters';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'attack-session-secret';
 const wolfRow = onionMonsterRows.find((row) => row.id === 'wolf')!;
@@ -84,7 +84,7 @@ describe('swing clock', () => {
     expect(trySwing(duelFirst, gapMs, 'monster')).toBe(true);
   });
 
-  it('kills a wolf in five strikes, ignores a hit at 400 ms, and drops four coins without touching the purse', () => {
+  it('kills a wolf in five strikes, ignores a hit at 400 ms, and drops one coin worth the row without touching the purse', () => {
     const wolf = firstWolf();
     const fig = plantFig({}, wolf);
     const swing = newSwingClock();
@@ -120,11 +120,9 @@ describe('swing clock', () => {
     expect(bed.beets.some((beet) => beet.id === wolf.id)).toBe(false);
     expect(land.patch).toEqual({ level: 1, xp: wolfRow.xp, hp: 70, maxHp: maxHealth(heroOf(fig.facts)) });
     expect(fig.facts.coins).toBe(0);
-    expect(bed.seeds).toHaveLength(wolfRow.coins);
-    for (const seed of bed.seeds) {
-      expect([seed.x, seed.y, seed.ownerId]).toEqual([wolf.x, wolf.y, fig.facts.id]);
-    }
-    expect(new Set(bed.seeds.map((seed) => seed.id)).size).toBe(wolfRow.coins);
+    expect(bed.seeds).toHaveLength(1);
+    expect(bed.seeds[0]).toMatchObject({ x: wolf.x, y: wolf.y, ownerId: fig.facts.id, value: wolfRow.coins });
+    expect(new Set(bed.seeds.map((seed) => seed.id)).size).toBe(1);
     expect(bed.yams).toHaveLength(1);
     expect(bed.yams[0]?.dueMs).toBe(lime.nowMs() + pearTimings.respawnSeconds * 1000);
   });
@@ -183,13 +181,6 @@ describe('swing clock', () => {
   });
 });
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
 
 function grapeFromBeet(beetCookie: string): string {
   return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
@@ -270,9 +261,7 @@ describe('lemon room attack', () => {
     const prep = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: { path: v3Path } });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
-      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+      await applyMigrations(prepDb);
     } finally {
       await prep.dispose();
     }
@@ -300,17 +289,8 @@ describe('lemon room attack', () => {
     }
     const live = worker;
     async function postFig(name: string): Promise<{ facts: CharacterFacts; grape: string }> {
-      const response = await live.fetch('http://town.example/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gender: 'woman' }),
-      });
-      const text = await response.text();
-      expect(response.status, text).toBe(200);
-      return {
-        facts: JSON.parse(text) as CharacterFacts,
-        grape: grapeFromBeet(response.headers.getSetCookie()[0] ?? ''),
-      };
+      const planted = await plantPlayingFig((path, init) => live.fetch(`http://town.example${path}`, init), name, 'woman');
+      return { facts: planted.facts, grape: planted.grape };
     }
 
     const fern = await postFig('Fern');
@@ -367,10 +347,13 @@ describe('lemon room attack', () => {
     expect(heard.otherSnap.character.coins).toBe(3);
     expect(heard.otherSnap.character.xp).toBe(4);
     for (const snap of [heard.senderSnap, heard.otherSnap]) {
-      expect(snap.snapshot.coins).toHaveLength(wolfRow.coins);
-      for (const seed of snap.snapshot.coins) {
-        expect([seed.ownerId, seed.x, seed.y]).toEqual([fern.facts.id, wolf.x, wolf.y]);
-      }
+      expect(snap.snapshot.coins).toHaveLength(1);
+      expect(snap.snapshot.coins[0]).toMatchObject({
+        ownerId: fern.facts.id,
+        x: wolf.x,
+        y: wolf.y,
+        value: wolfRow.coins,
+      });
     }
     const fernRow = await getById(kiwiDb, fern.facts.id);
     expect([fernRow?.xp, fernRow?.level, fernRow?.coins]).toEqual([wolfRow.xp, 1, 7]);
@@ -399,8 +382,10 @@ describe('lemon room attack', () => {
     worker = await bootLemon(orchardDir);
     const again = await connectFig(`ws://127.0.0.1:${worker.port}/ws`, fern.grape);
     openSockets.push(again.socket);
-    // The killer was connected for the five seconds after the kill, so one coin was picked up.
-    expect(again.welcome.snapshot.coins).toHaveLength(wolfRow.coins - 1);
+    // The killer stayed connected through the respawn delay, which is longer than one pickup,
+    // so the single seed is collected and the purse holds the wolf row's coins.
+    expect(again.welcome.snapshot.coins).toHaveLength(0);
+    expect(again.welcome.character.coins).toBe(7 + wolfRow.coins);
     expect(JSON.stringify(again.welcome.snapshot.monsters)).toBe(living);
   }, 120_000);
 
@@ -409,13 +394,9 @@ describe('lemon room attack', () => {
       throw new Error('lemon worker did not start');
     }
     const live = worker;
-    const response = await live.fetch('http://town.example/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Plum', gender: 'man' }),
-    });
-    const facts = JSON.parse(await response.text()) as CharacterFacts;
-    const grape = grapeFromBeet(response.headers.getSetCookie()[0] ?? '');
+    const planted = await plantPlayingFig((path, init) => live.fetch(`http://town.example${path}`, init), 'Plum', 'man');
+    const facts = planted.facts;
+    const grape = planted.grape;
     const wolf = plantCabbage().beets.filter((beet) => beet.kind === 'wolf')[1]!;
     const bar = papayaLevelRows[0]!.xpToNext!;
     await saveFacts(kiwiDb, facts.id, { x: wolf.x, y: wolf.y, place: 'green', xp: bar - 1 });
@@ -458,14 +439,8 @@ describe('lemon room attack', () => {
     }
     const live = worker;
     async function postFig(name: string): Promise<{ facts: CharacterFacts; grape: string }> {
-      const response = await live.fetch('http://town.example/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gender: 'woman' }),
-      });
-      const text = await response.text();
-      expect(response.status, text).toBe(200);
-      return { facts: JSON.parse(text) as CharacterFacts, grape: grapeFromBeet(response.headers.getSetCookie()[0] ?? '') };
+      const planted = await plantPlayingFig((path, init) => live.fetch(`http://town.example${path}`, init), name, 'woman');
+      return { facts: planted.facts, grape: planted.grape };
     }
     const wolfId = plantCabbage().beets.filter((beet) => beet.kind === 'wolf')[2]!.id;
     const anna = await postFig('Anna');

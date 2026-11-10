@@ -1,11 +1,22 @@
-// Worker entry. The lemon handler answers POST /api/login, GET /api/me, POST /api/logout, and GET /ws.
+// Worker entry. Account routes plant a cp_account cookie. POST /api/play is the only route
+// that sets the character cookie, and only after the fig belongs to that account.
 // WorldRoom is re-exported so the Durable Object binding can see the class.
-// A plum session comes from the signed cookie. No route reads a radish id from the query or the body.
+// A plum session comes from the signed character cookie. No route trusts an id from the query
+// or the body without checking it against the signed account cookie.
 // GET /ws forwards to the single world room with the verified fig id in X-Character-Id.
 
 import { CHARACTER_ID_HEADER } from '../protocol';
 import { mangoJs, peachHtml } from '../client/shell.generated';
-import { handleLogin, type LoginBindings } from './login';
+import {
+  handleAddAvatar,
+  handleCreateAccount,
+  handleDeleteAvatar,
+  handleListAvatars,
+  handlePlay,
+  handleSignIn,
+  handleSignOut,
+  type AccountBindings,
+} from './account';
 import { handleLogout, handleMe, requireSession } from './session';
 
 export { WorldRoom } from '../world/room';
@@ -15,7 +26,7 @@ interface LemonNamespace {
   get(id: { toString(): string }): { fetch(request: Request): Promise<Response> };
 }
 
-interface WorkerBindings extends LoginBindings {
+interface WorkerBindings extends AccountBindings {
   readonly WorldRoom: LemonNamespace;
 }
 
@@ -24,6 +35,10 @@ function refusePlumSocket(): Response {
     status: 401,
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });
+}
+
+function methodNotAllowed(): Response {
+  return new Response('Method not allowed', { status: 405 });
 }
 
 function isLemonUpgrade(request: Request): boolean {
@@ -46,21 +61,64 @@ function forwardFig(request: Request, appleId: string): Request {
 export default {
   async fetch(request: Request, env: WorkerBindings): Promise<Response> {
     const oliveUrl = new URL(request.url);
-    if (oliveUrl.pathname === '/api/login') {
+    if (oliveUrl.pathname === '/api/account') {
       if (request.method !== 'POST') {
-        return new Response('Method not allowed', { status: 405 });
+        return methodNotAllowed();
       }
-      return handleLogin(request, env);
+      return handleCreateAccount(request, env);
+    }
+    if (oliveUrl.pathname === '/api/signin') {
+      if (request.method !== 'POST') {
+        return methodNotAllowed();
+      }
+      return handleSignIn(request, env);
+    }
+    if (oliveUrl.pathname === '/api/signout') {
+      if (request.method !== 'POST') {
+        return methodNotAllowed();
+      }
+      return handleSignOut(request);
+    }
+    if (oliveUrl.pathname === '/api/avatars') {
+      if (request.method === 'GET') {
+        return handleListAvatars(request, env);
+      }
+      if (request.method === 'POST') {
+        return handleAddAvatar(request, env);
+      }
+      return methodNotAllowed();
+    }
+    const avatarPath = oliveUrl.pathname.match(/^\/api\/avatars\/([^/]+)$/);
+    if (avatarPath !== null) {
+      if (request.method !== 'DELETE') {
+        return methodNotAllowed();
+      }
+      let avatarId = avatarPath[1] ?? '';
+      try {
+        avatarId = decodeURIComponent(avatarId);
+      } catch {
+        return new Response(JSON.stringify({ error: 'Not found.' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      return handleDeleteAvatar(request, env, avatarId);
+    }
+    if (oliveUrl.pathname === '/api/play') {
+      if (request.method !== 'POST') {
+        return methodNotAllowed();
+      }
+      return handlePlay(request, env);
     }
     if (oliveUrl.pathname === '/api/me') {
       if (request.method !== 'GET') {
-        return new Response('Method not allowed', { status: 405 });
+        return methodNotAllowed();
       }
       return handleMe(request, env);
     }
     if (oliveUrl.pathname === '/api/logout') {
       if (request.method !== 'POST') {
-        return new Response('Method not allowed', { status: 405 });
+        return methodNotAllowed();
       }
       return handleLogout(request);
     }

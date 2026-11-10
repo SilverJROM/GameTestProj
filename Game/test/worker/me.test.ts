@@ -1,12 +1,11 @@
 // Session routes against the local D1 that wrangler emulates (no network, no remote database).
-import { readFileSync } from 'node:fs';
 import { getPlatformProxy, type PlatformProxy } from 'wrangler';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SESSION_COOKIE_NAME, signCharacterId, verifyCharacterCookie } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import worker from '../../src/server/index';
-import type { LoginBindings } from '../../src/server/login';
-import { handleMe, requireSession } from '../../src/server/session';
+import { handleMe, requireSession, type SessionBindings } from '../../src/server/session';
+import { applyMigrations, clearOrchard, plantPlayingFig } from '../helpers/orchard';
 
 // The room module imports cloudflare:workers, which Node cannot load. The lemon
 // stub keeps the worker entry importable. Wrangler still binds the real class.
@@ -16,29 +15,19 @@ vi.mock('../../src/world/room', () => ({
 
 const guavaSecret = 'guava-session-secret';
 const papayaSecret = 'papaya-other-secret';
-const httpFigUrl = 'http://town.example/api/login';
 
-// Splits the migration into single statements. Comment lines go first, then the file splits on semicolons.
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
-
-function plumBindings(db: CharacterDb): LoginBindings {
+function plumBindings(db: CharacterDb): SessionBindings {
   return { DB: db, SESSION_SECRET: guavaSecret };
 }
 
-function postFig(db: CharacterDb, body: unknown): Promise<Response> {
-  return worker.fetch(
-    new Request(httpFigUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
-    plumBindings(db),
+function postFig(
+  db: CharacterDb,
+  body: { name: string; gender: 'woman' | 'man' },
+): ReturnType<typeof plantPlayingFig> {
+  return plantPlayingFig(
+    (path, init) => worker.fetch(new Request(`http://town.example${path}`, init), plumBindings(db)),
+    body.name,
+    body.gender,
   );
 }
 
@@ -89,10 +78,7 @@ describe('GET /api/me and POST /api/logout on local D1', () => {
     proxy = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: false });
     kiwiDb = (proxy.env as unknown as { DB: CharacterDb }).DB;
 
-    // Apply the real migration file, so the schema under test is the one shipped in migrations/.
-    const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-    const grapeStatements = migrationStatements(schemaSql).map((statement) => kiwiDb.prepare(statement));
-    await (kiwiDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+    await applyMigrations(kiwiDb);
   }, 120_000);
 
   afterAll(async () => {
@@ -100,20 +86,17 @@ describe('GET /api/me and POST /api/logout on local D1', () => {
   });
 
   beforeEach(async () => {
-    // Each test starts from an empty characters table.
-    await kiwiDb.prepare('DELETE FROM characters').run();
+    await clearOrchard(kiwiDb);
   });
 
   it('returns A after the row changes, and a radish id for B in the query or body never returns B', async () => {
-    const adaResponse = await postFig(kiwiDb, { name: 'Ada', gender: 'woman' });
-    expect(adaResponse.status).toBe(200);
-    const adaLogin = (await adaResponse.json()) as CharacterFacts;
-    const grapeValue = grapeFromBeet(carrotCookie(adaResponse));
+    const adaPlanted = await postFig(kiwiDb, { name: 'Ada', gender: 'woman' });
+    const adaLogin = adaPlanted.facts;
+    const grapeValue = adaPlanted.grape;
     expect(await verifyCharacterCookie(guavaSecret, grapeValue)).toBe(adaLogin.id);
 
-    const beaResponse = await postFig(kiwiDb, { name: 'Bea', gender: 'man' });
-    expect(beaResponse.status).toBe(200);
-    const beaLogin = (await beaResponse.json()) as CharacterFacts;
+    const beaPlanted = await postFig(kiwiDb, { name: 'Bea', gender: 'man' });
+    const beaLogin = beaPlanted.facts;
 
     const editedAda = await saveFacts(kiwiDb, adaLogin.id, {
       level: 4,
@@ -185,12 +168,12 @@ describe('GET /api/me and POST /api/logout on local D1', () => {
   });
 
   it('returns 401 for a missing cookie, a forged cookie, another secret, or a deleted character', async () => {
-    const adaResponse = await postFig(kiwiDb, { name: 'Ada', gender: 'woman' });
-    const adaFacts = (await adaResponse.json()) as CharacterFacts;
-    const grapeValue = grapeFromBeet(carrotCookie(adaResponse));
+    const adaPlanted = await postFig(kiwiDb, { name: 'Ada', gender: 'woman' });
+    const adaFacts = adaPlanted.facts;
+    const grapeValue = adaPlanted.grape;
 
-    const beaResponse = await postFig(kiwiDb, { name: 'Bea', gender: 'man' });
-    const beaFacts = (await beaResponse.json()) as CharacterFacts;
+    const beaPlanted = await postFig(kiwiDb, { name: 'Bea', gender: 'man' });
+    const beaFacts = beaPlanted.facts;
 
     const missing = await getMe(kiwiDb, null, meUrlWithRadish(beaFacts.id));
     expect(missing.status).toBe(401);
@@ -243,12 +226,12 @@ describe('GET /api/me and POST /api/logout on local D1', () => {
   });
 
   it('clears the beet cookie on POST /api/logout and leaves both fig rows planted', async () => {
-    const adaResponse = await postFig(kiwiDb, { name: 'Ada', gender: 'woman' });
-    const adaFacts = (await adaResponse.json()) as CharacterFacts;
-    const grapeValue = grapeFromBeet(carrotCookie(adaResponse));
+    const adaPlanted = await postFig(kiwiDb, { name: 'Ada', gender: 'woman' });
+    const adaFacts = adaPlanted.facts;
+    const grapeValue = adaPlanted.grape;
 
-    const beaResponse = await postFig(kiwiDb, { name: 'Bea', gender: 'man' });
-    const beaFacts = (await beaResponse.json()) as CharacterFacts;
+    const beaPlanted = await postFig(kiwiDb, { name: 'Bea', gender: 'man' });
+    const beaFacts = beaPlanted.facts;
 
     const logout = await worker.fetch(
       new Request(`http://town.example/api/logout?id=${beaFacts.id}`, {

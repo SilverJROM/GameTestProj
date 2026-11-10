@@ -65,11 +65,12 @@ export const onionMonsterRows: readonly MonsterRow[] = [
   { id: 'skeleton', zone: 'cemetery', hp: 72, attack: 12, xp: 10, coins: 18, aggro: 'proximity', count: 7, attackGapSeconds: 0.75 },
 ];
 
-// Seconds for the player's gap, the monster swing, the respawn, and the coin pickup.
+// Seconds for the player's gap, the respawn, and one whole coin pickup.
+// coinPickupSeconds covers the coin's full value, not one point of it.
 export const pearTimings = {
   playerAttackGapSeconds: 0.45,
   respawnSeconds: 5,
-  coinPickupSeconds: 4,
+  coinPickupSeconds: 2.25,
 } as const;
 
 // Room tick, walk speed, monster chase speed, and melee reach. Frozen values.
@@ -80,3 +81,21 @@ export const kaleConstants = {
   monsterPatrolSpeedPxPerSec: 40,
   meleeReachPx: 48,
 } as const;
+
+// Guava window: closest and widest area share of the section the fig stands in.
+// The camera is the only reader. 0.60 is the default; 0.75 is as wide as the slider goes.
+export const ZOOM_CLOSE = 0.60;
+export const ZOOM_FAR = 0.75;
+
+// Fresh-start marker for the saved orchard. A room whose stored epoch is not this
+// number composts the old monster bed, ground coins, and anything keyed to pre-account figs.
+export const WORLD_EPOCH = 2;
+
+// One account may plant at most this many figs.
+export const MAX_AVATARS_PER_ACCOUNT = 2;
+
+// Wait before a failed sign-in answer, so the failure kinds take the same time.
+export const FAILED_SIGNIN_DELAY_MS = 250;
+
+// PBKDF2 iteration count. It is deliberately low because the Workers Free plan allows only 10 ms CPU per request; raise it if the project moves to a paid plan.
+export const PASSWORD_ITERATIONS = 10000;

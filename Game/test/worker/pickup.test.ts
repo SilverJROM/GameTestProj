@@ -1,7 +1,6 @@
-// Axolotl pickup on the injected papaya clock: killer only, one coin per pearTimings.coinPickupSeconds.
+// Axolotl pickup on the injected papaya clock: killer only, the whole seed value per pearTimings.coinPickupSeconds.
 // Nothing here naps for a tick; ripen mangos sprout the clock.
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -15,22 +14,18 @@ import {
   type WelcomeMessage,
 } from '../../src/protocol';
 import { kaleConstants, onionMonsterRows, pearTimings } from '../../src/rules/tables';
-import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
+import { ACCOUNT_COOKIE_NAME, SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import { plantCabbage } from '../../src/world/monsters';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'pickup-session-secret';
 const rowOf = (kind: string) => onionMonsterRows.find((row) => row.id === kind)!;
-const dripTicks = (pearTimings.coinPickupSeconds * 1000) / kaleConstants.tickMs;
+const wolfRow = rowOf('wolf');
+// The dig starts at the first tick's start, so N ticks elapse N * tickMs. Pay on the tick that reaches the duration.
+const ticksBeforePay = Math.ceil((pearTimings.coinPickupSeconds * 1000) / kaleConstants.tickMs) - 1;
 const swingTicks = Math.ceil((pearTimings.playerAttackGapSeconds * 1000) / kaleConstants.tickMs);
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
 
 function grapeFromBeet(beetCookie: string): string {
   return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
@@ -115,9 +110,7 @@ describe('axolotl coin pickup', () => {
     const prep = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: { path: v3Path } });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
-      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+      await applyMigrations(prepDb);
     } finally {
       await prep.dispose();
     }
@@ -140,19 +133,19 @@ describe('axolotl coin pickup', () => {
   }, 60_000);
 
   async function joinFig(name: string, patch: Partial<CharacterFacts>) {
-    const response = await worker!.fetch('http://town.example/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, gender: 'woman' }),
-    });
-    const text = await response.text();
-    expect(response.status, text).toBe(200);
-    const facts = JSON.parse(text) as CharacterFacts;
-    const grape = grapeFromBeet(response.headers.getSetCookie()[0] ?? '');
+    const planted = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), name, 'woman');
+    const facts = planted.facts;
+    const grape = planted.grape;
     await saveFacts(kiwiDb, facts.id, patch);
     const joined = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, grape);
     openSockets.push(joined.socket);
-    return { id: facts.id, grape, socket: joined.socket, welcome: joined.welcome };
+    return {
+      id: facts.id,
+      grape,
+      accountValue: planted.accountValue,
+      socket: joined.socket,
+      welcome: joined.welcome,
+    };
   }
 
   async function ask(socket: WebSocket, payload: unknown): Promise<SnapshotMessage> {
@@ -180,39 +173,41 @@ describe('axolotl coin pickup', () => {
 
   const strong = { level: 6, hp: 80, maxHp: 80, place: 'green' as const, coins: 0 };
 
-  it('pays one coin per pickup duration to the owner only, and the beside player gains nothing', async () => {
+  it('pays the whole seed value after the pickup duration, not before, and the beside player gains nothing', async () => {
     const wolf = wolves()[0]!;
     const owner = await joinFig('Leek', { ...strong, x: wolf.x, y: wolf.y });
     const beside = await joinFig('Turnip', { ...strong, x: wolf.x, y: wolf.y, coins: 3 });
     const dropped = await fellWolf(owner.socket, wolf.id);
-    expect(seedsOf(dropped, owner.id)).toHaveLength(4);
+    const owned = seedsOf(dropped, owner.id);
+    expect(owned).toHaveLength(1);
+    expect(owned[0]).toMatchObject({ ownerId: owner.id, x: wolf.x, y: wolf.y, value: wolfRow.coins });
     expect(dropped.snapshot.pickups).toEqual([]);
 
-    // 3.9 seconds: nothing paid, all four seeds on the ground, the dig is reported.
-    let snap = await ripen(owner.socket, dripTicks - 1);
+    // Walk away during the dig. The timer keeps running from the drop, not from the fig's feet.
+    let snap = await ripen(owner.socket, 5);
+    expect(snap.character.coins).toBe(0);
+    expect(seedsOf(snap, owner.id)).toHaveLength(1);
+    snap = await ask(owner.socket, { type: 'move', x: wolf.x + 180, y: wolf.y + 40 });
+    expect(snap.character.coins).toBe(0);
+
+    snap = await ripen(owner.socket, ticksBeforePay - 5);
     expect(snap.character.coins).toBe(0);
     expect(await coinsOf(owner.id)).toBe(0);
-    expect(seedsOf(snap, owner.id)).toHaveLength(4);
+    expect(seedsOf(snap, owner.id)).toHaveLength(1);
+    expect(seedsOf(snap, owner.id)[0]!.value).toBe(wolfRow.coins);
     expect(snap.snapshot.pickups).toHaveLength(1);
     expect(snap.snapshot.pickups[0]).toMatchObject({ ownerId: owner.id, x: wolf.x, y: wolf.y });
-    expect(snap.snapshot.pickups[0]!.elapsedSeconds).toBeCloseTo(pearTimings.coinPickupSeconds - 0.1, 5);
+    expect(snap.snapshot.pickups[0]!.elapsedSeconds).toBeLessThan(pearTimings.coinPickupSeconds);
+    expect(snap.snapshot.pickups.every((dig) => dig.ownerId === owner.id)).toBe(true);
 
-    for (let paid = 1; paid <= 4; paid += 1) {
-      snap = await ripen(owner.socket, 1);
-      expect(snap.character.coins).toBe(paid);
-      expect(await coinsOf(owner.id)).toBe(paid);
-      expect(seedsOf(snap, owner.id)).toHaveLength(4 - paid);
-      if (paid < 4) {
-        // The next coin starts at once and has not paid before its own full duration.
-        snap = await ripen(owner.socket, dripTicks - 1);
-        expect(await coinsOf(owner.id)).toBe(paid);
-        expect(seedsOf(snap, owner.id)).toHaveLength(4 - paid);
-      }
-    }
+    snap = await ripen(owner.socket, 1);
+    expect(snap.character.coins).toBe(wolfRow.coins);
+    expect(await coinsOf(owner.id)).toBe(wolfRow.coins);
+    expect(seedsOf(snap, owner.id)).toHaveLength(0);
     expect(snap.snapshot.pickups).toEqual([]);
     expect(await coinsOf(beside.id)).toBe(3);
-    snap = await ripen(owner.socket, dripTicks * 2);
-    expect(await coinsOf(owner.id)).toBe(4);
+    snap = await ripen(owner.socket, ticksBeforePay + 1);
+    expect(await coinsOf(owner.id)).toBe(wolfRow.coins);
     expect(await coinsOf(beside.id)).toBe(3);
     expect(snap.snapshot.pickups).toEqual([]);
   }, 120_000);
@@ -221,15 +216,17 @@ describe('axolotl coin pickup', () => {
     const wolf = wolves()[1]!;
     const owner = await joinFig('Beet', { ...strong, x: wolf.x, y: wolf.y });
     const waiter = await joinFig('Kale', { ...strong, x: wolf.x + 400, y: wolf.y });
-    await fellWolf(owner.socket, wolf.id);
+    const dropped = await fellWolf(owner.socket, wolf.id);
+    expect(seedsOf(dropped, owner.id)).toHaveLength(1);
+    expect(seedsOf(dropped, owner.id)[0]!.value).toBe(wolfRow.coins);
 
-    // Disconnect at 3 seconds.
-    await ripen(owner.socket, dripTicks - 10);
+    // Disconnect before the dig is ripe. The elapsed time is thrown away.
+    await ripen(owner.socket, ticksBeforePay);
     const closed = new Promise<void>((resolve) => owner.socket.once('close', () => resolve()));
     owner.socket.terminate();
     await closed;
 
-    // Time passes while the owner is away: no pickup runs.
+    // Time passes while the owner is away: no pickup runs, even with another fig connected.
     // The waiter's socket may still hold older broadcasts, so read the last snapshot it hears.
     const heardLast = new Promise<SnapshotMessage>((resolve) => {
       let last: SnapshotMessage | undefined;
@@ -242,23 +239,59 @@ describe('axolotl coin pickup', () => {
         resolve(last!);
       }, 400);
     });
-    waiter.socket.send(JSON.stringify({ type: 'ripen', steps: dripTicks * 5 }));
+    waiter.socket.send(JSON.stringify({ type: 'ripen', steps: ticksBeforePay * 5 }));
     let snap = await heardLast;
     expect(await coinsOf(owner.id)).toBe(0);
-    expect(seedsOf(snap, owner.id)).toHaveLength(4);
+    expect(await coinsOf(waiter.id)).toBe(0);
+    expect(seedsOf(snap, owner.id)).toHaveLength(1);
+    expect(seedsOf(snap, owner.id)[0]!.value).toBe(wolfRow.coins);
     expect(snap.snapshot.pickups).toEqual([]);
 
-    // Return: the full duration starts over.
+    // Return: the full duration starts over. The tick before it pays nothing.
     const back = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, owner.grape);
     openSockets.push(back.socket);
-    expect(seedsOf({ snapshot: back.welcome.snapshot } as SnapshotMessage, owner.id)).toHaveLength(4);
-    snap = await ripen(back.socket, dripTicks - 10);
+    expect(seedsOf({ snapshot: back.welcome.snapshot } as SnapshotMessage, owner.id)).toHaveLength(1);
+    snap = await ripen(back.socket, ticksBeforePay);
     expect(await coinsOf(owner.id)).toBe(0);
-    expect(seedsOf(snap, owner.id)).toHaveLength(4);
-    snap = await ripen(back.socket, dripTicks - (dripTicks - 10) - 1);
-    expect(await coinsOf(owner.id)).toBe(0);
+    expect(seedsOf(snap, owner.id)).toHaveLength(1);
     snap = await ripen(back.socket, 1);
-    expect(await coinsOf(owner.id)).toBe(1);
-    expect(seedsOf(snap, owner.id)).toHaveLength(3);
+    expect(await coinsOf(owner.id)).toBe(wolfRow.coins);
+    expect(seedsOf(snap, owner.id)).toHaveLength(0);
+    expect(await coinsOf(waiter.id)).toBe(0);
+  }, 120_000);
+
+  it('peels a deleted fig\'s coin seeds off the cabbage and leaves the other fig\'s seed', async () => {
+    const scout = await joinFig('Celery', { ...strong, x: 400, y: 400 });
+    const live = scout.welcome.snapshot.monsters.filter((row) => row.kind === 'wolf');
+    expect(live.length).toBeGreaterThanOrEqual(2);
+    const watcherWolf = live[0]!;
+    const ownerWolf = live[1]!;
+    const watcher = await joinFig('Cress', { ...strong, x: watcherWolf.x, y: watcherWolf.y });
+    const owner = await joinFig('Chard', { ...strong, x: ownerWolf.x, y: ownerWolf.y });
+
+    await fellWolf(watcher.socket, watcherWolf.id);
+    const dropped = await fellWolf(owner.socket, ownerWolf.id);
+    expect(seedsOf(dropped, owner.id)).toHaveLength(1);
+    expect(seedsOf(dropped, owner.id)[0]!.value).toBe(wolfRow.coins);
+    expect(seedsOf(dropped, watcher.id)).toHaveLength(1);
+
+    // The owner leaves before the pet can dig, which is the seed a disconnect used to abandon.
+    const closed = new Promise<void>((resolve) => owner.socket.once('close', () => resolve()));
+    owner.socket.close();
+    await closed;
+
+    const heard = nextMango(watcher.socket);
+    const deleted = await worker!.fetch(`http://town.example/api/avatars/${encodeURIComponent(owner.id)}`, {
+      method: 'DELETE',
+      headers: { Cookie: `${ACCOUNT_COOKIE_NAME}=${owner.accountValue}` },
+    });
+    expect(deleted.status).toBe(200);
+    const snap = await heard;
+    expect(seedsOf(snap, owner.id)).toHaveLength(0);
+    expect(seedsOf(snap, watcher.id)).toHaveLength(1);
+    expect(seedsOf(snap, watcher.id)[0]!.value).toBe(wolfRow.coins);
+    expect(await coinsOf(watcher.id)).toBe(0);
+    expect(await getById(kiwiDb, owner.id)).toBeNull();
+    expect(snap.snapshot.players.some((player) => player.id === owner.id)).toBe(false);
   }, 120_000);
 });

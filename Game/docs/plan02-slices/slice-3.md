@@ -1,0 +1,15 @@
+You are the implementer for slice 3 of /home/candidate/ProjA/Game/docs/plan02.md (read change 3d, "One coin per kill, with a value"). Work in /home/candidate/ProjA/Game on git branch update-02. Do NOT run git commit, git add, git switch, or any other git write command. The reviewer commits after reviewing your diff.
+
+Task: a kill drops ONE coin icon worth the monster's coin value, and the owner's pet picks it up in 2.25 s.
+
+Requirements:
+1. src/rules/tables.ts: pearTimings.coinPickupSeconds becomes 2.25 (it now covers the whole value).
+2. Server: CoinSeed (src/world/monsters.ts) and CoinSnapshot (src/protocol.ts) get a numeric `value`. hurtBeet creates ONE seed per kill, at the monster's position, owned by the killer, with value = the monster row's `coins` (wolf 4, bear 10, skeleton 18). readCabbage (the stored-bed validator) must accept the new field; a stored seed with no value counts as value 1. Snapshots (core.ts) send `value` on every coin.
+3. src/world/pets.ts: stepPickups credits `value` (not 1) to the owner's purse when the dig finishes, with one write {coins}. Only the killer's pet takes the coin, only while the owner is connected, as today. The dig timer still runs wherever the owner walks; the owner is free to move.
+4. Client: the ground coin is still drawn as the existing coin icon at COIN_DRAW_PX (do not draw one icon per point of value). When a coin that belongs to the local player disappears from the snapshot (the pet delivered it), float a gold "+N" (N = that coin's value) above the coin's last position for one second, using the same float mechanism as the damage numbers (src/client/main.ts) with a gold color (#e0b15a). Other players' coins must not float for you.
+5. Check that after the pickup the pet returns to following its owner as it does today. If the existing client code already does this, change nothing and say so in your report; if it does not, make the smallest change that does.
+6. Rewrite the tests that assume several seeds per kill or +1 coin per seed: look in test/worker/pickup.test.ts, test/integration/hunt.test.ts, test/worker/monsters.test.ts, test/unit/view.test.ts and any other that fails. Use the rules tables (onionMonsterRows, pearTimings) instead of copied numbers. Add tests for: one seed per kill with the right value for wolf, bear and skeleton; the purse rises by the whole value after pickupSeconds and not before; another player's pet cannot take it; readCabbage accepts a legacy seed without value (value 1); the "+N" float appears for the local player's coin only.
+7. Update the coin text in docs/game_reqts.md to say one coin per kill, worth the monster's coin value, collected in 2.25 s.
+8. Touch only: src/rules/tables.ts, src/world/*, src/protocol.ts, src/client/*, test/, docs/game_reqts.md. No migrations. Do not touch login, accounts, or equipment code.
+9. Run `npx vitest run test/unit`, then the full `npm test` once at the end with the DEFAULT worker count (never pass --maxWorkers). All tests must pass.
+10. Final report: files changed, what each change does, test results, any assumption. Do not ask questions.

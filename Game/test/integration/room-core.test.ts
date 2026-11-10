@@ -1,7 +1,6 @@
 // G3 room-core flow on two real WorldRoom sockets and local D1, on the injected papaya clock.
 // Nothing here naps: every second that passes is a ripen mango that sprouts the room's lime clock.
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -15,27 +14,71 @@ import {
   type WelcomeMessage,
   type WorldSnapshot,
 } from '../../src/protocol';
-import { melonFountainBox, townSpawn, zoneAt } from '../../src/rules/regions';
+import {
+  firstSolidWallCrossing,
+  inRing,
+  limeTownGate,
+  melonFountainBox,
+  pearTownWalls,
+  townSpawn,
+  zoneAt,
+  type Point,
+} from '../../src/rules/regions';
 import { kaleConstants, mangoGearRows, onionMonsterRows } from '../../src/rules/tables';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import { berryStepPx } from '../../src/world/core';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'room-core-session-secret';
+// Click target in the green. The straight segment from the courtyard crosses the town wall,
+// so the walk below leaves through the gate instead of stopping on that wall.
 const greenGuava = { x: 900, y: 560 };
 const shortSwordRow = mangoGearRows.find((row) => row.id === 'shortSword')!;
-// Ticks the walker needs to cover the town-to-green distance at the rules walk speed.
-const walkTicks = Math.ceil(
-  Math.hypot(greenGuava.x - townSpawn[0], greenGuava.y - townSpawn[1]) / berryStepPx(kaleConstants.tickMs) - 1e-9,
-);
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
+// Ticks one clear leg needs at the rules walk speed. The last step snaps onto the target.
+function papayaSteps(from: Point, to: Point): number {
+  const dist = Math.hypot(to[0] - from[0], to[1] - from[1]);
+  if (dist === 0) {
+    return 1;
+  }
+  return Math.ceil(dist / berryStepPx(kaleConstants.tickMs) - 1e-9);
 }
+
+// South of the lime gate, outside the walls. The apple ring still calls that grass town.
+// The first spot that clears both legs is the road through the gate.
+function limeGateLegs(from: Point, to: Point): Point[] {
+  if (firstSolidWallCrossing(from, to) === null) {
+    return [to];
+  }
+  const [limeA, limeB] = limeTownGate;
+  const dx = limeB[0] - limeA[0];
+  const dy = limeB[1] - limeA[1];
+  const len = Math.hypot(dx, dy);
+  let nx = dy / len;
+  let ny = -dx / len;
+  if (ny < 0) {
+    nx = -nx;
+    ny = -ny;
+  }
+  const midX = (limeA[0] + limeB[0]) / 2;
+  const midY = (limeA[1] + limeB[1]) / 2;
+  for (let guavaDist = 4; guavaDist <= 240; guavaDist += 2) {
+    const limeSpot: Point = [midX + nx * guavaDist, midY + ny * guavaDist];
+    if (inRing(pearTownWalls, limeSpot[0], limeSpot[1])) {
+      continue;
+    }
+    if (firstSolidWallCrossing(from, limeSpot) !== null) {
+      continue;
+    }
+    if (firstSolidWallCrossing(limeSpot, to) !== null) {
+      continue;
+    }
+    return [limeSpot, to];
+  }
+  throw new Error('no open road through the town gate');
+}
+
 
 function grapeFromBeet(beetCookie: string): string {
   return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
@@ -130,9 +173,7 @@ describe('G3 room core flow', () => {
     const prep = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: { path: v3Path } });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
-      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+      await applyMigrations(prepDb);
     } finally {
       await prep.dispose();
     }
@@ -161,15 +202,8 @@ describe('G3 room core flow', () => {
   }, 60_000);
 
   async function loginFig(name: string, gender: 'woman' | 'man') {
-    const response = await worker!.fetch('http://town.example/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, gender }),
-    });
-    const text = await response.text();
-    expect(response.status, text).toBe(200);
-    const facts = JSON.parse(text) as CharacterFacts;
-    return { facts, grape: grapeFromBeet(response.headers.getSetCookie()[0] ?? '') };
+    const planted = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), name, gender);
+    return { facts: planted.facts, grape: planted.grape };
   }
 
   it('joins two sockets, walks to the green, sees 7 monsters per zone, and keeps a purchase and a sip across a reconnect', async () => {
@@ -197,9 +231,23 @@ describe('G3 room core flow', () => {
     expectSevenPerZone(shopperJoin.welcome.snapshot, 'shopper welcome');
 
     // The walker aims at the green and the room ticks it there on ripen mangos.
+    // A straight aim crosses the town wall, so the legs go out through the gate first.
     expect(zoneAt(greenGuava.x, greenGuava.y)).toBe('green');
-    await broadcastMango(walkerJoin.socket, shopperJoin.socket, { type: 'move', x: greenGuava.x, y: greenGuava.y });
-    const arrived = await broadcastMango(walkerJoin.socket, shopperJoin.socket, { type: 'ripen', steps: walkTicks });
+    expect(firstSolidWallCrossing(townSpawn, [greenGuava.x, greenGuava.y])).not.toBeNull();
+    const legs = limeGateLegs(townSpawn, [greenGuava.x, greenGuava.y]);
+    let here: Point = townSpawn;
+    let arrived: { senderSnap: SnapshotMessage; otherSnap: SnapshotMessage } | undefined;
+    for (const next of legs) {
+      await broadcastMango(walkerJoin.socket, shopperJoin.socket, { type: 'move', x: next[0], y: next[1] });
+      arrived = await broadcastMango(walkerJoin.socket, shopperJoin.socket, {
+        type: 'ripen',
+        steps: papayaSteps(here, next),
+      });
+      here = [arrived.senderSnap.character.x, arrived.senderSnap.character.y];
+    }
+    if (arrived === undefined) {
+      throw new Error('gate walk produced no snapshot');
+    }
     expect([arrived.senderSnap.character.x, arrived.senderSnap.character.y]).toEqual([greenGuava.x, greenGuava.y]);
     expect(arrived.senderSnap.character.place).toBe('green');
     // The other socket sees the walker at the green, and the monster count is still 7 per zone on both.
@@ -233,7 +281,8 @@ describe('G3 room core flow', () => {
       type: 'buy',
       item: shortSwordRow.id,
     });
-    expect(bought.senderSnap.character.sword).toBe(shortSwordRow.id);
+    expect(bought.senderSnap.character.sword).toBeNull();
+    expect(bought.senderSnap.character.items).toEqual([shortSwordRow.id]);
     expect(bought.senderSnap.character.coins).toBe(0);
     const sipped = await broadcastMango(shopperJoin.socket, walkerAgain.socket, {
       type: 'fountain',
@@ -254,14 +303,16 @@ describe('G3 room core flow', () => {
     const shopperAgain = await connectFig(wsUrl, shopper.grape);
     openSockets.push(shopperAgain.socket);
     expect(shopperAgain.welcome.character).toMatchObject({
-      sword: shortSwordRow.id,
+      sword: null,
+      items: [shortSwordRow.id],
       coins: 0,
       hp: healedHp,
       maxHp: healedHp,
       place: 'town',
     });
     expect(await getById(kiwiDb, shopper.facts.id)).toMatchObject({
-      sword: shortSwordRow.id,
+      sword: null,
+      items: [shortSwordRow.id],
       coins: 0,
       hp: healedHp,
     });

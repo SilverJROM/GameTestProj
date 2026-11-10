@@ -94,6 +94,16 @@ export function buyQuince(itemId: string): ClientMessage {
   return { type: 'buy', item: itemId };
 }
 
+// Wear a quince that is already in the bag. The slot is the quince's own slot.
+export function equipQuince(itemId: string): ClientMessage {
+  return { type: 'equip', itemId };
+}
+
+// Stow the worn quince in one slot back into the bag.
+export function unequipQuince(slot: 'sword' | 'armor'): ClientMessage {
+  return { type: 'unequip', slot };
+}
+
 // Accept and decline name the fig who asked.
 export function answerPlum(kind: 'accept' | 'decline', askerId: string): ClientMessage {
   if (kind === 'accept') {

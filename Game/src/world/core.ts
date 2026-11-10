@@ -6,9 +6,10 @@
 // This module has no sockets and does not touch the database. The room stores the persimmon patch.
 
 import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
-import { maxHealth, purchase, type Hero } from '../rules/logic';
+import { buyItem, equipItem, unequipItem, type OwnedGear } from '../rules/items';
+import { maxHealth, type Hero } from '../rules/logic';
 import { firstSolidWallCrossing, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, skeletonRadiusPx, townSpawn, zoneAt } from '../rules/regions';
-import { kaleConstants, onionMonsterRows } from '../rules/tables';
+import { kaleConstants, onionMonsterRows, type GearSlot } from '../rules/tables';
 import type { ApricotFacing, CoinSnapshot, HitMark, PickupSnapshot, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
 
 export interface FigSpot {
@@ -85,7 +86,7 @@ export function figJoinSpot(figFacts: { readonly x: number; readonly y: number }
 /** Facts with the join spot copied onto x and y. The input row is not mutated. */
 export function plantFig(figFacts: CharacterFacts): CharacterFacts {
   const spot = figJoinSpot(figFacts);
-  return { ...figFacts, x: spot.x, y: spot.y };
+  return { ...figFacts, items: figFacts.items ?? [], x: spot.x, y: spot.y };
 }
 
 /** A joined fig, standing on its pear, with no guava armed. */
@@ -156,57 +157,84 @@ export function sipMelon(fig: FigWalk, melonX: number, melonY: number): Characte
   return { hp: ripeHp };
 }
 
-// Buy one quince at the forge. The fig must already stand in town.
-// purchase() spends the purse, replaces the worn slot, and clamps health.
-// maxHp is maxHealth() of that hero. A sword leaves that maximum where it was.
-// A short purse comes back unchanged. An unknown quince throws inside purchase();
-// that throw stays in this path and the fig is left as it was.
-// A fig in the green, the grey, or the cemetery is refused even for a real quince.
-// The worn piece is replaced with no refund. There is no selling.
-export function buyQuince(fig: FigWalk, quinceId: string): CharacterFactsPatch | null {
-  if (fig.facts.place !== 'town') {
-    return null;
-  }
-  const peachHero: Hero = {
+function ownedGear(fig: FigWalk): OwnedGear {
+  return {
     level: fig.facts.level,
-    xp: fig.facts.xp,
     health: fig.facts.hp,
     coins: fig.facts.coins,
     sword: fig.facts.sword,
     armor: fig.facts.armor,
+    items: fig.facts.items ?? [],
+  };
+}
+
+// Copy a bag change onto the fig. The patch is the worn slot plus hp and maxHp.
+function applyWorn(fig: FigWalk, gear: OwnedGear): CharacterFactsPatch {
+  const hero: Hero = {
+    level: gear.level,
+    xp: fig.facts.xp,
+    health: gear.health,
+    coins: gear.coins,
+    sword: gear.sword,
+    armor: gear.armor,
     place: fig.facts.place,
   };
-  let grapeHero: Hero;
-  try {
-    const oliveBought = purchase(peachHero, quinceId);
-    if (!oliveBought.ok) {
-      return null;
-    }
-    grapeHero = oliveBought.hero;
-  } catch {
-    // purchase() throws when the quince id is not on the forge table.
-    return null;
-  }
-  const kiwiMax = maxHealth(grapeHero);
-  const limeCoins = grapeHero.coins;
-  const limeSword = grapeHero.sword;
-  const limeArmor = grapeHero.armor;
-  const limeHp = grapeHero.health;
+  const kiwiMax = maxHealth(hero);
+  const patch: CharacterFactsPatch = {
+    hp: gear.health,
+    maxHp: kiwiMax,
+    ...(gear.sword !== fig.facts.sword ? { sword: gear.sword } : {}),
+    ...(gear.armor !== fig.facts.armor ? { armor: gear.armor } : {}),
+  };
   fig.facts = {
     ...fig.facts,
-    coins: limeCoins,
-    sword: limeSword,
-    armor: limeArmor,
-    hp: limeHp,
+    coins: gear.coins,
+    sword: gear.sword,
+    armor: gear.armor,
+    hp: gear.health,
     maxHp: kiwiMax,
+    items: [...gear.items],
   };
-  return {
-    coins: limeCoins,
-    sword: limeSword,
-    armor: limeArmor,
-    hp: limeHp,
-    maxHp: kiwiMax,
+  return patch;
+}
+
+// Buy one quince at the forge. The fig must already stand in town.
+// The purse pays and the quince lands in the bag. Nothing is equipped.
+// A short purse, an owned quince, or an unknown quince comes back unchanged.
+// A fig in the green, the grey, or the cemetery is refused even for a real quince.
+export function buyQuince(fig: FigWalk, quinceId: string): CharacterFactsPatch | null {
+  if (fig.facts.place !== 'town') {
+    return null;
+  }
+  const bought = buyItem(ownedGear(fig), quinceId);
+  if (!bought.ok) {
+    return null;
+  }
+  fig.facts = {
+    ...fig.facts,
+    coins: bought.gear.coins,
+    items: [...bought.gear.items],
   };
+  return { coins: bought.gear.coins };
+}
+
+// Wear an owned quince. Allowed in every zone. A mismatched slot is refused.
+// The patch names the slot that changed, plus hp and maxHp.
+export function wearQuince(fig: FigWalk, quinceId: string, slot?: GearSlot): CharacterFactsPatch | null {
+  const worn = equipItem(ownedGear(fig), quinceId, slot);
+  if (!worn.ok) {
+    return null;
+  }
+  return applyWorn(fig, worn.gear);
+}
+
+// Return the worn quince in one slot to the bag. Allowed in every zone.
+export function stashQuince(fig: FigWalk, slot: GearSlot): CharacterFactsPatch | null {
+  const stashed = unequipItem(ownedGear(fig), slot);
+  if (!stashed.ok) {
+    return null;
+  }
+  return applyWorn(fig, stashed.gear);
 }
 
 const WALL_STOP_GAP_PX = 0.5;
@@ -373,7 +401,13 @@ function orchardSnapshot(
   return {
     players,
     monsters: beets.map((beet) => toBeet(beet, players)),
-    coins: seeds.map((seed) => ({ id: seed.id, ownerId: seed.ownerId, x: seed.x, y: seed.y })),
+    coins: seeds.map((seed) => ({
+      id: seed.id,
+      ownerId: seed.ownerId,
+      x: seed.x,
+      y: seed.y,
+      value: seed.value,
+    })),
     pickups: pickups.map((dig) => ({ ...dig })),
     hits: hits.map((hit) => ({ ...hit })),
   };

@@ -2,7 +2,6 @@
 // Nothing here naps: every second that passes is a ripen mango that sprouts the room's lime clock.
 // Every number comes from the rules tables or the regions module.
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -22,6 +21,7 @@ import { kaleConstants, onionMonsterRows, papayaLevelRows, pearTimings } from '.
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import { plantCabbage } from '../../src/world/monsters';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'hunt-session-secret';
 const rowOf = (kind: string) => onionMonsterRows.find((row) => row.id === kind)!;
@@ -33,15 +33,9 @@ const biteTicksOf = (kind: string) =>
   (onionMonsterRows.find((row) => row.id === kind)!.attackGapSeconds * 1000) / kaleConstants.tickMs;
 const biteTicks = biteTicksOf('wolf');
 const swingTicks = Math.ceil((pearTimings.playerAttackGapSeconds * 1000) / kaleConstants.tickMs);
-const dripTicks = (pearTimings.coinPickupSeconds * 1000) / kaleConstants.tickMs;
+// The dig starts at the first tick's start, so N ticks elapse N * tickMs. Pay on the tick that reaches the duration.
+const ticksBeforePay = Math.ceil((pearTimings.coinPickupSeconds * 1000) / kaleConstants.tickMs) - 1;
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
 
 function grapeFromBeet(beetCookie: string): string {
   return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
@@ -140,9 +134,7 @@ describe('G4 hunt flow', () => {
     const prep = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: { path: v3Path } });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
-      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+      await applyMigrations(prepDb);
     } finally {
       await prep.dispose();
     }
@@ -166,15 +158,9 @@ describe('G4 hunt flow', () => {
 
   // Log a fig in over HTTP, patch its D1 row, then join the room on a papaya-clock socket.
   async function joinFig(name: string, patch: Partial<CharacterFacts>) {
-    const response = await worker!.fetch('http://town.example/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, gender: 'woman' }),
-    });
-    const text = await response.text();
-    expect(response.status, text).toBe(200);
-    const facts = JSON.parse(text) as CharacterFacts;
-    const grape = grapeFromBeet(response.headers.getSetCookie()[0] ?? '');
+    const planted = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), name, 'woman');
+    const facts = planted.facts;
+    const grape = planted.grape;
     await saveFacts(kiwiDb, facts.id, patch);
     const joined = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, grape);
     openSockets.push(joined.socket);
@@ -264,38 +250,33 @@ describe('G4 hunt flow', () => {
     expect((await rowIn(fern.id)).xp).toBe(fernStart.xp + wolfRow.xp);
     expect((await rowIn(basil.id)).xp).toBe(basilStart.xp);
 
-    // The drop is the wolf row's coins, all owned by the killer, and no purse has moved yet.
+    // One seed, worth the wolf row's coins, owned by the killer. No purse has moved yet.
     for (const snap of [heard.senderSnap, heard.otherSnap]) {
-      expect(snap.snapshot.coins).toHaveLength(wolfRow.coins);
-      for (const seed of snap.snapshot.coins) {
-        expect(seed.ownerId).toBe(fern.id);
-      }
+      expect(snap.snapshot.coins).toHaveLength(1);
+      expect(snap.snapshot.coins[0]).toMatchObject({ ownerId: fern.id, value: wolfRow.coins });
     }
     expect(heard.senderSnap.character.coins).toBe(fernStart.coins);
     expect(heard.otherSnap.character.coins).toBe(basilStart.coins);
 
-    // One coin per pickup duration: not one tick before, exactly on the duration.
-    for (let paid = 1; paid <= wolfRow.coins; paid += 1) {
-      heard = await fromFern({ type: 'ripen', steps: dripTicks - 1 });
-      expect(heard.senderSnap.character.coins, `before coin ${paid}`).toBe(fernStart.coins + paid - 1);
-      expect((await rowIn(fern.id)).coins).toBe(fernStart.coins + paid - 1);
-      expect(heard.senderSnap.snapshot.coins).toHaveLength(wolfRow.coins - paid + 1);
-      for (const dig of heard.senderSnap.snapshot.pickups) {
-        expect(dig.ownerId).toBe(fern.id);
-      }
+    // The whole value lands on the pickup duration, and not on the tick before it.
+    heard = await fromFern({ type: 'ripen', steps: ticksBeforePay });
+    expect(heard.senderSnap.character.coins).toBe(fernStart.coins);
+    expect((await rowIn(fern.id)).coins).toBe(fernStart.coins);
+    expect(heard.senderSnap.snapshot.coins).toHaveLength(1);
+    expect(heard.senderSnap.snapshot.coins[0]!.value).toBe(wolfRow.coins);
+    expect(heard.senderSnap.snapshot.pickups).toHaveLength(1);
+    expect(heard.senderSnap.snapshot.pickups[0]!.ownerId).toBe(fern.id);
+    expect(heard.senderSnap.snapshot.pickups[0]!.elapsedSeconds).toBeLessThan(pearTimings.coinPickupSeconds);
 
-      heard = await fromFern({ type: 'ripen', steps: 1 });
-      expect(heard.senderSnap.character.coins, `coin ${paid}`).toBe(fernStart.coins + paid);
-      expect((await rowIn(fern.id)).coins).toBe(fernStart.coins + paid);
-      expect(heard.senderSnap.snapshot.coins).toHaveLength(wolfRow.coins - paid);
+    heard = await fromFern({ type: 'ripen', steps: 1 });
+    expect(heard.senderSnap.character.coins).toBe(fernStart.coins + wolfRow.coins);
+    expect((await rowIn(fern.id)).coins).toBe(fernStart.coins + wolfRow.coins);
+    expect(heard.senderSnap.snapshot.coins).toHaveLength(0);
+    expect(heard.otherSnap.character.coins).toBe(basilStart.coins);
+    expect((await rowIn(basil.id)).coins).toBe(basilStart.coins);
 
-      // The other purse never changes.
-      expect(heard.otherSnap.character.coins).toBe(basilStart.coins);
-      expect((await rowIn(basil.id)).coins).toBe(basilStart.coins);
-    }
-
-    // Nothing more is paid once the ground is bare.
-    heard = await fromFern({ type: 'ripen', steps: dripTicks * 2 });
+    // Nothing more is paid once the ground is bare. Basil's pet never took the seed.
+    heard = await fromFern({ type: 'ripen', steps: ticksBeforePay + 1 });
     expect(heard.senderSnap.character.coins).toBe(fernStart.coins + wolfRow.coins);
     expect(heard.otherSnap.character.coins).toBe(basilStart.coins);
     expect(heard.senderSnap.snapshot.pickups).toEqual([]);

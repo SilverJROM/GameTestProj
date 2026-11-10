@@ -1,18 +1,19 @@
 // Character store tests against the local D1 that wrangler emulates (no network, no remote database).
-import { readFileSync } from 'node:fs';
 import { getPlatformProxy, type PlatformProxy } from 'wrangler';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createCharacter, getById, getByNameKey, saveFacts, type CharacterDb } from '../../src/server/db';
+import { MAX_AVATARS_PER_ACCOUNT } from '../../src/rules/tables';
 import { townSpawn } from '../../src/rules/regions';
-
-// Splits the migration into single statements. Comment lines go first, then the file splits on semicolons.
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
+import {
+  createCharacter,
+  FigAvatarLimit,
+  FigNameTaken,
+  getById,
+  getByNameKey,
+  insertAccount,
+  saveFacts,
+  type CharacterDb,
+} from '../../src/server/db';
+import { applyMigrations, clearOrchard } from '../helpers/orchard';
 
 describe('character store on local D1', () => {
   let proxy: PlatformProxy;
@@ -22,10 +23,7 @@ describe('character store on local D1', () => {
     proxy = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: false });
     kiwiDb = (proxy.env as unknown as { DB: CharacterDb }).DB;
 
-    // Apply the real migration file, so the schema under test is the one shipped in migrations/.
-    const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-    const grapeStatements = migrationStatements(schemaSql).map((statement) => kiwiDb.prepare(statement));
-    await (kiwiDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+    await applyMigrations(kiwiDb);
   }, 120_000);
 
   afterAll(async () => {
@@ -33,12 +31,24 @@ describe('character store on local D1', () => {
   });
 
   beforeEach(async () => {
-    // Each test starts from an empty characters table.
-    await kiwiDb.prepare('DELETE FROM characters').run();
+    await clearOrchard(kiwiDb);
   });
 
+  async function plantOwner(): Promise<string> {
+    const username = `owner${crypto.randomUUID().slice(0, 8)}`;
+    const account = await insertAccount(kiwiDb, {
+      username,
+      usernameKey: username,
+      passwordHash: 'pbkdf2-sha256$1$aa$bb',
+    });
+    if (account === null) {
+      throw new Error('owner account was not planted');
+    }
+    return account.id;
+  }
+
   it('creates a character with the starting values and reads it back', async () => {
-    const pearFacts = await createCharacter(kiwiDb, { name: 'Bob', gender: 'man' });
+    const pearFacts = await createCharacter(kiwiDb, { name: 'Bob', gender: 'man', accountId: await plantOwner() });
 
     expect(pearFacts.name).toBe('Bob');
     expect(pearFacts.nameKey).toBe('bob');
@@ -50,6 +60,7 @@ describe('character store on local D1', () => {
     expect(pearFacts.maxHp).toBe(70);
     expect(pearFacts.sword).toBeNull();
     expect(pearFacts.armor).toBeNull();
+    expect(pearFacts.items).toEqual([]);
     expect(pearFacts.place).toBe('town');
     expect([pearFacts.x, pearFacts.y]).toEqual([townSpawn[0], townSpawn[1]]);
 
@@ -58,7 +69,7 @@ describe('character store on local D1', () => {
   });
 
   it('finds a character by its comparison key', async () => {
-    const bananaFacts = await createCharacter(kiwiDb, { name: 'Bob', gender: 'man' });
+    const bananaFacts = await createCharacter(kiwiDb, { name: 'Bob', gender: 'man', accountId: await plantOwner() });
 
     const appleFound = await getByNameKey(kiwiDb, 'bob');
     expect(appleFound?.id).toBe(bananaFacts.id);
@@ -70,20 +81,34 @@ describe('character store on local D1', () => {
   });
 
   it('refuses a second insert with the same name_key', async () => {
-    await createCharacter(kiwiDb, { name: 'Bob', gender: 'man' });
+    await createCharacter(kiwiDb, { name: 'Bob', gender: 'man', accountId: await plantOwner() });
 
     // " bob " trims and lowercases to the same key as "Bob", so the UNIQUE index rejects it.
-    await expect(createCharacter(kiwiDb, { name: ' bob ', gender: 'woman' })).rejects.toThrow();
+    await expect(
+      createCharacter(kiwiDb, { name: ' bob ', gender: 'woman', accountId: await plantOwner() }),
+    ).rejects.toBeInstanceOf(FigNameTaken);
+  });
+
+  it('refuses a third avatar on the same account', async () => {
+    const accountId = await plantOwner();
+    for (let n = 0; n < MAX_AVATARS_PER_ACCOUNT; n += 1) {
+      await createCharacter(kiwiDb, { name: `Fig${n}`, gender: 'woman', accountId });
+    }
+    await expect(createCharacter(kiwiDb, { name: 'Extra', gender: 'man', accountId })).rejects.toBeInstanceOf(
+      FigAvatarLimit,
+    );
+    const countRow = await kiwiDb.prepare('SELECT COUNT(*) AS total FROM characters').first<{ total: number }>();
+    expect(countRow?.total).toBe(MAX_AVATARS_PER_ACCOUNT);
   });
 
   it('refuses a blank name before touching the table', async () => {
-    await expect(createCharacter(kiwiDb, { name: '   ', gender: 'woman' })).rejects.toThrow();
+    await expect(createCharacter(kiwiDb, { name: '   ', gender: 'woman', accountId: 'unused-owner' })).rejects.toThrow();
     const countRow = await kiwiDb.prepare('SELECT COUNT(*) AS total FROM characters').first<{ total: number }>();
     expect(countRow?.total).toBe(0);
   });
 
   it('saves only the facts given and leaves the rest unchanged', async () => {
-    const peachFacts = await createCharacter(kiwiDb, { name: 'Ada', gender: 'woman' });
+    const peachFacts = await createCharacter(kiwiDb, { name: 'Ada', gender: 'woman', accountId: await plantOwner() });
 
     const plumSaved = await saveFacts(kiwiDb, peachFacts.id, {
       level: 2,
@@ -106,7 +131,7 @@ describe('character store on local D1', () => {
   });
 
   it('writes x and y alone and keeps every other column', async () => {
-    const cherryFacts = await createCharacter(kiwiDb, { name: 'Cy', gender: 'man' });
+    const cherryFacts = await createCharacter(kiwiDb, { name: 'Cy', gender: 'man', accountId: await plantOwner() });
 
     const grapeSaved = await saveFacts(kiwiDb, cherryFacts.id, { x: 512, y: 300 });
 
@@ -115,7 +140,7 @@ describe('character store on local D1', () => {
   });
 
   it('can clear a gear slot with null and change the zone', async () => {
-    const lemonFacts = await createCharacter(kiwiDb, { name: 'Dee', gender: 'woman' });
+    const lemonFacts = await createCharacter(kiwiDb, { name: 'Dee', gender: 'woman', accountId: await plantOwner() });
     await saveFacts(kiwiDb, lemonFacts.id, { armor: 'leather', place: 'green' });
 
     const figSaved = await saveFacts(kiwiDb, lemonFacts.id, { armor: null });

@@ -184,18 +184,39 @@ describe('removeMagenta', () => {
 describe('scaleFor and scaledSize', () => {
   const kinds: SpriteKind[] = ['player', 'axolotl', 'wolf', 'bear', 'skeleton', 'blacksmith'];
 
+  // Heights before the 40 percent shrink. The new table is round(each of these * 0.6).
+  const guavaPriorPx: Record<SpriteKind, number> = {
+    player: 96,
+    axolotl: 40,
+    wolf: 56,
+    bear: 80,
+    skeleton: 96,
+    blacksmith: 96,
+  };
+
   it('gives the table height for every sprite kind', () => {
     expect(APPLE_SCALE_PX).toEqual({
-      player: 96,
-      axolotl: 40,
-      wolf: 56,
-      bear: 80,
-      skeleton: 96,
-      blacksmith: 96,
+      player: 58,
+      axolotl: 24,
+      wolf: 34,
+      bear: 48,
+      skeleton: 58,
+      blacksmith: 58,
     });
     for (const kind of kinds) {
       expect(scaleFor(kind), kind).toBe(APPLE_SCALE_PX[kind]);
     }
+  });
+
+  it('keeps each kind at round(old height * 0.6)', () => {
+    for (const kind of kinds) {
+      const papayaNext = Math.round(guavaPriorPx[kind] * 0.6);
+      expect(APPLE_SCALE_PX[kind], kind).toBe(papayaNext);
+      expect(scaleFor(kind), kind).toBe(papayaNext);
+    }
+    // Same kinds still share a height: fig, skeleton, and smith stay one size.
+    expect(scaleFor('player')).toBe(scaleFor('skeleton'));
+    expect(scaleFor('skeleton')).toBe(scaleFor('blacksmith'));
   });
 
   // One real still per kind; the player uses both gender stills.

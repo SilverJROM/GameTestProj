@@ -1,15 +1,35 @@
 // World view with a fake lemon: clicks send one mango, stills follow the snapshot.
 import { describe, expect, it } from 'vitest';
+import { mapToCanvas } from '../../src/client/camera';
 import { COIN_DRAW_PX, COIN_SRC, scaleFor } from '../../src/client/sprites';
 import { plantFigBoard, type FigBoard, type LemonLike } from '../../src/client/main';
 import { mangoForgeBox } from '../../src/rules/regions';
-import { pearTimings } from '../../src/rules/tables';
+import { mangoGearRows, onionMonsterRows, pearTimings } from '../../src/rules/tables';
 import {
   CEMETERY_WALL_SRC,
+  HEALTH_BAR_H,
+  HEALTH_X,
+  HEALTH_Y,
+  LIME_BUBBLE_FONT,
+  LIME_BUBBLE_H,
+  LIME_BUBBLE_W,
+  SMITH_X,
+  SMITH_Y,
+  bagTiles,
+  figStandSrc,
+  kiwiSliderBox,
+  oliveDragFace,
+  oliveDrop,
+  oliveHint,
+  olivePanelBox,
+  papayaRectsOverlap,
   TOWN_WALL_NEAR_SRC,
+  hudReadout,
+  shopSheet,
   stackOrchard,
   blitGuava,
   paintHealth,
+  paintHud,
   type BlitCtx, type FigPaint, type GuavaStill } from '../../src/client/view';
 import type { CoinSnapshot, MonsterSnapshot, PickupSnapshot, WorldSnapshot } from '../../src/protocol';
 
@@ -148,6 +168,48 @@ describe('health readout', () => {
   });
 });
 
+describe('hud readout', () => {
+  it('formats a level 1 start, a mid level, and the level cap', () => {
+    expect(hudReadout({ level: 1, xp: 0, coins: 0 }).lines).toEqual(['Lv 1', 'XP 0 / 10', 'Coins 0']);
+    expect(hudReadout({ level: 3, xp: 7, coins: 12 }).lines).toEqual(['Lv 3', 'XP 7 / 20', 'Coins 12']);
+    const cap = hudReadout({ level: 6, xp: 40, coins: 3 });
+    expect(cap.lines).toEqual(['Lv 6', 'XP 40', 'Coins 3']);
+    expect(cap.lines[1]).not.toContain('/');
+  });
+
+  it('paints those lines under the health bar in the same ink and type', () => {
+    const row = hudReadout({ level: 1, xp: 0, coins: 0 });
+    expect(row.x).toBe(HEALTH_X);
+    expect(row.y).toBeGreaterThan(HEALTH_Y + HEALTH_BAR_H);
+    const marks: string[] = [];
+    const ctx = {
+      fillStyle: '',
+      font: '',
+      fillRect() {},
+      fillText(text: string, x: number, y: number) {
+        marks.push(`${text} ${x} ${y} ${ctx.font} ${ctx.fillStyle}`);
+      },
+    };
+    paintHud(ctx, row);
+    expect(marks).toEqual([
+      `Lv 1 ${row.x} ${row.y} 700 20px Georgia, serif #ffffff`,
+      `XP 0 / 10 ${row.x} ${row.y + row.lineGap} 700 20px Georgia, serif #ffffff`,
+      `Coins 0 ${row.x} ${row.y + row.lineGap * 2} 700 20px Georgia, serif #ffffff`,
+    ]);
+  });
+
+  it('follows the latest snapshot on the board', () => {
+    const { board } = openBoard();
+    expect(board.hud().lines).toEqual(['Lv 1', 'XP 0 / 10', 'Coins 0']);
+    board.ingest({
+      type: 'snapshot',
+      character: { id: 'fig-self', place: 'town', gender: 'woman', level: 6, xp: 40, coins: 3, hp: 140, maxHp: 140 },
+      snapshot: { players: [], monsters: [], coins: [], pickups: [] },
+    });
+    expect(board.hud().lines).toEqual(['Lv 6', 'XP 40', 'Coins 3']);
+  });
+});
+
 describe('damage numbers', () => {
   it('draws monster damage in white and player damage in red, once per id', () => {
     const { board } = openBoard();
@@ -181,6 +243,44 @@ describe('damage numbers', () => {
     ]);
     expect(board.damageNumbers(after + 1000)).toEqual([]);
   });
+
+  it('floats +N in gold for the local coin only, above its last spot, for one second', () => {
+    const { board } = openBoard();
+    const skeletonCoins = onionMonsterRows.find((row) => row.id === 'skeleton')!.coins;
+    const bearCoins = onionMonsterRows.find((row) => row.id === 'bear')!.coins;
+    const players = [fig({ id: 'fig-self', x: 400, y: 400, place: 'green' })];
+    const mine = { id: 'coin-mine', ownerId: 'fig-self', x: 420, y: 380, value: skeletonCoins };
+    const theirs = { id: 'coin-theirs', ownerId: 'fig-other', x: 420, y: 380, value: bearCoins };
+    const snap = (coins: typeof mine[], hits: unknown[] = []) => ({
+      type: 'snapshot',
+      character: { id: 'fig-self', place: 'green', gender: 'woman', hp: 70, maxHp: 70 },
+      snapshot: { players, monsters: [], coins, pickups: [], hits },
+    });
+    board.ingest(snap([mine, theirs]));
+    const before = Date.now();
+    expect(board.damageNumbers(before)).toEqual([]);
+
+    // The other fig's coin leaves. Nothing floats for this client.
+    board.ingest(snap([mine]));
+    expect(board.damageNumbers(Date.now())).toEqual([]);
+
+    const hit = { id: 'hit-coin', targetKind: 'monster', targetId: 'wolf-1', amount: 4, x: mine.x, y: mine.y };
+    board.ingest(snap([], [hit]));
+    const now = Date.now();
+    const floated = board.damageNumbers(now);
+    const melon = floated.find((row) => row.id === 'melon:coin-mine');
+    const wound = floated.find((row) => row.id === 'hit-coin');
+    expect(melon).toMatchObject({ amount: skeletonCoins, color: '#e0b15a', text: `+${skeletonCoins}` });
+    expect(floated.filter((row) => row.text.startsWith('+'))).toEqual([melon]);
+    expect(wound?.color).toBe('#ffffff');
+    expect(wound?.text).toBe('4');
+    expect(melon!.x).toBe(wound!.x);
+    const risen = board.damageNumbers(now + 500);
+    const melonRisen = risen.find((row) => row.id === 'melon:coin-mine')!;
+    expect(melonRisen.y).toBeLessThan(melon!.y);
+    expect(melonRisen.x).toBe(melon!.x);
+    expect(board.damageNumbers(now + 1000).some((row) => row.id === 'melon:coin-mine')).toBe(false);
+  });
 });
 
 describe('world view', () => {
@@ -212,7 +312,7 @@ describe('world view', () => {
     board.chooseQuince('shortSword');
     expect(lemon.sent).toHaveLength(3);
     expect(mangoOf(lemon, 2)).toEqual({ type: 'buy', item: 'shortSword' });
-    expect(board.smithOpen).toBe(false);
+    expect(board.smithOpen).toBe(true);
 
     board.click({ x: 700, y: 500, button: 2 });
     expect(lemon.sent).toHaveLength(4);
@@ -292,7 +392,8 @@ describe('world view', () => {
 
   it('draws a pet pickup toward the owner coin and the ground coin from items/coin.png', () => {
     const owner = fig({ id: 'fig-self', x: 40, y: 80, moving: false });
-    const coin: CoinSnapshot = { id: 'seed-1', ownerId: owner.id, x: 140, y: 80 };
+    const coinValue = onionMonsterRows.find((row) => row.id === 'skeleton')!.coins;
+    const coin: CoinSnapshot = { id: 'seed-1', ownerId: owner.id, x: 140, y: 80, value: coinValue };
     const dig = (elapsedSeconds: number): PickupSnapshot => ({
       ownerId: owner.id,
       coinId: coin.id,
@@ -334,6 +435,16 @@ describe('world view', () => {
     expect(ground.y).toBe(coin.y);
     expect(ground.width).toBe(COIN_DRAW_PX);
     expect(ground.height).toBe(COIN_DRAW_PX);
+    expect(board.draw().filter((still) => still.role === 'coin')).toHaveLength(1);
+
+    // The dig row is gone, so the pet stands on the owner again, even after the owner walks off.
+    const away = fig({ id: 'fig-self', x: 20, y: 200, moving: true });
+    feed(board, { players: [away], monsters: [], coins: [], pickups: [] });
+    const home = role(board.draw(), 'pet', 'pet:fig-self');
+    expect(home.still).toBe('walk');
+    expect(home.src).toBe('/avatars/axolotl/walk.png');
+    expect(home.x).toBe(away.x);
+    expect(home.y).toBe(away.y);
 
     const forge = role(board.draw(), 'forge');
     const smith = role(board.draw(), 'blacksmith');
@@ -589,6 +700,20 @@ describe('draw stack around the overlays', () => {
 });
 
 describe('blacksmith shop and inventory', () => {
+  it('shows the three-dot bubble in town only; Bag stays everywhere', () => {
+    const { board } = openBoard();
+    const send = (place: string) =>
+      board.ingest({
+        type: 'snapshot',
+        character: { id: 'fig-self', place, gender: 'woman' },
+        snapshot: { players: [fig({ id: 'fig-self', x: 300, y: 450, place })], monsters: [], coins: [], pickups: [] },
+      });
+    send('town');
+    expect(board.controls().map((row) => row.id)).toEqual(['bubble', 'bag']);
+    send('green');
+    expect(board.controls().map((row) => row.id)).toEqual(['bag']);
+  });
+
   it('opens the six-item shop from the thought bubble and the inventory from Bag', () => {
     const { board } = openBoard();
     const players = [fig({ id: 'fig-self', x: 300, y: 450, place: 'town' })];
@@ -614,8 +739,19 @@ describe('blacksmith shop and inventory', () => {
     expect(smith.height).toBe(scaleFor('player'));
     const bubble = board.controls().find((row) => row.id === 'bubble');
     const bag = board.controls().find((row) => row.id === 'bag');
-    expect(bubble?.text).toBe('Armor and weapons');
+    expect(bubble?.text).toBe('...');
     expect(bag?.text).toBe('Bag');
+    expect(LIME_BUBBLE_W).toBe(64);
+    expect(LIME_BUBBLE_H).toBe(36);
+    expect(bubble!.width).toBe(LIME_BUBBLE_W);
+    expect(bubble!.height).toBe(LIME_BUBBLE_H);
+    expect(bubble!.font).toBe(LIME_BUBBLE_FONT);
+    expect(bubble!.width).toBeLessThan(220);
+    expect(bubble!.height).toBeLessThan(64 * 0.7);
+    const view = board.camera();
+    const feet = mapToCanvas(view, SMITH_X, SMITH_Y);
+    const headTop = feet.y - scaleFor('blacksmith') * view.scale;
+    expect(bubble!.y + bubble!.height).toBeLessThanOrEqual(headTop);
     expect(bubble!.x).toBeGreaterThanOrEqual(0);
     expect(bubble!.y).toBeGreaterThanOrEqual(0);
     expect(bubble!.x + bubble!.width).toBeLessThanOrEqual(1280);
@@ -652,10 +788,14 @@ describe('blacksmith shop and inventory', () => {
       coins: 14,
       sword: 'Short sword',
       armor: 'Leather',
+      swordBonus: '+2 strike',
+      armorBonus: '+12 max HP',
       level: 2,
       health: '54 / 92',
       strike: 7,
       experience: '4 / 15',
+      tiles: [],
+      portrait: '/avatars/warrior-f/stand.png',
     });
 
     board.ingest(snap({ level: 1, xp: 0, hp: 70, maxHp: 70, coins: 0, sword: null, armor: null }));
@@ -663,10 +803,132 @@ describe('blacksmith shop and inventory', () => {
       coins: 0,
       sword: 'Nothing worn',
       armor: 'Nothing worn',
+      swordBonus: '',
+      armorBonus: '',
       level: 1,
       health: '70 / 70',
       strike: 4,
       experience: '0 / 10',
+      tiles: [],
+      portrait: '/avatars/warrior-f/stand.png',
     });
+
+    expect(board.pressScreen(bag!.x + 4, bag!.y + 4)).toBe(true);
+    expect(board.bagOpen).toBe(false);
+    expect(board.inventory()).toBeNull();
+
+    expect(board.pressScreen(bubble!.x + 4, bubble!.y + 4)).toBe(true);
+    expect(board.smithOpen).toBe(true);
+    board.closePanels();
+    expect(board.smithOpen).toBe(false);
+    expect(board.bagOpen).toBe(false);
+    expect(board.shop()).toBeNull();
+  });
+
+  it('lists weapons then armor with buy, need, and owned', () => {
+    const sheet = shopSheet(48, ['shortSword', 'leather']);
+    expect(sheet.coins).toBe(48);
+    expect(sheet.rows.map((row) => row.id)).toEqual(mangoGearRows.map((row) => row.id));
+    expect(sheet.rows.map((row) => row.group)).toEqual([
+      'Weapons',
+      'Weapons',
+      'Weapons',
+      'Armor',
+      'Armor',
+      'Armor',
+    ]);
+    expect(sheet.rows.map((row) => row.state)).toEqual(['owned', 'buy', 'need', 'owned', 'buy', 'need']);
+    expect(sheet.rows.map((row) => row.effect)).toEqual([
+      'Strike +2',
+      'Strike +4',
+      'Strike +7',
+      'Max HP +12',
+      'Max HP +24',
+      'Max HP +40',
+    ]);
+    expect(sheet.rows.map((row) => row.price)).toEqual(mangoGearRows.map((row) => row.price));
+    expect(sheet.rows.every((row) => row.canBuy === (row.state === 'buy'))).toBe(true);
+    expect(sheet.rows.every((row) => row.owned === (row.state === 'owned'))).toBe(true);
+    expect(shopSheet(0).rows.every((row) => row.state === 'need')).toBe(true);
+    expect(shopSheet(100).rows.every((row) => row.state === 'buy')).toBe(true);
+  });
+});
+
+describe('bag tiles, drag, and the centered sheet', () => {
+  const worn = { sword: 'shortSword' as string | null, armor: 'leather' as string | null };
+  const facts = {
+    coins: 14,
+    sword: 'shortSword' as string | null,
+    armor: 'leather' as string | null,
+    level: 2,
+    hp: 54,
+    maxHp: 92,
+    xp: 4,
+    place: 'town' as const,
+    items: ['shortSword', 'longSword', 'leather'],
+    gender: 'woman' as const,
+  };
+
+  it('lists each owned quince with its name and bonus', () => {
+    expect(bagTiles(facts.items, facts.sword, facts.armor)).toEqual([
+      { id: 'shortSword', name: 'Short sword', bonus: '+2 strike', label: 'Short sword +2 strike', worn: true, slot: 'sword' },
+      { id: 'longSword', name: 'Long sword', bonus: '+4 strike', label: 'Long sword +4 strike', worn: false, slot: 'sword' },
+      { id: 'leather', name: 'Leather', bonus: '+12 max HP', label: 'Leather +12 max HP', worn: true, slot: 'armor' },
+    ]);
+    expect(figStandSrc('man')).toBe('/avatars/warrior-m/stand.png');
+    expect(figStandSrc(undefined)).toBe('/avatars/warrior-f/stand.png');
+  });
+
+  it('equips a matching drop, ignores the wrong slot, and unequips a drag back to the row', () => {
+    const longSword = { from: 'tile' as const, itemId: 'longSword', slot: 'sword' as const };
+    const leather = { from: 'tile' as const, itemId: 'leather', slot: 'armor' as const };
+    expect(oliveDrop(longSword, { kind: 'slot', slot: 'sword' }, worn)).toEqual({ type: 'equip', itemId: 'longSword' });
+    expect(oliveDrop(leather, { kind: 'slot', slot: 'sword' }, worn)).toBeNull();
+    expect(oliveDrop(longSword, { kind: 'row' }, worn)).toBeNull();
+    expect(oliveDrop({ from: 'tile', itemId: 'shortSword', slot: 'sword' }, { kind: 'slot', slot: 'sword' }, worn)).toBeNull();
+    expect(oliveDrop({ from: 'slot', itemId: 'shortSword', slot: 'sword' }, { kind: 'row' }, worn)).toEqual({
+      type: 'unequip',
+      slot: 'sword',
+    });
+    expect(oliveDrop({ from: 'slot', itemId: 'leather', slot: 'armor' }, { kind: 'slot', slot: 'armor' }, worn)).toBeNull();
+    expect(oliveDrop({ from: 'slot', itemId: 'shortSword', slot: 'sword' }, { kind: 'row' }, { sword: null, armor: 'leather' })).toBeNull();
+  });
+
+  it('highlights the matching slot and previews the next Strike or Health', () => {
+    expect(oliveDragFace(facts, { from: 'tile', itemId: 'longSword', slot: 'sword' })).toEqual({
+      sword: 'lime',
+      armor: 'peach',
+      row: 'rest',
+      hint: 'Strike 7 becomes 9',
+    });
+    expect(oliveDragFace(facts, { from: 'tile', itemId: 'leather', slot: 'armor' })).toEqual({
+      sword: 'rest',
+      armor: 'rest',
+      row: 'rest',
+      hint: '',
+    });
+    expect(oliveHint(facts, null, 'leather')).toBe('Strike 7 becomes 5');
+    expect(oliveDragFace(facts, { from: 'slot', itemId: 'shortSword', slot: 'sword' }).row).toBe('lime');
+    const bare = { ...facts, sword: null, armor: null, level: 1, hp: 40, maxHp: 70, items: ['leather'] };
+    expect(oliveDragFace(bare, { from: 'tile', itemId: 'leather', slot: 'armor' }).hint).toBe(
+      'Health 40 / 70 becomes 40 / 82',
+    );
+    const full = { ...facts, level: 1, hp: 80, maxHp: 82, sword: null, armor: 'leather' };
+    expect(oliveHint(full, null, null)).toBe('Health 80 / 82 becomes 70 / 70');
+  });
+
+  it('keeps the centered bag off the zoom slider at 1280x800 and 1280x720', () => {
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 1280, height: 720 },
+    ]) {
+      const stage = Math.min(viewport.height, (viewport.width * 9) / 16);
+      const panel = olivePanelBox(viewport.width, viewport.height, viewport.height);
+      const slider = kiwiSliderBox(viewport.width, stage);
+      expect(panel.right - panel.left).toBe(860);
+      expect(panel.left).toBeCloseTo((viewport.width - 860) / 2, 5);
+      expect(papayaRectsOverlap(panel, slider)).toBe(false);
+      expect(panel.right).toBeLessThan(slider.left);
+    }
   });
 });

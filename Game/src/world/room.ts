@@ -8,10 +8,10 @@
 // A prune starts a yam only while this room is on the papaya clock.
 // A fountain mango sips the melon well for the socket's fig. A radish id on that mango is ignored.
 // The sip fills hp to the stored maxHp when the fig is in town and the click lands in the melon box.
-// A buy mango plucks a quince for the socket's fig. A radish id on that mango is ignored.
-// The fig must already stand in town. purchase() sets the purse, the slot, and the clamped health.
-// One ripe quince writes coins, sword, armor, hp, and maxHp with one saveFacts call.
-// A short purse, an unknown quince, or a fig outside town leaves the pear as it was.
+// A buy mango puts a quince in the socket's fig bag. A radish id on that mango is ignored.
+// The fig must already stand in town. The purse and the new bag row commit in one batch.
+// equip and unequip wear or stow that fig's own quince in any zone.
+// One wear writes the slot, hp, and maxHp in one statement. An unowned quince is refused.
 // A normal fig cannot fell a beet with prune. An attack mango lands strike damage in reach, once per gap.
 // The yam sprouts on the lime clock after the rules respawn delay.
 // Beets stand on their leeks until hit. A hit wolf or bear chases its first hitter on the same lime clock.
@@ -19,13 +19,14 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   CHARACTER_ID_HEADER,
+  DROP_FIG_PATH,
   PAPAYA_CLOCK_HEADER,
   PAPAYA_CLOCK_RIPE,
   peelClientMessage,
   type HitMark,
 } from '../protocol';
-import { kaleConstants } from '../rules/tables';
-import { getById, saveFacts, saveFactsPair, type CharacterDb } from '../server/db';
+import { WORLD_EPOCH, kaleConstants } from '../rules/tables';
+import { getById, saveFacts, saveFactsPair, saveQuinceBuy, saveQuinceSlot, type CharacterDb, type CharacterFactsPatch } from '../server/db';
 import {
   bakeSnapshotMessage,
   bakeWelcome,
@@ -35,6 +36,8 @@ import {
   ripenDue,
   sipMelon,
   sproutFig,
+  stashQuince,
+  wearQuince,
   type FigWalk,
   type LimeClock,
   type PapayaOrchard,
@@ -62,6 +65,9 @@ const oliveStepCap = 10_000;
 
 // Durable Object key for the cabbage bed. Living beets and waiting yams share this pear.
 const cabbageBedKey = 'cabbage-bed';
+
+// Stored world generation. A room that still has an older pear composts it on first load.
+const worldEpochKey = 'world-epoch';
 
 function refuseFigSocket(): Response {
   return new Response(JSON.stringify({ error: 'Sign in required.' }), {
@@ -111,6 +117,21 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   async fetch(request: Request): Promise<Response> {
+    const oliveUrl = new URL(request.url);
+    // The worker calls this after it has checked that the fig belongs to the signed-in account.
+    // The fig id is the trusted header, the same way a lemon socket is joined. A query id is ignored.
+    if (oliveUrl.pathname === DROP_FIG_PATH) {
+      if (request.method !== 'POST') {
+        return new Response('Method not allowed', { status: 405 });
+      }
+      const appleId = request.headers.get(CHARACTER_ID_HEADER);
+      if (appleId === null || appleId.length === 0) {
+        return refuseFigSocket();
+      }
+      await this.pullFig(appleId);
+      return new Response(null, { status: 204 });
+    }
+
     if (!isLemonUpgrade(request)) {
       return new Response('Expected a lemon socket.', { status: 426 });
     }
@@ -234,6 +255,14 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       await this.onBuy(appleId, peeled.item);
       return;
     }
+    if (peeled.type === 'equip') {
+      await this.onEquip(appleId, peeled.itemId, peeled.slot);
+      return;
+    }
+    if (peeled.type === 'unequip') {
+      await this.onUnequip(appleId, peeled.slot);
+      return;
+    }
     if (peeled.type === 'attack') {
       await this.onAttack(appleId, 'monsterId' in peeled ? peeled.monsterId : undefined, 'playerId' in peeled ? peeled.playerId : undefined);
       return;
@@ -284,17 +313,86 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   // The quince id comes from the mango. The fig id is the socket's apple, never a radish on the body.
-  // buyQuince catches an unknown quince, so this lemon stays open and still answers.
+  // buyQuince refuses an unknown, owned, or unaffordable quince, so this lemon stays open.
   private async onBuy(appleId: string, quinceId: string): Promise<void> {
     const fig = this.orchard.figs.get(appleId);
     if (fig === undefined) {
       return;
     }
     const quincePatch = buyQuince(fig, quinceId);
-    if (quincePatch !== null) {
-      await saveFacts(this.env.DB, appleId, quincePatch);
+    if (quincePatch !== null && quincePatch.coins !== undefined) {
+      try {
+        await saveQuinceBuy(this.env.DB, appleId, quincePatch.coins, quinceId);
+      } catch {
+        await this.restoreQuince(fig);
+      }
     }
     this.broadcastMango();
+  }
+
+  // Wear one owned quince. A slot that does not match the quince is refused inside wearQuince.
+  private async onEquip(appleId: string, quinceId: string, slot?: 'sword' | 'armor'): Promise<void> {
+    const fig = this.orchard.figs.get(appleId);
+    if (fig === undefined) {
+      return;
+    }
+    const patch = wearQuince(fig, quinceId, slot);
+    if (patch !== null) {
+      const wrote = await this.persistSlot(appleId, patch);
+      if (!wrote) {
+        await this.restoreQuince(fig);
+      }
+    }
+    this.broadcastMango();
+  }
+
+  // Stow the worn quince in one slot. The bag row stays.
+  private async onUnequip(appleId: string, slot: 'sword' | 'armor'): Promise<void> {
+    const fig = this.orchard.figs.get(appleId);
+    if (fig === undefined) {
+      return;
+    }
+    const patch = stashQuince(fig, slot);
+    if (patch !== null) {
+      const wrote = await this.persistSlot(appleId, patch);
+      if (!wrote) {
+        await this.restoreQuince(fig);
+      }
+    }
+    this.broadcastMango();
+  }
+
+  // The slot column, hp, and maxHp share one UPDATE. The bag is not rewritten.
+  private async persistSlot(appleId: string, patch: CharacterFactsPatch): Promise<boolean> {
+    const hp = patch.hp;
+    const maxHp = patch.maxHp;
+    if (hp === undefined || maxHp === undefined) {
+      return false;
+    }
+    if (patch.sword !== undefined) {
+      return saveQuinceSlot(this.env.DB, appleId, 'sword', patch.sword, hp, maxHp);
+    }
+    if (patch.armor !== undefined) {
+      return saveQuinceSlot(this.env.DB, appleId, 'armor', patch.armor, hp, maxHp);
+    }
+    return false;
+  }
+
+  // Put the purse, the worn slots, health, and the bag back to the stored row.
+  private async restoreQuince(fig: FigWalk): Promise<void> {
+    const fresh = await getById(this.env.DB, fig.facts.id);
+    if (fresh === null) {
+      return;
+    }
+    fig.facts = {
+      ...fig.facts,
+      coins: fresh.coins,
+      sword: fresh.sword,
+      armor: fresh.armor,
+      hp: fresh.hp,
+      maxHp: fresh.maxHp,
+      items: fresh.items,
+    };
   }
 
   private async onFountain(appleId: string, melonX: number, melonY: number): Promise<void> {
@@ -385,6 +483,11 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   private async loadCabbage(): Promise<void> {
+    const storedEpoch = await this.ctx.storage.get(worldEpochKey);
+    if (storedEpoch !== WORLD_EPOCH) {
+      await this.compostStoredOrchard();
+      return;
+    }
     const stored = await this.ctx.storage.get(cabbageBedKey);
     const read = readCabbage(stored);
     if (read !== null) {
@@ -393,6 +496,46 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     this.cabbage = plantCabbage();
     await this.storeCabbage();
+  }
+
+  // Drops the monster bed, ground coins, pending digs, and any pear keyed to an old fig, then plants a fresh bed.
+  private async compostStoredOrchard(): Promise<void> {
+    for (let page = 0; page < 100; page += 1) {
+      const listed = await this.ctx.storage.list({ limit: 128 });
+      if (listed.size === 0) {
+        break;
+      }
+      await this.ctx.storage.delete([...listed.keys()]);
+    }
+    this.radishDigs.clear();
+    this.cabbage = plantCabbage();
+    await this.storeCabbage();
+    await this.ctx.storage.put(worldEpochKey, WORLD_EPOCH);
+  }
+
+  // Closes this fig's lemon and takes it off the map.
+  // A pet only digs while its owner is connected, so coin seeds this fig left on the cabbage
+  // would sit forever after the avatar is deleted. Peel those seeds off and store the bed.
+  private async pullFig(appleId: string): Promise<void> {
+    const socket = this.figSockets.get(appleId);
+    // Remove the socket before close, so the close handler does not pull the fig a second time.
+    this.figSockets.delete(appleId);
+    this.orchard.figs.delete(appleId);
+    this.radishDigs.delete(appleId);
+    this.lemonOpenedMs.delete(appleId);
+    this.swingClocks.delete(appleId);
+    dropDuelsFor(this.duelOrchard, appleId);
+    const cleared = clearAggroOn(this.cabbage, appleId);
+    const keptSeeds = cleared.seeds.filter((seed) => seed.ownerId !== appleId);
+    const peeled = keptSeeds.length === cleared.seeds.length ? cleared : { ...cleared, seeds: keptSeeds };
+    if (peeled !== this.cabbage) {
+      this.cabbage = peeled;
+      await this.storeCabbage();
+    }
+    this.broadcastMango();
+    if (socket !== undefined) {
+      socket.close(4000, 'This fig was pulled from the orchard.');
+    }
   }
 
   private async storeCabbage(): Promise<void> {

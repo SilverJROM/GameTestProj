@@ -1,12 +1,12 @@
-// Forge quince. A buy mango from a fig in town spends the purse through purchase().
-// Eighteen coins take the short sword and leave an empty purse. Seventeen coins are refused.
-// Plate then leather replaces the worn piece with no refund, and current health clamps down.
-// A fig in the green, the grey, or the cemetery is refused. An unknown quince changes nothing.
+// Forge quince. A buy mango from a fig in town spends the purse and puts the quince in the bag.
+// Eighteen coins take the short sword into the bag and leave an empty purse. The sword is not worn.
+// Seventeen coins are refused. Buying a quince you already own costs nothing.
+// Plate then leather both sit in the bag. Neither is equipped, and health does not move.
+// A fig in the green, the grey, or the cemetery cannot buy. An unknown quince changes nothing.
 // A radish id on the mango is ignored, so only the socket's fig pays.
 // The green fig crosses with the papaya clock the walk tests use. This file does not nap.
 // A lemon that joined without that header cannot fell a beet. The melon sip still fills hp.
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -20,7 +20,7 @@ import {
   type SnapshotMessage,
   type WelcomeMessage,
 } from '../../src/protocol';
-import { baseHp, maxHealth, purchase, type Hero } from '../../src/rules/logic';
+import { baseHp, maxHealth, strike, type Hero } from '../../src/rules/logic';
 import {
   hitBox,
   melonFountainBox,
@@ -29,9 +29,10 @@ import {
   zoneAt,
 } from '../../src/rules/regions';
 import { kaleConstants, mangoGearRows, onionMonsterRows } from '../../src/rules/tables';
-import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
+import { ACCOUNT_COOKIE_NAME, SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts, type CharacterFactsPatch } from '../../src/server/db';
-import { berryStepPx, buyQuince, sipMelon, sproutFig, type FigWalk } from '../../src/world/core';
+import { berryStepPx, buyQuince, sipMelon, sproutFig, stashQuince, wearQuince, type FigWalk } from '../../src/world/core';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'quince-session-secret';
 const melonBase = baseHp(1);
@@ -125,15 +126,14 @@ describe('quince buy on the fig', () => {
       maxHp: leatherMax,
     });
     const swordPatch = buyQuince(swordFig, 'shortSword');
-    expect(swordPatch).toEqual({
-      coins: 0,
-      sword: 'shortSword',
-      armor: 'leather',
-      hp: leatherMax,
-      maxHp: leatherMax,
-    });
+    expect(swordPatch).toEqual({ coins: 0 });
     expect(swordFig.facts.coins).toBe(0);
+    expect(swordFig.facts.sword).toBeNull();
+    expect(swordFig.facts.armor).toBe('leather');
+    expect(swordFig.facts.items).toEqual(['shortSword']);
+    expect(swordFig.facts.hp).toBe(leatherMax);
     expect(swordFig.facts.maxHp).toBe(leatherMax);
+    expect(strike(heroFrom(swordFig.facts))).toBe(strike(heroFrom({ ...swordFig.facts, sword: null })));
 
     const shortPurse = plantQuince({ coins: shortQuince.price - 1 });
     const purseBefore = { ...shortPurse.facts };
@@ -175,43 +175,50 @@ describe('quince buy on the fig', () => {
     expect(leatherCap).toBeLessThan(plateMax);
     const clad = plantQuince({ coins: plateQuince.price + leatherQuince.price });
     const platePatch = buyQuince(clad, 'plate');
-    expect(platePatch?.armor).toBe('plate');
-    expect(platePatch?.coins).toBe(leatherQuince.price);
-    expect(platePatch?.hp).toBe(melonBase);
-    expect(platePatch?.maxHp).toBe(plateMax);
-    expect(platePatch?.sword).toBeNull();
+    expect(platePatch).toEqual({ coins: leatherQuince.price });
+    expect(clad.facts.armor).toBeNull();
+    expect(clad.facts.sword).toBeNull();
+    expect(clad.facts.hp).toBe(melonBase);
+    expect(clad.facts.maxHp).toBe(melonBase);
+    expect(clad.facts.items).toEqual(['plate']);
+
+    const again = buyQuince(clad, 'plate');
+    expect(again).toBeNull();
+    expect(clad.facts.coins).toBe(leatherQuince.price);
+    expect(clad.facts.items).toEqual(['plate']);
 
     const center = melonCenter();
     expect(hitBox(melonFountainBox, center.x, center.y)).toBe(true);
     const sip = sipMelon(clad, center.x, center.y);
-    expect(sip).toEqual({ hp: plateMax });
-    expect(clad.facts.hp).toBe(plateMax);
+    expect(sip).toEqual({ hp: melonBase });
+    expect(clad.facts.hp).toBe(melonBase);
     expect(clad.facts.coins).toBe(leatherQuince.price);
 
-    const filledHp = clad.facts.hp;
     const leatherPatch = buyQuince(clad, 'leather');
-    expect(leatherPatch?.armor).toBe('leather');
-    expect(leatherPatch?.sword).toBeNull();
-    expect(leatherPatch?.coins).toBe(0);
-    expect(leatherPatch?.maxHp).toBe(leatherCap);
-    expect(leatherPatch?.hp).toBe(leatherCap);
-    expect(leatherPatch?.hp).toBeLessThan(filledHp);
-    expect(clad.facts.coins).toBe(0);
-    expect(clad.facts.hp).toBe(clad.facts.maxHp);
+    expect(leatherPatch).toEqual({ coins: 0 });
+    expect(clad.facts.armor).toBeNull();
+    expect(clad.facts.sword).toBeNull();
+    expect(clad.facts.items).toEqual(['leather', 'plate']);
+    expect(clad.facts.hp).toBe(melonBase);
+    expect(clad.facts.maxHp).toBe(melonBase);
+    expect(maxHealth(heroFrom({ ...clad.facts, armor: 'leather' }))).toBe(leatherCap);
+    expect(maxHealth(heroFrom({ ...clad.facts, armor: 'plate' }))).toBe(plateMax);
+
+    const worn = wearQuince(clad, 'leather');
+    expect(worn?.armor).toBe('leather');
+    expect(worn?.hp).toBe(melonBase);
+    expect(worn?.maxHp).toBe(leatherCap);
+    expect(clad.facts.sword).toBeNull();
+    const full = sipMelon(clad, center.x, center.y);
+    expect(full).toEqual({ hp: leatherCap });
+    const stowed = stashQuince(clad, 'armor');
+    expect(stowed?.armor).toBeNull();
+    expect(stowed?.hp).toBe(leatherCap > melonBase ? melonBase : leatherCap);
+    expect(stowed?.maxHp).toBe(melonBase);
+    expect(clad.facts.hp).toBe(melonBase);
+    expect(clad.facts.items).toEqual(['leather', 'plate']);
   });
 });
-
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
-
-function grapeFromBeet(beetCookie: string): string {
-  return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
-}
 
 function mangoText(data: unknown): string {
   if (typeof data === 'string') {
@@ -301,9 +308,8 @@ describe('lemon forge quince', () => {
     });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
+      await applyMigrations(prepDb);
       const grapeStatements = [
-        ...migrationStatements(schemaSql),
         'CREATE TABLE IF NOT EXISTS fig_writes (n INTEGER PRIMARY KEY AUTOINCREMENT, fig_id TEXT NOT NULL)',
         'CREATE TRIGGER IF NOT EXISTS fig_write AFTER UPDATE ON characters BEGIN INSERT INTO fig_writes (fig_id) VALUES (NEW.id); END',
       ].map((statement) => prepDb.prepare(statement));
@@ -343,7 +349,7 @@ describe('lemon forge quince', () => {
     }
   }, 60_000);
 
-  it('sells the short sword for 18, refuses 17, swaps plate for leather, and spends only the sender purse', async () => {
+  it('sells the short sword into the bag for 18, refuses 17, keeps plate and leather unworn, and spends only the sender purse', async () => {
     if (worker === undefined) {
       throw new Error('lemon worker did not start');
     }
@@ -385,17 +391,8 @@ describe('lemon forge quince', () => {
     const beetTotal = onionMonsterRows.reduce((sum, row) => sum + row.count, 0);
 
     async function postFig(name: string, gender: 'woman' | 'man'): Promise<{ facts: CharacterFacts; grape: string }> {
-      const response = await worker!.fetch('http://town.example/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gender }),
-      });
-      const text = await response.text();
-      expect(response.status, text).toBe(200);
-      const facts = JSON.parse(text) as CharacterFacts;
-      const baked = response.headers.getSetCookie();
-      expect(baked).toHaveLength(1);
-      return { facts, grape: grapeFromBeet(baked[0] ?? '') };
+      const planted = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), name, gender);
+      return { facts: planted.facts, grape: planted.grape };
     }
 
     async function tuneFig(id: string, patch: CharacterFactsPatch): Promise<CharacterFacts> {
@@ -563,19 +560,16 @@ describe('lemon forge quince', () => {
     expect(pepperSnap.character.id).toBe(pepperReady.id);
     expect(pepperSnap.character.id).not.toBe(sageReady.id);
     expect(pepperSnap.character.coins).toBe(0);
-    expect(pepperSnap.character.sword).toBe('shortSword');
+    expect(pepperSnap.character.sword).toBeNull();
     expect(pepperSnap.character.armor).toBeNull();
+    expect(pepperSnap.character.items).toEqual(['shortSword']);
     expect(pepperSnap.character.hp).toBe(melonBase);
     expect(pepperSnap.character.maxHp).toBe(melonBase);
     expect(pepperSnap.character.maxHp).toBe(pepperReady.maxHp);
     expect(pepperSnap.character.place).toBe('town');
-    const pepperBought = purchase(heroFrom(pepperReady), 'shortSword');
-    expect(pepperBought.ok).toBe(true);
-    expect(pepperSnap.character.coins).toBe(pepperBought.hero.coins);
-    expect(pepperSnap.character.hp).toBe(pepperBought.hero.health);
-    expect(pepperSnap.character.maxHp).toBe(maxHealth(pepperBought.hero));
+    expect(strike(heroFrom(pepperSnap.character))).toBe(strike(heroFrom(pepperReady)));
     const pepperRow = await readFig(pepperReady.id);
-    expect(pepperRow).toEqual({ ...pepperReady, coins: 0, sword: 'shortSword' });
+    expect(pepperRow).toEqual({ ...pepperReady, coins: 0, items: ['shortSword'] });
     expect(await figWrites(pepperReady.id)).toBe(pepperWrites + 1);
     expect(await readFig(sageReady.id)).toEqual(sageReady);
     expect(await readFig(berryReady.id)).toEqual(berryReady);
@@ -589,7 +583,8 @@ describe('lemon forge quince', () => {
     expect(pruneSnap.snapshot.monsters.map((beet) => beet.id).sort()).toEqual(bedIds);
     expect(pruneSnap.snapshot.monsters.some((beet) => beet.id === wolf.id)).toBe(true);
     expect(pruneSnap.character.coins).toBe(0);
-    expect(pruneSnap.character.sword).toBe('shortSword');
+    expect(pruneSnap.character.sword).toBeNull();
+    expect(pruneSnap.character.items).toEqual(['shortSword']);
     expect(await figWrites(pepperReady.id)).toBe(pepperWrites + 1);
 
     const plainClosed = waitForClose(plain.socket);
@@ -681,27 +676,21 @@ describe('lemon forge quince', () => {
       ...radish,
     });
     const plateSnap = figSnap(plateBuy, chiveReady.id);
-    const plateBought = purchase(heroFrom(chiveReady), 'plate');
-    expect(plateBought.ok).toBe(true);
     expect(plateSnap.character.id).toBe(chiveReady.id);
-    expect(plateSnap.character.armor).toBe('plate');
+    expect(plateSnap.character.armor).toBeNull();
     expect(plateSnap.character.sword).toBeNull();
-    expect(plateSnap.character.coins).toBe(plateBought.hero.coins);
+    expect(plateSnap.character.items).toEqual(['plate']);
     expect(plateSnap.character.coins).toBe(leatherQuince.price);
-    expect(plateSnap.character.hp).toBe(plateBought.hero.health);
     expect(plateSnap.character.hp).toBe(melonBase);
-    expect(plateSnap.character.maxHp).toBe(maxHealth(plateBought.hero));
-    expect(plateSnap.character.maxHp).toBe(plateMax);
-    expect(plateSnap.character.hp).toBeLessThan(plateSnap.character.maxHp);
+    expect(plateSnap.character.maxHp).toBe(melonBase);
+    expect(strike(heroFrom(plateSnap.character))).toBe(strike(heroFrom(chiveReady)));
     expect(figSnap(plateBuy, berryReady.id).character).toEqual(berryReady);
     expect(figSnap(plateBuy, sageReady.id).character.coins).toBe(17);
     const chivePlate = await readFig(chiveReady.id);
     expect(chivePlate).toEqual({
       ...chiveReady,
       coins: leatherQuince.price,
-      armor: 'plate',
-      hp: melonBase,
-      maxHp: plateMax,
+      items: ['plate'],
     });
     expect(await figWrites(chiveReady.id)).toBe(chiveWrites + 1);
     expect(await figWrites(berryReady.id)).toBe(berryWrites);
@@ -713,13 +702,14 @@ describe('lemon forge quince', () => {
       ...radish,
     });
     const sipSnap = figSnap(fountainSip, chiveReady.id);
-    expect(sipSnap.character.hp).toBe(plateMax);
-    expect(sipSnap.character.maxHp).toBe(plateMax);
+    expect(sipSnap.character.hp).toBe(melonBase);
+    expect(sipSnap.character.maxHp).toBe(melonBase);
     expect(sipSnap.character.coins).toBe(leatherQuince.price);
-    expect(sipSnap.character.armor).toBe('plate');
+    expect(sipSnap.character.armor).toBeNull();
+    expect(sipSnap.character.items).toEqual(['plate']);
     expect(figSnap(fountainSip, berryReady.id).character).toEqual(berryReady);
     const chiveFull = await readFig(chiveReady.id);
-    expect(chiveFull).toEqual({ ...chivePlate, hp: plateMax });
+    expect(chiveFull).toEqual(chivePlate);
     expect(await figWrites(chiveReady.id)).toBe(chiveWrites + 2);
 
     const leatherBuy = await hearAll(chiveJoin.socket, {
@@ -728,28 +718,19 @@ describe('lemon forge quince', () => {
       ...radish,
     });
     const leatherSnap = figSnap(leatherBuy, chiveReady.id);
-    const filledHero: Hero = { ...plateBought.hero, health: plateMax };
-    const leatherBought = purchase(filledHero, 'leather');
-    expect(leatherBought.ok).toBe(true);
-    expect(leatherBought.hero.health).toBeLessThan(plateMax);
-    expect(leatherSnap.character.armor).toBe('leather');
+    expect(leatherSnap.character.armor).toBeNull();
     expect(leatherSnap.character.sword).toBeNull();
+    expect(leatherSnap.character.items).toEqual(['leather', 'plate']);
     expect(leatherSnap.character.coins).toBe(0);
-    expect(leatherSnap.character.coins).toBe(leatherBought.hero.coins);
-    expect(leatherSnap.character.hp).toBe(leatherBought.hero.health);
-    expect(leatherSnap.character.maxHp).toBe(maxHealth(leatherBought.hero));
-    expect(leatherSnap.character.hp).toBe(leatherCap);
-    expect(leatherSnap.character.maxHp).toBe(leatherCap);
-    expect(leatherSnap.character.hp).toBe(leatherSnap.character.maxHp);
-    expect(leatherSnap.character.hp).toBeLessThan(plateMax);
+    expect(leatherSnap.character.hp).toBe(melonBase);
+    expect(leatherSnap.character.maxHp).toBe(melonBase);
+    expect(strike(heroFrom(leatherSnap.character))).toBe(strike(heroFrom(chiveReady)));
     expect(figSnap(leatherBuy, berryReady.id).character).toEqual(berryReady);
     const chiveLeather = await readFig(chiveReady.id);
     expect(chiveLeather).toEqual({
       ...chiveReady,
       coins: 0,
-      armor: 'leather',
-      hp: leatherCap,
-      maxHp: leatherCap,
+      items: ['leather', 'plate'],
     });
     expect(chiveLeather.coins).toBe(chiveReady.coins - plateQuince.price - leatherQuince.price);
     expect(await figWrites(chiveReady.id)).toBe(chiveWrites + 3);
@@ -840,7 +821,8 @@ describe('lemon forge quince', () => {
     expect(appleSnap.character.id).toBe(appleReady.id);
     expect(appleSnap.character.id).not.toBe(berryReady.id);
     expect(appleSnap.character.coins).toBe(0);
-    expect(appleSnap.character.sword).toBe('shortSword');
+    expect(appleSnap.character.sword).toBeNull();
+    expect(appleSnap.character.items).toEqual(['shortSword']);
     expect(appleSnap.character.armor).toBeNull();
     expect(appleSnap.character.hp).toBe(melonBase);
     expect(appleSnap.character.maxHp).toBe(melonBase);
@@ -849,7 +831,7 @@ describe('lemon forge quince', () => {
     expect(figSnap(appleBuy, sageReady.id).character.coins).toBe(17);
     expect(figSnap(appleBuy, chiveReady.id).character).toEqual(chiveLeather);
     const appleRow = await readFig(appleReady.id);
-    expect(appleRow).toEqual({ ...appleReady, coins: 0, sword: 'shortSword' });
+    expect(appleRow).toEqual({ ...appleReady, coins: 0, items: ['shortSword'] });
     expect(await readFig(berryReady.id)).toEqual(berryReady);
     expect(berryReady.coins).not.toBe(0);
     expect(await figWrites(appleReady.id)).toBe(appleWrites + 1);
@@ -859,5 +841,256 @@ describe('lemon forge quince', () => {
     expect(await readFig(leekReady.id)).toEqual(leekReady);
     expect(await readFig(onionReady.id)).toEqual(onionReady);
     expect(await readFig(pepperReady.id)).toEqual(pepperRow);
+  }, 120_000);
+
+  it('equips and unequips from the bag, refuses another socket, and deletes the rows with the avatar', async () => {
+    if (worker === undefined) {
+      throw new Error('lemon worker did not start');
+    }
+
+    const shortQuince = quinceRow('shortSword');
+    const leatherQuince = quinceRow('leather');
+    const leatherMax = melonBase + leatherQuince.amount;
+    expect(leatherMax).toBe(82);
+    expect(melonBase).toBe(70);
+
+    async function postFig(name: string, gender: 'woman' | 'man') {
+      return plantPlayingFig((figPath, init) => worker!.fetch(`http://town.example${figPath}`, init), name, gender);
+    }
+
+    async function tuneFig(id: string, patch: CharacterFactsPatch): Promise<CharacterFacts> {
+      const row = await saveFacts(kiwiDb, id, patch);
+      if (row === null) {
+        throw new Error('fig row missing');
+      }
+      return row;
+    }
+
+    async function readFig(id: string): Promise<CharacterFacts | null> {
+      return getById(kiwiDb, id);
+    }
+
+    async function figWrites(figId: string): Promise<number> {
+      const row = await kiwiDb
+        .prepare('SELECT COUNT(*) AS n FROM fig_writes WHERE fig_id = ?')
+        .bind(figId)
+        .first<{ n: number }>();
+      return Number(row?.n ?? 0);
+    }
+
+    async function itemCount(figId: string): Promise<number> {
+      const row = await kiwiDb
+        .prepare('SELECT COUNT(*) AS n FROM character_items WHERE character_id = ?')
+        .bind(figId)
+        .first<{ n: number }>();
+      return Number(row?.n ?? 0);
+    }
+
+    const mango = await postFig('Mango', 'woman');
+    const guava = await postFig('Guava', 'man');
+    const ready = await tuneFig(mango.facts.id, {
+      level: 1,
+      xp: 0,
+      hp: 40,
+      maxHp: melonBase,
+      coins: shortQuince.price + leatherQuince.price,
+      sword: null,
+      armor: null,
+      place: 'town',
+    });
+    expect(ready.hp).toBe(40);
+    expect(ready.maxHp).toBe(70);
+    expect(ready.items).toEqual([]);
+    const guavaReady = await readFig(guava.facts.id);
+    if (guavaReady === null) {
+      throw new Error('guava row missing');
+    }
+
+    const wsUrl = `ws://127.0.0.1:${worker.port}/ws`;
+    const mangoJoin = await connectFig(wsUrl, mango.grape);
+    const guavaJoin = await connectFig(wsUrl, guava.grape);
+    openSockets.push(mangoJoin.socket, guavaJoin.socket);
+    expect(mangoJoin.welcome.character.hp).toBe(40);
+    expect(mangoJoin.welcome.character.items).toEqual([]);
+
+    const lemons = [mangoJoin.socket, guavaJoin.socket];
+    async function hearAll(sender: WebSocket, payload: unknown): Promise<SnapshotMessage[]> {
+      const pending = lemons.map((socket) => nextMango(socket));
+      sender.send(JSON.stringify(payload));
+      return Promise.all(pending);
+    }
+    function figSnap(snaps: SnapshotMessage[], id: string): SnapshotMessage {
+      const found = snaps.find((snap) => snap.character.id === id);
+      if (found === undefined) {
+        throw new Error('missing fig snap');
+      }
+      return found;
+    }
+
+    const writesBefore = await figWrites(ready.id);
+    const bought = await hearAll(mangoJoin.socket, {
+      type: 'buy',
+      item: 'shortSword',
+      id: guavaReady.id,
+      characterId: guavaReady.id,
+    });
+    const boughtMango = figSnap(bought, ready.id).character;
+    expect(boughtMango.items).toEqual(['shortSword']);
+    expect(boughtMango.sword).toBeNull();
+    expect(boughtMango.coins).toBe(leatherQuince.price);
+    expect(boughtMango.hp).toBe(40);
+    expect(boughtMango.maxHp).toBe(70);
+    expect(strike(heroFrom(boughtMango))).toBe(4);
+    expect(strike(heroFrom(boughtMango))).toBe(strike(heroFrom(ready)));
+    expect(figSnap(bought, guavaReady.id).character).toEqual(guavaReady);
+    expect(await figWrites(ready.id)).toBe(writesBefore + 1);
+
+    const ownedWrites = await figWrites(ready.id);
+    const copy = await hearAll(mangoJoin.socket, { type: 'buy', item: 'shortSword', id: guavaReady.id });
+    expect(figSnap(copy, ready.id).character).toEqual(boughtMango);
+    expect(figSnap(copy, ready.id).character.coins).toBe(leatherQuince.price);
+    expect(await itemCount(ready.id)).toBe(1);
+    expect(await figWrites(ready.id)).toBe(ownedWrites);
+    expect(await readFig(guavaReady.id)).toEqual(guavaReady);
+
+    const wrongSlot = await hearAll(mangoJoin.socket, {
+      type: 'equip',
+      itemId: 'shortSword',
+      slot: 'armor',
+      id: guavaReady.id,
+      characterId: guavaReady.id,
+    });
+    expect(figSnap(wrongSlot, ready.id).character.sword).toBeNull();
+    expect(figSnap(wrongSlot, ready.id).character.armor).toBeNull();
+    expect(figSnap(wrongSlot, guavaReady.id).character).toEqual(guavaReady);
+    expect(await figWrites(ready.id)).toBe(ownedWrites);
+
+    const unowned = await hearAll(mangoJoin.socket, { type: 'equip', itemId: 'greatSword', characterId: ready.id });
+    expect(figSnap(unowned, ready.id).character.sword).toBeNull();
+    expect(figSnap(unowned, guavaReady.id).character.sword).toBeNull();
+    expect(await figWrites(ready.id)).toBe(ownedWrites);
+
+    const guavaWrites = await figWrites(guavaReady.id);
+    const stolen = await hearAll(guavaJoin.socket, {
+      type: 'equip',
+      itemId: 'shortSword',
+      id: ready.id,
+      characterId: ready.id,
+      character_id: ready.id,
+      characterid: ready.id,
+    });
+    expect(figSnap(stolen, ready.id).character).toEqual(boughtMango);
+    expect(figSnap(stolen, ready.id).character.sword).toBeNull();
+    expect(figSnap(stolen, guavaReady.id).character).toEqual(guavaReady);
+    expect(await readFig(ready.id)).toEqual({ ...ready, coins: leatherQuince.price, items: ['shortSword'] });
+    expect(await figWrites(guavaReady.id)).toBe(guavaWrites);
+
+    const equipped = await hearAll(mangoJoin.socket, { type: 'equip', itemId: 'shortSword' });
+    const swordOn = figSnap(equipped, ready.id).character;
+    expect(swordOn.sword).toBe('shortSword');
+    expect(swordOn.armor).toBeNull();
+    expect(swordOn.hp).toBe(40);
+    expect(swordOn.maxHp).toBe(70);
+    expect(swordOn.items).toEqual(['shortSword']);
+    expect(strike(heroFrom(swordOn))).toBe(6);
+    expect(figSnap(equipped, guavaReady.id).character).toEqual(guavaReady);
+    expect(await figWrites(ready.id)).toBe(ownedWrites + 1);
+
+    const stowed = await hearAll(mangoJoin.socket, { type: 'unequip', slot: 'sword' });
+    const swordOff = figSnap(stowed, ready.id).character;
+    expect(swordOff.sword).toBeNull();
+    expect(swordOff.hp).toBe(40);
+    expect(swordOff.maxHp).toBe(70);
+    expect(strike(heroFrom(swordOff))).toBe(4);
+    expect(swordOff.items).toEqual(['shortSword']);
+
+    const leatherBuy = await hearAll(mangoJoin.socket, { type: 'buy', item: 'leather' });
+    const withLeather = figSnap(leatherBuy, ready.id).character;
+    expect(withLeather.coins).toBe(0);
+    expect(withLeather.items).toEqual(['leather', 'shortSword']);
+    expect(withLeather.armor).toBeNull();
+    expect(withLeather.hp).toBe(40);
+    expect(withLeather.maxHp).toBe(70);
+
+    const armorOn = await hearAll(mangoJoin.socket, { type: 'equip', itemId: 'leather' });
+    expect(figSnap(armorOn, ready.id).character.hp).toBe(40);
+    expect(figSnap(armorOn, ready.id).character.maxHp).toBe(82);
+    expect(figSnap(armorOn, ready.id).character.armor).toBe('leather');
+    expect(figSnap(armorOn, ready.id).character.sword).toBeNull();
+
+    const armorOff = await hearAll(mangoJoin.socket, { type: 'unequip', slot: 'armor' });
+    expect(figSnap(armorOff, ready.id).character.hp).toBe(40);
+    expect(figSnap(armorOff, ready.id).character.maxHp).toBe(70);
+    expect(figSnap(armorOff, ready.id).character.armor).toBeNull();
+
+    const armorAgain = await hearAll(mangoJoin.socket, { type: 'equip', itemId: 'leather' });
+    expect(figSnap(armorAgain, ready.id).character).toMatchObject({ hp: 40, maxHp: 82, armor: 'leather' });
+    const center = melonCenter();
+    const sipped = await hearAll(mangoJoin.socket, { type: 'fountain', x: center.x, y: center.y });
+    expect(figSnap(sipped, ready.id).character).toMatchObject({ hp: 82, maxHp: 82, armor: 'leather' });
+    const clamped = await hearAll(mangoJoin.socket, { type: 'unequip', slot: 'armor' });
+    const clampedMango = figSnap(clamped, ready.id).character;
+    expect(clampedMango.hp).toBe(70);
+    expect(clampedMango.maxHp).toBe(70);
+    expect(clampedMango.armor).toBeNull();
+    expect(clampedMango.items).toEqual(['leather', 'shortSword']);
+    expect(figSnap(clamped, guavaReady.id).character.sword).toBeNull();
+
+    const closed = waitForClose(mangoJoin.socket);
+    mangoJoin.socket.terminate();
+    await closed;
+    const again = await connectFig(wsUrl, mango.grape);
+    openSockets.push(again.socket);
+    expect(again.welcome.character.items).toEqual(['leather', 'shortSword']);
+    expect(again.welcome.character.sword).toBeNull();
+    expect(again.welcome.character.armor).toBeNull();
+    expect(again.welcome.character.hp).toBe(70);
+    expect(again.welcome.character.maxHp).toBe(70);
+    expect(again.welcome.character.coins).toBe(0);
+    again.socket.terminate();
+
+    const lime = await postFig('Lime', 'woman');
+    await tuneFig(lime.facts.id, {
+      place: 'green',
+      x: kaleGreenGuava.x,
+      y: kaleGreenGuava.y,
+      coins: shortQuince.price,
+      hp: melonBase,
+      maxHp: melonBase,
+      sword: null,
+      armor: null,
+    });
+    await kiwiDb.prepare('INSERT INTO character_items (character_id, item_id) VALUES (?, ?)').bind(lime.facts.id, 'shortSword').run();
+    const limeJoin = await connectFig(wsUrl, lime.grape);
+    openSockets.push(limeJoin.socket);
+    expect(limeJoin.welcome.character.place).toBe('green');
+    expect(limeJoin.welcome.character.items).toEqual(['shortSword']);
+    expect(limeJoin.welcome.character.sword).toBeNull();
+    const limeEquip = nextMango(limeJoin.socket);
+    limeJoin.socket.send(JSON.stringify({ type: 'equip', itemId: 'shortSword', characterId: ready.id }));
+    const limeSnap = await limeEquip;
+    expect(limeSnap.character.sword).toBe('shortSword');
+    expect(limeSnap.character.place).toBe('green');
+    expect(limeSnap.character.hp).toBe(melonBase);
+    expect(limeSnap.character.maxHp).toBe(melonBase);
+    expect(strike(heroFrom(limeSnap.character))).toBe(6);
+    const limeBuy = nextMango(limeJoin.socket);
+    limeJoin.socket.send(JSON.stringify({ type: 'buy', item: 'leather', id: ready.id }));
+    const limeRefused = await limeBuy;
+    expect(limeRefused.character.coins).toBe(shortQuince.price);
+    expect(limeRefused.character.items).toEqual(['shortSword']);
+    expect(limeRefused.character.armor).toBeNull();
+    expect(limeRefused.character.sword).toBe('shortSword');
+    expect(await readFig(ready.id)).toMatchObject({ items: ['leather', 'shortSword'], coins: 0 });
+
+    expect(await itemCount(ready.id)).toBe(2);
+    const removed = await worker.fetch(`http://town.example/api/avatars/${ready.id}`, {
+      method: 'DELETE',
+      headers: { Cookie: `${ACCOUNT_COOKIE_NAME}=${mango.accountValue}` },
+    });
+    expect(removed.status).toBe(200);
+    expect(await readFig(ready.id)).toBeNull();
+    expect(await itemCount(ready.id)).toBe(0);
+    expect(await itemCount(lime.facts.id)).toBe(1);
   }, 120_000);
 });

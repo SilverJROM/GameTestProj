@@ -20,7 +20,7 @@ The stack shares one 1280×720 origin:
 
 `houses/forge.png` is not drawn again. The forge building is already in `town-behind.png`. The blacksmith is a separate sprite and is drawn with the avatars.
 
-The camera shows about 75 percent of the current zone and fills the 1280×720 window with one scale. It does not stretch, and it does not leave dark bars. A click is converted through that camera onto the map. Town is nearly square, so the window shows about 75 percent of the town's height and a bit more than 75 percent of its width.
+The camera shows 60 percent of the current zone's area by default, and a slider can zoom out to 75 percent of that area. The window keeps the 1280×720 shape (16:9) with one scale, so the picture is not stretched and there are no dark bars. It stays centered on the player and does not slide past the map edge. A click is converted through that same camera onto the map.
 
 Walls are solid. Fence pixels, and the uneven top of the near town wall, are paint, not collision. The town gate is open from (444, 574) to (410, 593). The short run from (410, 593) to (400, 598) stays solid. The road through the gate is around (425, 584). The cemetery gate is open from (317, 229) to (365, 217). The road through it is around (340, 222). The west cemetery chain, the east chain, and the pine edge through (542, 105), (548, 95), (520, 60), (470, 30), and (432, 0) are solid. A player stops at a solid wall. A monster does not step through a wall or out of its zone.
 
@@ -49,6 +49,10 @@ The first screen is character setup, before the map.
 - An existing name enters as that character and does not reset level, experience, coins, gear, or place.
 - A new name creates a level 1 character in town, with full health, 0 coins, 0 experience, no sword, no armor, and one axolotl.
 - The session plays only as the character it entered. It cannot spend another character's coins, move them, or fight as them.
+
+## Accounts
+
+A player signs in to an account with a username and a password. The password is stored only as a PBKDF2-SHA-256 hash, so a forgotten password cannot be recovered. Each account has at most two avatars. A character name is still unique in the whole world. Signing in lists those avatars, and playing one enters the world as that character with the coins, gear, level, experience, place, and position already stored. Deleting an avatar removes it, including while it is connected. Characters from before accounts were discarded.
 
 ## Character numbers
 
@@ -105,23 +109,25 @@ Walk stills play walk-1, then walk-2, then walk-3, then walk-2 again, about 320 
 
 Monster attacks use their stills: wolf `stand` / `step` / `bite`, bear `stand` / `charge` / `swipe`, skeleton `stand` / `thrust` / `strike`. Wolves, bears, and skeletons also have walk-1, walk-2, and walk-3.
 
-At 0 health the character returns to town at full maximum health and keeps level, experience, and gear. A monster that reaches 0 dies, grants its experience to the killer, and drops its coins on the ground.
+At 0 health the character returns to town at full maximum health and keeps level, experience, and gear. A monster that reaches 0 dies, grants its experience to the killer, and drops one coin worth its coin value on the ground.
 
 ## Coins and the axolotl
 
-Coins are not added to the purse at the moment of the kill. They fall on the ground as one token per coin, at the spot where the monster died. The ground coin is `assets/items/coin.png`, on a magenta field that is removed with the other stills. It is not cropped from the axolotl pickup still.
+Coins are not added to the purse at the moment of the kill. A kill drops one coin at the spot where the monster died, worth that monster's coin value. The ground picture is one icon, `assets/items/coin.png`, on a magenta field that is removed with the other stills. It is not cropped from the axolotl pickup still, and it is not drawn once per point of value.
 
 Every character has one axolotl. It follows that character, using `avatars/axolotl/stand.png` and `walk.png`. The magenta behind those pictures is not part of the world.
 
-Only the killer's axolotl picks up that kill. Another player's pet cannot take those coins.
+Only the killer's axolotl picks up that coin. Another player's pet cannot take it.
 
-The pet picks up one coin at a time. Each pickup plays `avatars/axolotl/pickup.png` and lasts **4 seconds** (inside the 3–5 second range). When those 4 seconds finish, one coin is added to the owner's purse. The pet then starts the next coin. Coins left on the ground stay there for that owner until their pet collects them.
+The owner may walk away as soon as the monster dies. The pet goes to the coin wherever it lies. The pickup plays `avatars/axolotl/pickup.png` and lasts **2.25 seconds**. When those 2.25 seconds finish, the whole coin value is added to the owner's purse at once. The pet then comes back and follows the owner again. A coin left on the ground stays there for that owner until their pet collects it. If the owner leaves before the pickup finishes, the coin waits and the 2.25 seconds start over when the owner returns.
+
+When that coin reaches the owner's purse, a gold "+N" floats up for one second above the coin's last spot. N is the coin's value. Another player's coin does not float for you.
 
 ## Shop
 
 The forge sells the only gear. The blacksmith stands at the painted forge, on the courtyard ground inside the walls, at the same height as the player. A thought bubble reading "Armor and weapons" opens the shop. A Bag button opens the inventory. The inventory shows coins, the worn sword, the worn armor, level, health, strike, and experience. An empty sword or armor slot shows that nothing is worn.
 
-Prices are paid from the purse in full. The player wears one sword and one armor. Buying a new piece replaces the worn one. There is no refund.
+Buying spends the coins and puts the item in the bag. It does not equip it. Each item can be owned once; buying a copy you already own is refused and costs nothing. Equipping puts an owned sword in the sword slot or an owned armor in the armor slot, and the piece already in that slot goes back to the bag. Unequipping returns the worn piece to the bag. The bonus belongs to the equipped item: strike is the level's base plus the equipped sword, and maximum health is the level's base plus the equipped armor. Equipping armor raises maximum health and leaves current health where it is. Unequipping armor lowers maximum health and clamps current health down to it. Equipping or unequipping a sword does not change health. Equip and unequip work anywhere. A purchase the purse cannot cover, an unknown item, or a second copy is refused and changes nothing. Selling is not offered.
 
 | Item | Effect | Price |
 | --- | --- | --- |
@@ -131,8 +137,6 @@ Prices are paid from the purse in full. The player wears one sword and one armor
 | Leather | +12 maximum HP | 16 |
 | Chain | +24 maximum HP | 36 |
 | Plate | +40 maximum HP | 64 |
-
-A purchase the purse cannot cover is refused and changes nothing. Selling is not offered.
 
 These prices line up with the hunt. Five wolves reach level 2 and pay for the short sword. A level of bears pays for either the long sword or the chain, not both. A level of skeletons pays for either the great sword or the plate, not both. The sword shortens the fight. The armor raises the health the player can lose. That is the gear choice.
 

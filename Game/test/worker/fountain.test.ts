@@ -5,7 +5,6 @@
 // The green fig crosses with the papaya clock the walk tests use. This file does not nap.
 // A lemon that joined without that header cannot fell a beet.
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -30,6 +29,7 @@ import { kaleConstants, mangoGearRows, onionMonsterRows, type ZoneName } from '.
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts, type CharacterFactsPatch } from '../../src/server/db';
 import { berryStepPx, sipMelon, sproutFig, type FigWalk } from '../../src/world/core';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'guava-session-secret';
 const figLevel = 3;
@@ -146,13 +146,6 @@ describe('melon sip on the fig', () => {
   });
 });
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
 
 function grapeFromBeet(beetCookie: string): string {
   return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
@@ -246,9 +239,7 @@ describe('lemon melon fountain', () => {
     });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
-      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+      await applyMigrations(prepDb);
     } finally {
       await prep.dispose();
     }
@@ -313,17 +304,8 @@ describe('lemon melon fountain', () => {
     const beetTotal = onionMonsterRows.reduce((sum, row) => sum + row.count, 0);
 
     async function postFig(name: string, gender: 'woman' | 'man'): Promise<{ facts: CharacterFacts; grape: string }> {
-      const response = await worker!.fetch('http://town.example/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gender }),
-      });
-      const text = await response.text();
-      expect(response.status, text).toBe(200);
-      const facts = JSON.parse(text) as CharacterFacts;
-      const baked = response.headers.getSetCookie();
-      expect(baked).toHaveLength(1);
-      return { facts, grape: grapeFromBeet(baked[0] ?? '') };
+      const planted = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), name, gender);
+      return { facts: planted.facts, grape: planted.grape };
     }
 
     async function tuneFig(id: string, patch: CharacterFactsPatch): Promise<CharacterFacts> {
