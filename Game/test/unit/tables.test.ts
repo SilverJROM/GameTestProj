@@ -93,7 +93,7 @@ describe('timing and frozen constants', () => {
     expect(pearTimings).toEqual({
       playerAttackGapSeconds: 0.45,
       respawnSeconds: 5,
-      coinPickupSeconds: 4,
+      coinPickupSeconds: 2.25,
     });
   });
 

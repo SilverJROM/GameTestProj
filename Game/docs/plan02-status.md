@@ -2,7 +2,7 @@
 
 Recovery file. If the session closes (out of memory, suspend, crash), read this first, then `docs/plan02.md` for the full plan. Update this file after every slice event: started, passed, failed.
 
-Last updated: 2026-11-10 04:05 UTC
+Last updated: 2026-11-10 04:32 UTC
 
 ## Where things stand
 
@@ -11,7 +11,7 @@ Last updated: 2026-11-10 04:05 UTC
 | Working branch | `update-02` (cut from `main` at `c30f690`) |
 | Old branch | `candidate-work` deleted on 2026-11-10 (it was fully merged, was at `ab9db1f`) |
 | Base commit for this update | `c30f690` "Add walk frames, ground map, overlays, approved mockups, and plan 02." |
-| Overall | 21% (slices 0 to 2 done, 3 of 14) |
+| Overall | 29% (slices 0 to 3 done, 4 of 14) |
 | Pushing / deploying | Not allowed. Push is disabled. No Cloudflare deploy in this plan. |
 
 ## Topology
@@ -29,8 +29,8 @@ Status values: `done`, `in progress`, `pending`, `waiting for user`, `blocked`.
 | --- | --- | --- | --- | --- |
 | 0 | Repair the 5 tests that already fail on a clean tree | **done** | `a311f2b` | Tests only. Grok found the town wall, monster patrol, HP ladder, and attack gaps had made them stale. 286 passed. |
 | 1 | All avatar heights x 0.6 | **done** | `9b5abff` | `sprites.ts` table 58/48/34/24; test pins round(old*0.6). 287 passed. Regenerated `shell.generated.ts` is committed with it. |
-| 2 | Zoom: 60 percent default, 75 percent max, right-edge slider | **done** | see git log | `ZOOM_CLOSE/ZOOM_FAR` in `tables.ts`; area-share `viewBox`; `#zoom-slider` (top 60, bottom 75), saved in `localStorage` `game.zoom`. 307 tests pass. Checked in Chrome: hidden on login, slider presses do not move the player, setting survives reload, ground clicks still walk. Plan table fixed for cemetery 75% (436x245). Note for slice 11: the blacksmith thought bubble is a fixed 220x64 and now looks large next to the smaller avatars. |
-| 3 | One coin per kill with a value, pickup 2.25 s, gold "+N" | pending | - | `monsters.ts`, `pets.ts`, protocol, client |
+| 2 | Zoom: 60 percent default, 75 percent max, right-edge slider | **done** | `ca68728` | `ZOOM_CLOSE/ZOOM_FAR` in `tables.ts`; area-share `viewBox`; `#zoom-slider` (top 60, bottom 75), saved in `localStorage` `game.zoom`. 307 tests pass. Checked in Chrome: hidden on login, slider presses do not move the player, setting survives reload, ground clicks still walk. Plan table fixed for cemetery 75% (436x245). Note for slice 11: the blacksmith thought bubble is a fixed 220x64 and now looks large next to the smaller avatars. |
+| 3 | One coin per kill with a value, pickup 2.25 s, gold "+N" | **done** | see git log | One seed per kill (value 4/10/18), `stepPickups` credits the whole value, client floats gold "+N" for your own coin. 314 tests pass. Checked in Chrome: wolf kill gave 1 coin, purse 0 to 4 in about 2.1 s; bear 0 to 10 in about 2.0 s; EXP also rose (2 and 5); the pet is back beside the owner afterwards. |
 | 4 | Failing test first: open Bag, kill a wolf, numbers must change | pending | - | |
 | 5 | Live Bag and Blacksmith panels, Close buttons, HUD | pending | - | |
 | 6 | Migration 0002 (accounts, wipe old data), password hashing, account routes | pending | - | |

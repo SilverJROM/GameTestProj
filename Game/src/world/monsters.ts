@@ -37,13 +37,14 @@ export interface Yam {
   readonly avoidY: number;
 }
 
-// One coin lying on the ground. A killing hit drops one per coin, owned by the killer.
-// Nobody picks these up yet; a later plan does that.
+// One coin lying on the ground. A killing hit drops one seed, owned by the killer.
+// value is the beet row's coins. The owner's pet collects the whole value in one dig.
 export interface CoinSeed {
   readonly id: string;
   readonly ownerId: string;
   readonly x: number;
   readonly y: number;
+  readonly value: number;
 }
 
 export interface CabbageBed {
@@ -190,7 +191,7 @@ export interface BeetHit {
 }
 
 // Take hp off one living beet. A felled beet goes through pruneBeet (so the yam is the existing respawn)
-// and drops one coin seed per coin on the monster row, owned by the killer, on its last leek.
+// and drops one coin seed at its last leek, owned by the killer, worth the row's coins.
 export function hurtBeet(bed: CabbageBed, beetId: string, amount: number, killerId: string, nowMs: number): BeetHit {
   const beet = bed.beets.find((candidate) => candidate.id === beetId);
   if (beet === undefined) {
@@ -202,13 +203,12 @@ export function hurtBeet(bed: CabbageBed, beetId: string, amount: number, killer
     return { bed: { ...bed, beets }, beet, felled: false };
   }
   const pruned = pruneBeet(bed, beetId, nowMs);
-  const seeds: CoinSeed[] = [...pruned.seeds];
-  let nextSeed = pruned.nextSeed;
-  for (let leaf = 0; leaf < beetRow(beet.kind).coins; leaf += 1) {
-    seeds.push({ id: `coin-${nextSeed}`, ownerId: killerId, x: beet.x, y: beet.y });
-    nextSeed += 1;
-  }
-  return { bed: { ...pruned, seeds, nextSeed }, beet, felled: true };
+  const row = beetRow(beet.kind);
+  const seeds: CoinSeed[] = [
+    ...pruned.seeds,
+    { id: `coin-${pruned.nextSeed}`, ownerId: killerId, x: beet.x, y: beet.y, value: row.coins },
+  ];
+  return { bed: { ...pruned, seeds, nextSeed: pruned.nextSeed + 1 }, beet, felled: true };
 }
 
 // A beet with no target and no bite stamp. The tomato is dropped from the copy.
@@ -362,7 +362,18 @@ function readSeed(value: unknown): CoinSeed | null {
   if (typeof seed.x !== 'number' || typeof seed.y !== 'number') {
     return null;
   }
-  return { id: seed.id, ownerId: seed.ownerId, x: seed.x, y: seed.y };
+  if (!Number.isFinite(seed.x) || !Number.isFinite(seed.y)) {
+    return null;
+  }
+  // A seed stored before value existed counts as one coin. A present value must be a finite number.
+  let quinceValue = 1;
+  if (seed.value !== undefined && seed.value !== null) {
+    if (typeof seed.value !== 'number' || !Number.isFinite(seed.value)) {
+      return null;
+    }
+    quinceValue = seed.value;
+  }
+  return { id: seed.id, ownerId: seed.ownerId, x: seed.x, y: seed.y, value: quinceValue };
 }
 
 // Read a cabbage bed that was stored on the Durable Object. A bad shape returns null.

@@ -49,11 +49,18 @@ export interface DamageNumber {
   readonly color: string;
   readonly x: number;
   readonly y: number;
+  // What the canvas paints. A coin delivery is "+N"; a hit is the bare amount.
+  readonly text: string;
 }
 
 interface FloatHit extends HitMark {
   readonly at: number;
+  // Set for a delivered coin. Hits leave it unset and keep the white or red ink.
+  readonly melonInk?: string;
 }
+
+// Gold ink for a coin the local fig's pet just delivered.
+const MELON_INK = '#e0b15a';
 
 export interface FigHooks {
   onSmith?: (open: boolean) => void;
@@ -196,16 +203,22 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     if (row === null) return;
     if (row.type === 'welcome' || row.type === 'snapshot') {
       const snap = asRecord(row.snapshot);
+      const priorCoins = orchard.coins;
       if (snap !== null && Array.isArray(snap.players) && Array.isArray(snap.monsters)) {
+        const coinsListed = Array.isArray(snap.coins);
+        const nextCoins = coinsListed ? (snap.coins as OrchardPaint['coins']) : [];
         orchard = {
           players: snap.players as FigPaint[],
           monsters: snap.monsters as OrchardPaint['monsters'],
-          coins: Array.isArray(snap.coins) ? (snap.coins as OrchardPaint['coins']) : [],
+          coins: nextCoins,
           pickups: Array.isArray(snap.pickups) ? (snap.pickups as OrchardPaint['pickups']) : [],
         };
+        readFig(row.character);
+        if (coinsListed) noteMelonCoins(priorCoins, nextCoins);
+      } else {
+        readFig(row.character);
       }
-      readFig(row.character);
-      noteHits(snap.hits);
+      if (snap !== null) noteHits(snap.hits);
       const selfRow = orchard.players.find((fig) => fig.id === selfId);
       if (selfRow !== undefined) selfPlace = selfRow.place;
       hooks.onSnapshot?.();
@@ -229,6 +242,35 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       attacking: fig.attacking === true || (swinging && fig.id === selfId),
     }));
     return paintOrchard(reel, { ...orchard, players });
+  }
+
+  function melonValue(seed: { readonly value?: number }): number {
+    return typeof seed.value === 'number' && Number.isFinite(seed.value) ? seed.value : 1;
+  }
+
+  // A coin that belonged to this fig and has left the snapshot was delivered.
+  // Another fig's coin never floats here. The rise and the one-second life match the hit numbers.
+  function noteMelonCoins(prior: readonly OrchardPaint['coins'][number][], next: readonly OrchardPaint['coins'][number][]): void {
+    if (selfId.length === 0) return;
+    const kept = new Set(next.map((seed) => seed.id));
+    const now = Date.now();
+    for (const seed of prior) {
+      if (seed.ownerId !== selfId || kept.has(seed.id)) continue;
+      const melonId = `melon:${seed.id}`;
+      if (seenHits.has(melonId)) continue;
+      seenHits.add(melonId);
+      const quinceValue = melonValue(seed);
+      floats.push({
+        id: melonId,
+        targetKind: 'player',
+        targetId: seed.id,
+        amount: quinceValue,
+        x: seed.x,
+        y: seed.y,
+        at: now,
+        melonInk: MELON_INK,
+      });
+    }
   }
 
   function noteHits(value: unknown): void {
@@ -262,12 +304,14 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     return floats.map((hit) => {
       const spot = mapToCanvas(view, hit.x, hit.y);
       const rise = ((nowMs - hit.at) / 1000) * 36;
+      const melonInk = hit.melonInk;
       return {
         id: hit.id,
         amount: hit.amount,
-        color: hit.targetKind === 'monster' ? '#ffffff' : '#ff3030',
+        color: melonInk ?? (hit.targetKind === 'monster' ? '#ffffff' : '#ff3030'),
         x: spot.x,
         y: spot.y - rise,
+        text: melonInk !== undefined ? `+${hit.amount}` : String(hit.amount),
       };
     });
   }
@@ -557,7 +601,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
       for (const num of board.damageNumbers(now)) {
         screen.fillStyle = num.color;
         screen.font = '800 44px Georgia, serif';
-        screen.fillText(String(num.amount), num.x, num.y);
+        screen.fillText(num.text, num.x, num.y);
       }
     }
   }

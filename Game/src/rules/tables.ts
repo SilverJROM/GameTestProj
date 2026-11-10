@@ -65,11 +65,12 @@ export const onionMonsterRows: readonly MonsterRow[] = [
   { id: 'skeleton', zone: 'cemetery', hp: 72, attack: 12, xp: 10, coins: 18, aggro: 'proximity', count: 7, attackGapSeconds: 0.75 },
 ];
 
-// Seconds for the player's gap, the monster swing, the respawn, and the coin pickup.
+// Seconds for the player's gap, the respawn, and one whole coin pickup.
+// coinPickupSeconds covers the coin's full value, not one point of it.
 export const pearTimings = {
   playerAttackGapSeconds: 0.45,
   respawnSeconds: 5,
-  coinPickupSeconds: 4,
+  coinPickupSeconds: 2.25,
 } as const;
 
 // Room tick, walk speed, monster chase speed, and melee reach. Frozen values.

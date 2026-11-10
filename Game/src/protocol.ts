@@ -73,11 +73,13 @@ export interface MonsterSnapshot {
 }
 
 // One coin seed on the ground, owned by the character who felled the monster.
+// value is the whole purse credit. The client draws one icon, not one per point.
 export interface CoinSnapshot {
   readonly id: string;
   readonly ownerId: string;
   readonly x: number;
   readonly y: number;
+  readonly value: number;
 }
 
 // One damage number for the tick it landed. The client floats it once and then drops it.

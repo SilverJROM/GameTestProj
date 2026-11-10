@@ -105,17 +105,19 @@ Walk stills play walk-1, then walk-2, then walk-3, then walk-2 again, about 320 
 
 Monster attacks use their stills: wolf `stand` / `step` / `bite`, bear `stand` / `charge` / `swipe`, skeleton `stand` / `thrust` / `strike`. Wolves, bears, and skeletons also have walk-1, walk-2, and walk-3.
 
-At 0 health the character returns to town at full maximum health and keeps level, experience, and gear. A monster that reaches 0 dies, grants its experience to the killer, and drops its coins on the ground.
+At 0 health the character returns to town at full maximum health and keeps level, experience, and gear. A monster that reaches 0 dies, grants its experience to the killer, and drops one coin worth its coin value on the ground.
 
 ## Coins and the axolotl
 
-Coins are not added to the purse at the moment of the kill. They fall on the ground as one token per coin, at the spot where the monster died. The ground coin is `assets/items/coin.png`, on a magenta field that is removed with the other stills. It is not cropped from the axolotl pickup still.
+Coins are not added to the purse at the moment of the kill. A kill drops one coin at the spot where the monster died, worth that monster's coin value. The ground picture is one icon, `assets/items/coin.png`, on a magenta field that is removed with the other stills. It is not cropped from the axolotl pickup still, and it is not drawn once per point of value.
 
 Every character has one axolotl. It follows that character, using `avatars/axolotl/stand.png` and `walk.png`. The magenta behind those pictures is not part of the world.
 
-Only the killer's axolotl picks up that kill. Another player's pet cannot take those coins.
+Only the killer's axolotl picks up that coin. Another player's pet cannot take it.
 
-The pet picks up one coin at a time. Each pickup plays `avatars/axolotl/pickup.png` and lasts **4 seconds** (inside the 3–5 second range). When those 4 seconds finish, one coin is added to the owner's purse. The pet then starts the next coin. Coins left on the ground stay there for that owner until their pet collects them.
+The owner may walk away as soon as the monster dies. The pet goes to the coin wherever it lies. The pickup plays `avatars/axolotl/pickup.png` and lasts **2.25 seconds**. When those 2.25 seconds finish, the whole coin value is added to the owner's purse at once. The pet then comes back and follows the owner again. A coin left on the ground stays there for that owner until their pet collects it. If the owner leaves before the pickup finishes, the coin waits and the 2.25 seconds start over when the owner returns.
+
+When that coin reaches the owner's purse, a gold "+N" floats up for one second above the coin's last spot. N is the coin's value. Another player's coin does not float for you.
 
 ## Shop
 

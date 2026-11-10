@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { COIN_DRAW_PX, COIN_SRC, scaleFor } from '../../src/client/sprites';
 import { plantFigBoard, type FigBoard, type LemonLike } from '../../src/client/main';
 import { mangoForgeBox } from '../../src/rules/regions';
-import { pearTimings } from '../../src/rules/tables';
+import { onionMonsterRows, pearTimings } from '../../src/rules/tables';
 import {
   CEMETERY_WALL_SRC,
   TOWN_WALL_NEAR_SRC,
@@ -181,6 +181,44 @@ describe('damage numbers', () => {
     ]);
     expect(board.damageNumbers(after + 1000)).toEqual([]);
   });
+
+  it('floats +N in gold for the local coin only, above its last spot, for one second', () => {
+    const { board } = openBoard();
+    const skeletonCoins = onionMonsterRows.find((row) => row.id === 'skeleton')!.coins;
+    const bearCoins = onionMonsterRows.find((row) => row.id === 'bear')!.coins;
+    const players = [fig({ id: 'fig-self', x: 400, y: 400, place: 'green' })];
+    const mine = { id: 'coin-mine', ownerId: 'fig-self', x: 420, y: 380, value: skeletonCoins };
+    const theirs = { id: 'coin-theirs', ownerId: 'fig-other', x: 420, y: 380, value: bearCoins };
+    const snap = (coins: typeof mine[], hits: unknown[] = []) => ({
+      type: 'snapshot',
+      character: { id: 'fig-self', place: 'green', gender: 'woman', hp: 70, maxHp: 70 },
+      snapshot: { players, monsters: [], coins, pickups: [], hits },
+    });
+    board.ingest(snap([mine, theirs]));
+    const before = Date.now();
+    expect(board.damageNumbers(before)).toEqual([]);
+
+    // The other fig's coin leaves. Nothing floats for this client.
+    board.ingest(snap([mine]));
+    expect(board.damageNumbers(Date.now())).toEqual([]);
+
+    const hit = { id: 'hit-coin', targetKind: 'monster', targetId: 'wolf-1', amount: 4, x: mine.x, y: mine.y };
+    board.ingest(snap([], [hit]));
+    const now = Date.now();
+    const floated = board.damageNumbers(now);
+    const melon = floated.find((row) => row.id === 'melon:coin-mine');
+    const wound = floated.find((row) => row.id === 'hit-coin');
+    expect(melon).toMatchObject({ amount: skeletonCoins, color: '#e0b15a', text: `+${skeletonCoins}` });
+    expect(floated.filter((row) => row.text.startsWith('+'))).toEqual([melon]);
+    expect(wound?.color).toBe('#ffffff');
+    expect(wound?.text).toBe('4');
+    expect(melon!.x).toBe(wound!.x);
+    const risen = board.damageNumbers(now + 500);
+    const melonRisen = risen.find((row) => row.id === 'melon:coin-mine')!;
+    expect(melonRisen.y).toBeLessThan(melon!.y);
+    expect(melonRisen.x).toBe(melon!.x);
+    expect(board.damageNumbers(now + 1000).some((row) => row.id === 'melon:coin-mine')).toBe(false);
+  });
 });
 
 describe('world view', () => {
@@ -292,7 +330,8 @@ describe('world view', () => {
 
   it('draws a pet pickup toward the owner coin and the ground coin from items/coin.png', () => {
     const owner = fig({ id: 'fig-self', x: 40, y: 80, moving: false });
-    const coin: CoinSnapshot = { id: 'seed-1', ownerId: owner.id, x: 140, y: 80 };
+    const coinValue = onionMonsterRows.find((row) => row.id === 'skeleton')!.coins;
+    const coin: CoinSnapshot = { id: 'seed-1', ownerId: owner.id, x: 140, y: 80, value: coinValue };
     const dig = (elapsedSeconds: number): PickupSnapshot => ({
       ownerId: owner.id,
       coinId: coin.id,
@@ -334,6 +373,16 @@ describe('world view', () => {
     expect(ground.y).toBe(coin.y);
     expect(ground.width).toBe(COIN_DRAW_PX);
     expect(ground.height).toBe(COIN_DRAW_PX);
+    expect(board.draw().filter((still) => still.role === 'coin')).toHaveLength(1);
+
+    // The dig row is gone, so the pet stands on the owner again, even after the owner walks off.
+    const away = fig({ id: 'fig-self', x: 20, y: 200, moving: true });
+    feed(board, { players: [away], monsters: [], coins: [], pickups: [] });
+    const home = role(board.draw(), 'pet', 'pet:fig-self');
+    expect(home.still).toBe('walk');
+    expect(home.src).toBe('/avatars/axolotl/walk.png');
+    expect(home.x).toBe(away.x);
+    expect(home.y).toBe(away.y);
 
     const forge = role(board.draw(), 'forge');
     const smith = role(board.draw(), 'blacksmith');

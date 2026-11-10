@@ -24,7 +24,7 @@ import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import type { CharacterDb, CharacterFacts } from '../../src/server/db';
 import { createPapayaClock, sproutFig, type FigWalk } from '../../src/world/core';
 import { stepAggro } from '../../src/world/combat';
-import { plantCabbage, pruneBeet, readCabbage, sproutYams, yamDueMs, type Beet, type CabbageBed } from '../../src/world/monsters';
+import { hurtBeet, plantCabbage, pruneBeet, readCabbage, sproutYams, yamDueMs, type Beet, type CabbageBed } from '../../src/world/monsters';
 
 const guavaSecret = 'guava-session-secret';
 
@@ -497,6 +497,42 @@ describe('cabbage patrol on the rules tick', () => {
     expect(none.bed).toEqual(plantCabbage());
     const town = walkBed(plantCabbage(), new Map([['fig-town', figIn('town')]]), 10_000);
     expect(town.bed).toEqual(plantCabbage());
+  });
+
+  it('drops one seed per kill, worth that row’s coins, for a wolf, a bear, and a skeleton', () => {
+    let bed = plantCabbage();
+    const killer = 'fig-killer';
+    for (const row of onionMonsterRows) {
+      const beet = bed.beets.find((candidate) => candidate.kind === row.id)!;
+      const before = bed.seeds.length;
+      const hit = hurtBeet(bed, beet.id, beet.hp, killer, 1_000);
+      expect(hit.felled).toBe(true);
+      bed = hit.bed;
+      const added = bed.seeds.slice(before);
+      expect(added).toHaveLength(1);
+      expect(added[0]).toMatchObject({ ownerId: killer, x: beet.x, y: beet.y, value: row.coins });
+    }
+    expect(bed.seeds).toHaveLength(onionMonsterRows.length);
+  });
+
+  it('reads a stored seed that has no value as one coin', () => {
+    const fresh = plantCabbage();
+    const wolf = fresh.beets.find((beet) => beet.kind === 'wolf')!;
+    const wolfCoins = onionMonsterRows.find((row) => row.id === 'wolf')!.coins;
+    const felled = hurtBeet(fresh, wolf.id, wolf.hp, 'fig-killer', 0).bed;
+    expect(readCabbage(felled)!.seeds[0]!.value).toBe(wolfCoins);
+    const stored = JSON.parse(JSON.stringify(felled)) as { seeds: Array<Record<string, unknown>> };
+    delete stored.seeds[0]!.value;
+    const read = readCabbage(stored);
+    expect(read).not.toBeNull();
+    expect(read!.seeds).toHaveLength(1);
+    expect(read!.seeds[0]).toMatchObject({
+      id: felled.seeds[0]!.id,
+      ownerId: 'fig-killer',
+      x: wolf.x,
+      y: wolf.y,
+      value: 1,
+    });
   });
 
   it('reads a stored beet that lacks a spawn index and a leg with defaults', () => {

@@ -373,7 +373,13 @@ function orchardSnapshot(
   return {
     players,
     monsters: beets.map((beet) => toBeet(beet, players)),
-    coins: seeds.map((seed) => ({ id: seed.id, ownerId: seed.ownerId, x: seed.x, y: seed.y })),
+    coins: seeds.map((seed) => ({
+      id: seed.id,
+      ownerId: seed.ownerId,
+      x: seed.x,
+      y: seed.y,
+      value: seed.value,
+    })),
     pickups: pickups.map((dig) => ({ ...dig })),
     hits: hits.map((hit) => ({ ...hit })),
   };

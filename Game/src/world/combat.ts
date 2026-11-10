@@ -126,7 +126,7 @@ export function heroOf(fig: FigWalk): Hero {
 }
 
 // One monster swing by this fig. An unknown beet or one out of reach does nothing and stamps nothing.
-// A killing hit awards the beet's xp to this fig only and drops its coins as seeds. The purse is not touched.
+// A killing hit awards the beet's xp to this fig only and drops one coin seed worth the row. The purse is not touched.
 export function strikeBeet(
   fig: FigWalk,
   bed: CabbageBed,

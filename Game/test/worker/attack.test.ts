@@ -1,5 +1,5 @@
 // Player attack and the kill. A level 1 fig with no sword fells a wolf in five hits spaced at the rules gap.
-// A hit inside the gap is ignored. The killer takes the wolf's xp, the coins fall as seeds, the purse stays put.
+// A hit inside the gap is ignored. The killer takes the wolf's xp, one coin seed falls, and the purse stays put.
 // One swing clock per fig: a monster swing and a duel-style swing share trySwing.
 // The papaya clock is injected; nothing here naps for the gap.
 
@@ -84,7 +84,7 @@ describe('swing clock', () => {
     expect(trySwing(duelFirst, gapMs, 'monster')).toBe(true);
   });
 
-  it('kills a wolf in five strikes, ignores a hit at 400 ms, and drops four coins without touching the purse', () => {
+  it('kills a wolf in five strikes, ignores a hit at 400 ms, and drops one coin worth the row without touching the purse', () => {
     const wolf = firstWolf();
     const fig = plantFig({}, wolf);
     const swing = newSwingClock();
@@ -120,11 +120,9 @@ describe('swing clock', () => {
     expect(bed.beets.some((beet) => beet.id === wolf.id)).toBe(false);
     expect(land.patch).toEqual({ level: 1, xp: wolfRow.xp, hp: 70, maxHp: maxHealth(heroOf(fig.facts)) });
     expect(fig.facts.coins).toBe(0);
-    expect(bed.seeds).toHaveLength(wolfRow.coins);
-    for (const seed of bed.seeds) {
-      expect([seed.x, seed.y, seed.ownerId]).toEqual([wolf.x, wolf.y, fig.facts.id]);
-    }
-    expect(new Set(bed.seeds.map((seed) => seed.id)).size).toBe(wolfRow.coins);
+    expect(bed.seeds).toHaveLength(1);
+    expect(bed.seeds[0]).toMatchObject({ x: wolf.x, y: wolf.y, ownerId: fig.facts.id, value: wolfRow.coins });
+    expect(new Set(bed.seeds.map((seed) => seed.id)).size).toBe(1);
     expect(bed.yams).toHaveLength(1);
     expect(bed.yams[0]?.dueMs).toBe(lime.nowMs() + pearTimings.respawnSeconds * 1000);
   });
@@ -367,10 +365,13 @@ describe('lemon room attack', () => {
     expect(heard.otherSnap.character.coins).toBe(3);
     expect(heard.otherSnap.character.xp).toBe(4);
     for (const snap of [heard.senderSnap, heard.otherSnap]) {
-      expect(snap.snapshot.coins).toHaveLength(wolfRow.coins);
-      for (const seed of snap.snapshot.coins) {
-        expect([seed.ownerId, seed.x, seed.y]).toEqual([fern.facts.id, wolf.x, wolf.y]);
-      }
+      expect(snap.snapshot.coins).toHaveLength(1);
+      expect(snap.snapshot.coins[0]).toMatchObject({
+        ownerId: fern.facts.id,
+        x: wolf.x,
+        y: wolf.y,
+        value: wolfRow.coins,
+      });
     }
     const fernRow = await getById(kiwiDb, fern.facts.id);
     expect([fernRow?.xp, fernRow?.level, fernRow?.coins]).toEqual([wolfRow.xp, 1, 7]);
@@ -399,8 +400,10 @@ describe('lemon room attack', () => {
     worker = await bootLemon(orchardDir);
     const again = await connectFig(`ws://127.0.0.1:${worker.port}/ws`, fern.grape);
     openSockets.push(again.socket);
-    // The killer was connected for the five seconds after the kill, so one coin was picked up.
-    expect(again.welcome.snapshot.coins).toHaveLength(wolfRow.coins - 1);
+    // The killer stayed connected through the respawn delay, which is longer than one pickup,
+    // so the single seed is collected and the purse holds the wolf row's coins.
+    expect(again.welcome.snapshot.coins).toHaveLength(0);
+    expect(again.welcome.character.coins).toBe(7 + wolfRow.coins);
     expect(JSON.stringify(again.welcome.snapshot.monsters)).toBe(living);
   }, 120_000);
 
