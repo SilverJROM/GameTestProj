@@ -171,3 +171,10 @@ Facts found while checking (corrections to the earlier review):
 The background track follows the section the player's avatar is in, with a 2 second fade when the section changes.
 Design: the track is picked from the avatar's zone (town, green, grey, cemetery); on a change, the old track fades out and the new one fades in over 2 s (crossfade).
 Details to settle: the grey zone (bears) has no track of its own (we have town, fields, cemetery); a small delay so crossing a border back and forth does not flip the music; tracks loop; the music starts on the first click or key press (browser rule).
+
+### Background music answers (developer, 2026-11-10)
+- Grey zone uses the fields track (continues across the green/grey border, no fade there).
+- A short delay (about 0.5 s) before a zone change starts the fade.
+- Music starts on the first click or key press after sign-in.
+- Sign-in and avatar picker are silent for now.
+- Music pauses when the browser tab is hidden.
