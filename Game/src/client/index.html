@@ -8,7 +8,39 @@
       body { margin: 0; background: #1b1a17; color: #f4ead7; font-family: Georgia, serif; }
       #apple-login { max-width: 28rem; margin: 2rem auto; padding: 1rem 1.25rem; }
       #lime-preview { display: block; height: 240px; width: auto; margin: 0.75rem 0; background: transparent; }
+      /* The melon stage hugs the papaya picture, so the kiwi rail stays on its right edge when CSS scales the canvas. */
+      #melon-stage { position: relative; width: 100%; }
       #papaya-canvas { display: block; width: 100%; height: auto; background: #000; }
+      #kiwi-zoom[hidden] { display: none !important; }
+      #kiwi-zoom {
+        position: absolute;
+        top: 12%;
+        right: 0.35rem;
+        bottom: 8%;
+        width: 2.4rem;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.2rem;
+        z-index: 2;
+        color: #f4ead7;
+        font-size: 0.85rem;
+        text-shadow: 0 1px 2px #1b1a17;
+        user-select: none;
+      }
+      /* slider-vertical draws the far end at the top. A half turn puts 60 at the top and 75 at the bottom. */
+      #zoom-slider {
+        appearance: slider-vertical;
+        width: 1.15rem;
+        height: 78%;
+        margin: 0;
+        accent-color: #e0b15a;
+        cursor: ns-resize;
+        touch-action: none;
+        transform: rotate(180deg);
+      }
       #quince-smith, #plum-duel, #olive-sheet {
         position: fixed;
         top: 1rem;
@@ -36,7 +68,14 @@
       </form>
     </section>
     <!-- The papaya canvas stays hidden until a sign-in succeeds, then shows the map picture. -->
-    <canvas id="papaya-canvas" width="1280" height="720" hidden></canvas>
+    <!-- The kiwi rail is hidden with it. Top of the range is the close guava (60), bottom is the wide one (75). -->
+    <div id="melon-stage">
+      <canvas id="papaya-canvas" width="1280" height="720" hidden></canvas>
+      <label id="kiwi-zoom" hidden>
+        Zoom
+        <input type="range" id="zoom-slider" min="60" max="75" step="1" value="60" orient="vertical" />
+      </label>
+    </div>
     <section id="quince-smith" hidden>
       <p>Blacksmith</p>
       <p id="quince-purse"></p>

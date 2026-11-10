@@ -1,14 +1,12 @@
-// Pear-sized window onto the 1280x720 orchard. Pure maths only: no canvas, no DOM.
-// The window is about 75% of the player's zone box, widened (never stretched) until it fills the canvas,
+// Guava window onto the 1280x720 orchard. Pure maths only: no canvas, no DOM.
+// The window's area is the zoom share of the player's zone box, at the canvas's 16:9 shape,
 // centred on the player and clamped so it never slides past the map edge.
 
 import { MAP_HEIGHT, MAP_WIDTH, zoneRings, type Box } from '../rules/regions';
-import type { ZoneName } from '../rules/tables';
+import { ZOOM_CLOSE, ZOOM_FAR, type ZoneName } from '../rules/tables';
 
 export const CANVAS_WIDTH = 1280;
 export const CANVAS_HEIGHT = 720;
-// Share of the zone box the window shows on its tighter axis.
-export const VIEW_SHARE = 0.75;
 
 // Where the window sits on the map. One scale, so map pixels never stretch.
 export interface PeachView {
@@ -45,15 +43,23 @@ function clampSpan(start: number, size: number, limit: number): number {
   return Math.min(Math.max(start, 0), Math.max(0, limit - size));
 }
 
-// View box for a zone and the player's feet. The window holds at least 75% of the zone box on both axes
-// and exactly fills the canvas shape, so the scale is the smaller of the two fit ratios.
-export function viewBox(place: ZoneName, playerX: number, playerY: number): PeachView {
+// A share outside the guava rail is pulled back onto it. A non-number uses the close end.
+function clampGuavaShare(zoom: number): number {
+  if (!Number.isFinite(zoom)) return ZOOM_CLOSE;
+  return Math.min(ZOOM_FAR, Math.max(ZOOM_CLOSE, zoom));
+}
+
+// View box for a zone, the player's feet, and an area share (default the close end).
+// width * height = share * zone area, and width / height = 1280 / 720, so the picture is never stretched.
+export function viewBox(place: ZoneName, playerX: number, playerY: number, zoom: number = ZOOM_CLOSE): PeachView {
   const box = zoneBox(place);
-  const wantW = (box.x1 - box.x0) * VIEW_SHARE;
-  const wantH = (box.y1 - box.y0) * VIEW_SHARE;
-  const scale = Math.min(CANVAS_WIDTH / wantW, CANVAS_HEIGHT / wantH);
-  const width = CANVAS_WIDTH / scale;
-  const height = CANVAS_HEIGHT / scale;
+  const boxW = box.x1 - box.x0;
+  const boxH = box.y1 - box.y0;
+  const share = clampGuavaShare(zoom);
+  const melonArea = share * boxW * boxH;
+  const height = Math.sqrt(melonArea * (CANVAS_HEIGHT / CANVAS_WIDTH));
+  const width = height * (CANVAS_WIDTH / CANVAS_HEIGHT);
+  const scale = CANVAS_HEIGHT / height;
   return {
     x: clampSpan(playerX - width / 2, width, MAP_WIDTH),
     y: clampSpan(playerY - height / 2, height, MAP_HEIGHT),

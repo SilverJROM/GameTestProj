@@ -94,10 +94,13 @@ function drawMapPicture(peachDoc, papayaCanvas) {
 }
 
 // Hides the peach login section and shows the papaya canvas with the map.
+// The kiwi zoom rail comes up with the canvas. It stays hidden until then.
 function revealMap(peachDoc) {
   peachDoc.getElementById('apple-login').hidden = true;
   const papayaCanvas = peachDoc.getElementById('papaya-canvas');
   papayaCanvas.hidden = false;
+  const kiwiZoom = peachDoc.getElementById('kiwi-zoom');
+  if (kiwiZoom) kiwiZoom.hidden = false;
   drawMapPicture(peachDoc, papayaCanvas);
 }
 

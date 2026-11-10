@@ -42,6 +42,8 @@ function fakeDocument() {
     ['kiwi-name', fakeElement()],
     ['pear-refusal', fakeElement()],
     ['papaya-canvas', fakeElement({ hidden: true })],
+    ['kiwi-zoom', fakeElement({ hidden: true })],
+    ['zoom-slider', fakeElement({ hidden: true, value: '60' })],
   ]);
   return {
     elements,
@@ -79,6 +81,7 @@ describe('first-screen login UI', () => {
     expect(JSON.parse(String(init.body))).toEqual({ name: '   ', gender: 'woman' });
     expect(peachDoc.getElementById('pear-refusal').textContent).toBe('Name is blank.');
     expect(peachDoc.getElementById('papaya-canvas').hidden).toBe(true);
+    expect(peachDoc.getElementById('kiwi-zoom').hidden).toBe(true);
     expect(peachDoc.getElementById('apple-login').hidden).toBe(false);
   });
 
@@ -100,6 +103,7 @@ describe('first-screen login UI', () => {
     const loginBody = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
     expect(loginBody).toEqual({ name: 'Bob', gender: 'man' });
     expect(peachDoc.getElementById('papaya-canvas').hidden).toBe(false);
+    expect(peachDoc.getElementById('kiwi-zoom').hidden).toBe(false);
     expect(peachDoc.getElementById('apple-login').hidden).toBe(true);
     expect(peachDoc.getElementById('pear-refusal').textContent).toBe('');
   });
@@ -119,6 +123,7 @@ describe('first-screen login UI', () => {
 
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(peachDoc.getElementById('papaya-canvas').hidden).toBe(true);
+    expect(peachDoc.getElementById('kiwi-zoom').hidden).toBe(true);
   });
 
   it('shows the woman stand on load and swaps it when the radio changes, before submit', () => {

@@ -20,7 +20,7 @@ The stack shares one 1280×720 origin:
 
 `houses/forge.png` is not drawn again. The forge building is already in `town-behind.png`. The blacksmith is a separate sprite and is drawn with the avatars.
 
-The camera shows about 75 percent of the current zone and fills the 1280×720 window with one scale. It does not stretch, and it does not leave dark bars. A click is converted through that camera onto the map. Town is nearly square, so the window shows about 75 percent of the town's height and a bit more than 75 percent of its width.
+The camera shows 60 percent of the current zone's area by default, and a slider can zoom out to 75 percent of that area. The window keeps the 1280×720 shape (16:9) with one scale, so the picture is not stretched and there are no dark bars. It stays centered on the player and does not slide past the map edge. A click is converted through that same camera onto the map.
 
 Walls are solid. Fence pixels, and the uneven top of the near town wall, are paint, not collision. The town gate is open from (444, 574) to (410, 593). The short run from (410, 593) to (400, 598) stays solid. The road through the gate is around (425, 584). The cemetery gate is open from (317, 229) to (365, 217). The road through it is around (340, 222). The west cemetery chain, the east chain, and the pine edge through (542, 105), (548, 95), (520, 60), (470, 30), and (432, 0) are solid. A player stops at a solid wall. A monster does not step through a wall or out of its zone.
 

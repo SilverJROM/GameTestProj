@@ -141,14 +141,14 @@ Resume: signing in on any day lists the same avatars with the coins, gear, level
 
 - **Default view: 60 percent of the current section.** The window is sized so `width × height = 0.60 × the zone box area`, at the canvas's 16:9 shape. It stays centered on the player and clamped to the map, as today.
 - **Zoom-out: up to 75 percent.** A vertical slider on the right edge of the screen, labelled "Zoom", moves the view between 60 percent (default, slider at the closer end) and 75 percent (widest). It is not possible to zoom out past 75 percent or in past 60 percent.
-- The view size for each section (16:9, rounded):
+- The view size for each section (16:9, rounded; the cemetery 75% and grey cells were corrected in slice 2 to match the exact area rule):
 
 | Section | Zone box (px) | At 60% (default) | Scale | At 75% (widest) | Scale |
 | --- | --- | --- | --- | --- | --- |
 | Town | 650 × 590 | 640 × 360 | 2.00 | 715 × 402 | 1.79 |
-| Cemetery | 556 × 256 | 390 × 219 | 3.28 | 485 × 273 | 2.64 |
+| Cemetery | 556 × 256 | 390 × 219 | 3.28 | 436 × 245 | 2.94 |
 | Green | 900 × 605 | 762 × 429 | 1.68 | 852 × 479 | 1.50 |
-| Grey | 848 × 530 | 692 × 390 | 1.85 | 774 × 436 | 1.65 |
+| Grey | 848 × 530 | 692 × 389 | 1.85 | 774 × 435 | 1.65 |
 
   Today's town view is 787 × 443 at scale 1.63, so the default is about 23 percent closer.
 - The slider is an HTML control over the canvas. Pressing it does not send a walk click to the map.

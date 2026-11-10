@@ -4,7 +4,7 @@
 
 import type { Gender } from '../server/db';
 import type { ClientMessage, HitMark } from '../protocol';
-import type { ZoneName } from '../rules/tables';
+import { ZOOM_CLOSE, ZOOM_FAR, type ZoneName } from '../rules/tables';
 import { townSpawn } from '../rules/regions';
 import { removeMagenta } from './sprites';
 import { canvasToMap, mapToCanvas, viewBox, type PeachView } from './camera';
@@ -86,6 +86,9 @@ export interface FigBoard {
   damageNumbers(nowMs: number): DamageNumber[];
   // Window onto the map around the local player, for the player's current zone.
   camera(): PeachView;
+  // Area share of the current section. The guava rail moves this between the close and far ends.
+  zoom(): number;
+  setZoom(zoom: number): void;
   controls(): ScreenControl[];
   shop(): ShopSheet | null;
   inventory(): InventorySheet | null;
@@ -94,6 +97,34 @@ export interface FigBoard {
 }
 
 const EMPTY_ORCHARD: OrchardPaint = { players: [], monsters: [], coins: [], pickups: [] };
+
+// The jar keeps the slider's percent ("60" to "75"). A blocked or bad read starts at the close end.
+const GUAVA_ZOOM_KEY = 'game.zoom';
+
+function guavaShareFromJar(raw: string | null): number {
+  if (raw === null || raw.trim() === '') return ZOOM_CLOSE;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return ZOOM_CLOSE;
+  if (n >= 60 && n <= 75) return Math.round(n) / 100;
+  if (n >= ZOOM_CLOSE && n <= ZOOM_FAR) return Math.round(n * 100) / 100;
+  return ZOOM_CLOSE;
+}
+
+function readGuavaZoom(): number {
+  try {
+    return guavaShareFromJar(globalThis.localStorage.getItem(GUAVA_ZOOM_KEY));
+  } catch {
+    return ZOOM_CLOSE;
+  }
+}
+
+function writeGuavaZoom(percent: number): void {
+  try {
+    globalThis.localStorage.setItem(GUAVA_ZOOM_KEY, String(percent));
+  } catch {
+    // A blocked jar still leaves the fig window at the chosen share.
+  }
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -120,6 +151,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   const selfGender = options.selfGender;
   let quinceOpen = false;
   let bagOpen = false;
+  let guavaZoom = readGuavaZoom();
   let askerHeld = '';
   let oliveDepth = 0;
   let papayaSwings = 0;
@@ -287,7 +319,20 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   function camera(): PeachView {
     const self = orchard.players.find((fig) => fig.id === selfId);
     const spawn = townSpawn;
-    return viewBox(selfPlace, self?.x ?? spawn[0], self?.y ?? spawn[1]);
+    return viewBox(selfPlace, self?.x ?? spawn[0], self?.y ?? spawn[1], guavaZoom);
+  }
+
+  function zoom(): number {
+    return guavaZoom;
+  }
+
+  // Percent steps match the kiwi slider. A share outside the rail is pulled onto the nearer end.
+  function setZoom(next: number): void {
+    if (!Number.isFinite(next)) return;
+    const clamped = Math.min(ZOOM_FAR, Math.max(ZOOM_CLOSE, next));
+    const percent = Math.round(clamped * 100);
+    guavaZoom = percent / 100;
+    writeGuavaZoom(percent);
   }
 
   function click(berry: ClickBerry): void {
@@ -372,6 +417,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     health,
     damageNumbers,
     camera,
+    zoom,
+    setZoom,
     controls,
     shop,
     inventory,
@@ -393,6 +440,7 @@ interface LooseCtx extends BlitCtx {
 interface LooseEl {
   hidden?: boolean;
   textContent?: string;
+  value?: string;
   width?: number;
   height?: number;
   src?: string;
@@ -411,7 +459,10 @@ interface LooseEvent {
   button?: number;
   clientX?: number;
   clientY?: number;
+  key?: string;
+  target?: unknown;
   preventDefault?: () => void;
+  stopPropagation?: () => void;
   data?: unknown;
 }
 
@@ -625,6 +676,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
 
   canvas?.addEventListener?.('mousedown', (event) => {
     if (event.button !== 0 && event.button !== 2) return;
+    if (event.target !== undefined && event.target !== null && event.target !== canvas) return;
     event.preventDefault?.();
     const pixel = mapBerry(canvas, event);
     if (board.pressScreen(pixel.x, pixel.y)) return;
@@ -634,4 +686,38 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   canvas?.addEventListener?.('contextmenu', (event) => {
     event.preventDefault?.();
   });
+
+  // The kiwi rail is a real control over the picture. Presses on it must not become a walk or an attack.
+  const kiwiZoom = doc.getElementById('kiwi-zoom');
+  const guavaSlider = doc.getElementById('zoom-slider');
+  if (guavaSlider !== null) {
+    const applyGuava = () => {
+      const raw = Number(guavaSlider.value);
+      if (!Number.isFinite(raw)) return;
+      board.setZoom(raw / 100);
+      show(painted);
+    };
+    guavaSlider.value = String(Math.round(board.zoom() * 100));
+    const swallow = (event: LooseEvent) => {
+      event.stopPropagation?.();
+    };
+    for (const type of ['pointerdown', 'mousedown', 'click', 'touchstart']) {
+      guavaSlider.addEventListener?.(type, swallow);
+      kiwiZoom?.addEventListener?.(type, swallow);
+    }
+    guavaSlider.addEventListener?.('input', applyGuava);
+    // The half-turn that puts 60 at the top also flips the arrow keys. Point them back at the picture.
+    guavaSlider.addEventListener?.('keydown', (event) => {
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      const current = Number(guavaSlider.value);
+      const base = Number.isFinite(current) ? current : Math.round(ZOOM_CLOSE * 100);
+      const next = Math.min(Math.round(ZOOM_FAR * 100), Math.max(Math.round(ZOOM_CLOSE * 100), base + step));
+      guavaSlider.value = String(next);
+      board.setZoom(next / 100);
+      show(painted);
+    });
+  }
 }

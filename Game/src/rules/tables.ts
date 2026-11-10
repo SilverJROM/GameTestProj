@@ -80,3 +80,8 @@ export const kaleConstants = {
   monsterPatrolSpeedPxPerSec: 40,
   meleeReachPx: 48,
 } as const;
+
+// Guava window: closest and widest area share of the section the fig stands in.
+// The camera is the only reader. 0.60 is the default; 0.75 is as wide as the slider goes.
+export const ZOOM_CLOSE = 0.60;
+export const ZOOM_FAR = 0.75;

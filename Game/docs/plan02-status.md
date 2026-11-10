@@ -2,7 +2,7 @@
 
 Recovery file. If the session closes (out of memory, suspend, crash), read this first, then `docs/plan02.md` for the full plan. Update this file after every slice event: started, passed, failed.
 
-Last updated: 2026-11-10 03:45 UTC
+Last updated: 2026-11-10 04:05 UTC
 
 ## Where things stand
 
@@ -11,7 +11,7 @@ Last updated: 2026-11-10 03:45 UTC
 | Working branch | `update-02` (cut from `main` at `c30f690`) |
 | Old branch | `candidate-work` deleted on 2026-11-10 (it was fully merged, was at `ab9db1f`) |
 | Base commit for this update | `c30f690` "Add walk frames, ground map, overlays, approved mockups, and plan 02." |
-| Overall | 14% (slices 0 and 1 done, 2 of 14) |
+| Overall | 21% (slices 0 to 2 done, 3 of 14) |
 | Pushing / deploying | Not allowed. Push is disabled. No Cloudflare deploy in this plan. |
 
 ## Topology
@@ -28,8 +28,8 @@ Status values: `done`, `in progress`, `pending`, `waiting for user`, `blocked`.
 | Slice | What | Status | Commit | Notes |
 | --- | --- | --- | --- | --- |
 | 0 | Repair the 5 tests that already fail on a clean tree | **done** | `a311f2b` | Tests only. Grok found the town wall, monster patrol, HP ladder, and attack gaps had made them stale. 286 passed. |
-| 1 | All avatar heights x 0.6 | **done** | see git log | `sprites.ts` table 58/48/34/24; test pins round(old*0.6). 287 passed. Regenerated `shell.generated.ts` is committed with it. |
-| 2 | Zoom: 60 percent default, 75 percent max, right-edge slider | pending | - | `src/client/camera.ts`, `index.html`, `main.ts` |
+| 1 | All avatar heights x 0.6 | **done** | `9b5abff` | `sprites.ts` table 58/48/34/24; test pins round(old*0.6). 287 passed. Regenerated `shell.generated.ts` is committed with it. |
+| 2 | Zoom: 60 percent default, 75 percent max, right-edge slider | **done** | see git log | `ZOOM_CLOSE/ZOOM_FAR` in `tables.ts`; area-share `viewBox`; `#zoom-slider` (top 60, bottom 75), saved in `localStorage` `game.zoom`. 307 tests pass. Checked in Chrome: hidden on login, slider presses do not move the player, setting survives reload, ground clicks still walk. Plan table fixed for cemetery 75% (436x245). Note for slice 11: the blacksmith thought bubble is a fixed 220x64 and now looks large next to the smaller avatars. |
 | 3 | One coin per kill with a value, pickup 2.25 s, gold "+N" | pending | - | `monsters.ts`, `pets.ts`, protocol, client |
 | 4 | Failing test first: open Bag, kill a wolf, numbers must change | pending | - | |
 | 5 | Live Bag and Blacksmith panels, Close buttons, HUD | pending | - | |
