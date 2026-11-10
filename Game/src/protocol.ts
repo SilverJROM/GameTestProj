@@ -61,6 +61,8 @@ export interface PlayerSnapshot {
   readonly gender: FigGender;
   // The fig this player is dueling, or null. Set on exactly the two paired players (red glow).
   readonly duelPartnerId: string | null;
+  // True only for the snapshot in which this player's swing landed (the avatar shows its swing frames).
+  readonly attacking?: boolean;
 }
 
 // One living beet. It stands on a leek until hit, then chases.

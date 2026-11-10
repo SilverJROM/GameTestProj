@@ -2,7 +2,7 @@
 
 Recovery file. If the session closes, read this first, then `docs/plan03.md`. Times in UTC. Same topology and rules as `docs/plan02-status.md` (Grok implements, Claude reviews and commits, user-approved plan only).
 
-Last updated: 2026-11-10 15:03 UTC
+Last updated: 2026-11-10 15:16 UTC
 
 | Item | Value |
 | --- | --- |
@@ -18,7 +18,7 @@ Last updated: 2026-11-10 15:03 UTC
 | 3 | Everything on screen patrols (merged with 4) | **done** | see git log |
 | 4 | Own patrol patch, no overlap (merged into 3) | **done** | see git log |
 | 5 | Sprite click area | **in progress** (Grok started 15:05 UTC, marker `slices/p3-slice-5.done`) | - |
-| 6 | Click to chase and fight | pending | - |
+| 6 | Click to chase and fight (L3, Claude implements, Opus validates) | **in progress** (server chase target in room.ts + protocol `attacking`, test/worker/chase.test.ts passes 4/4; needs full suite, slice 5 first, then Opus validation) | - |
 | 7 | Coin 24 px, walk-on pickup | pending | - |
 | 8 | Checkpoint: full suite, screenshots, merge slices 0-7 to main | pending | - |
 | 9 | Shared account bag (L3) | pending | - |

@@ -102,6 +102,10 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   private cabbage: CabbageBed = plantCabbage();
   // Beets whose bite landed in the latest ripen pass. Shown as the swung flag in the snapshot.
   private swungBeets = new Set<string>();
+  // A clicked monster is chased and fought until it dies, leaves the zone, or the player clicks the ground.
+  private readonly chaseTargets = new Map<string, string>();
+  private readonly chaseAims = new Map<string, { x: number; y: number }>();
+  private swungFigs = new Set<string>();
   private pendingHits: HitMark[] = [];
   private hitSeq = 0;
   // Running coin digs per owner, and when each owner's lemon opened. Both live only in memory.
@@ -230,7 +234,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
         await this.storeCabbage();
       }
     }
-    if (writes.length > 0 || cabbageChanged || aggroChanged || patrolWalked || this.radishDigs.size > 0) {
+    const chased = this.chaseTargets.size > 0 ? await this.stepChasers() : false;
+    if (writes.length > 0 || cabbageChanged || aggroChanged || patrolWalked || chased || this.radishDigs.size > 0) {
       this.broadcastMango();
     }
     await this.armOrchard(true);
@@ -413,6 +418,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       return;
     }
     this.noteMelon();
+    this.chaseTargets.delete(appleId);
+    this.chaseAims.delete(appleId);
     orderGuava(fig, rawX, rawY);
     this.broadcastMango();
     await this.armMango();
@@ -435,6 +442,9 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       await this.storeCabbage();
     }
     await this.sproutCabbage();
+    if (this.chaseTargets.size > 0) {
+      await this.stepChasers();
+    }
     this.broadcastMango();
   }
 
@@ -442,6 +452,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   // `changed` is what gets stored; `walked` also counts idle patrol, which is shown but never stored on its own.
   private ripenWorld(): { writes: PersimmonWrite[]; changed: boolean; walked: boolean } {
     this.swungBeets = new Set<string>();
+    this.swungFigs = new Set<string>();
     this.pendingHits = [];
     let changed = false;
     let walked = false;
@@ -521,6 +532,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     this.radishDigs.delete(appleId);
     this.lemonOpenedMs.delete(appleId);
     this.swingClocks.delete(appleId);
+    this.chaseTargets.delete(appleId);
+    this.chaseAims.delete(appleId);
     dropDuelsFor(this.duelOrchard, appleId);
     const cleared = clearAggroOn(this.cabbage, appleId);
     const keptSeeds = cleared.seeds.filter((seed) => seed.ownerId !== appleId);
@@ -564,28 +577,105 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       }
       return;
     }
+    await this.sproutCabbage();
+    const target = this.cabbage.beets.find((candidate) => candidate.id === beetId);
+    if (target !== undefined && fig.facts.hp > 0 && fig.facts.place === target.zone) {
+      // A click on a monster walks the fig to it and keeps swinging until it dies or the player clicks the ground.
+      this.chaseTargets.set(appleId, beetId);
+      this.chaseAims.delete(appleId);
+      this.noteMelon();
+    }
+    await this.strikeOnce(appleId, fig, beetId);
+    this.aimAtTarget(appleId, fig);
+    await this.armOrchard(false);
+    this.broadcastMango();
+  }
+
+  // One swing at a monster on this fig's attack clock. Out of reach or too soon does nothing.
+  private async strikeOnce(appleId: string, fig: FigWalk, beetId: string): Promise<boolean> {
     let swing = this.swingClocks.get(appleId);
     if (swing === undefined) {
       swing = newSwingClock();
       this.swingClocks.set(appleId, swing);
     }
-    await this.sproutCabbage();
     const struck = strikeBeet(fig, this.cabbage, beetId, swing, this.limeClock.nowMs());
-    if (struck.struck) {
-      if (struck.mark !== null) this.noteHit(struck.mark);
-      this.cabbage = struck.bed;
-      await this.storeCabbage();
-      // A fresh target needs the tick clock running so the beet can chase.
-      if (!this.melonPrimed && (anyAggro(this.cabbage) || anyDigDue(this.cabbage, this.orchard.figs))) {
-        this.noteMelon();
-      }
-      await this.armOrchard(false);
-      if (struck.patch !== null) {
-        await this.persistPersimmons([{ id: appleId, patch: struck.patch }]);
-        await this.armOrchard(false);
-      }
+    if (!struck.struck) {
+      return false;
     }
-    this.broadcastMango();
+    this.swungFigs.add(appleId);
+    if (struck.mark !== null) this.noteHit(struck.mark);
+    this.cabbage = struck.bed;
+    await this.storeCabbage();
+    // A fresh target needs the tick clock running so the beet can chase.
+    if (!this.melonPrimed && (anyAggro(this.cabbage) || anyDigDue(this.cabbage, this.orchard.figs))) {
+      this.noteMelon();
+    }
+    await this.armOrchard(false);
+    if (struck.patch !== null) {
+      await this.persistPersimmons([{ id: appleId, patch: struck.patch }]);
+      await this.armOrchard(false);
+    }
+    return true;
+  }
+
+  // Walk toward a point a little inside melee reach of the chased monster, on the fig's side of it.
+  private aimAtTarget(appleId: string, fig: FigWalk): void {
+    const beetId = this.chaseTargets.get(appleId);
+    const beet = beetId === undefined ? undefined : this.cabbage.beets.find((candidate) => candidate.id === beetId);
+    if (beet === undefined) {
+      return;
+    }
+    const dx = fig.facts.x - beet.x;
+    const dy = fig.facts.y - beet.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= kaleConstants.meleeReachPx - 8) {
+      return;
+    }
+    const standOff = kaleConstants.meleeReachPx - 8;
+    const aim = { x: beet.x + (dx / dist) * standOff, y: beet.y + (dy / dist) * standOff };
+    const last = this.chaseAims.get(appleId);
+    if (last !== undefined && fig.guavaArmed && Math.hypot(last.x - aim.x, last.y - aim.y) <= 14) {
+      return;
+    }
+    orderGuava(fig, aim.x, aim.y);
+    this.chaseAims.set(appleId, aim);
+  }
+
+  // Every tick: each chasing fig closes in on its monster, stands in reach, and swings on its own attack clock.
+  private async stepChasers(): Promise<boolean> {
+    let changed = false;
+    for (const [appleId, beetId] of [...this.chaseTargets]) {
+      const fig = this.orchard.figs.get(appleId);
+      const beet = this.cabbage.beets.find((candidate) => candidate.id === beetId);
+      if (fig === undefined || beet === undefined || fig.facts.hp <= 0 || fig.facts.place !== beet.zone) {
+        this.chaseTargets.delete(appleId);
+        this.chaseAims.delete(appleId);
+        continue;
+      }
+      const dist = Math.hypot(beet.x - fig.facts.x, beet.y - fig.facts.y);
+      if (dist <= kaleConstants.meleeReachPx) {
+        if (fig.guavaArmed) {
+          fig.guavaArmed = false;
+          fig.limeStops = [];
+          changed = true;
+        }
+        this.chaseAims.delete(appleId);
+        fig.apricotFacing = beet.x < fig.facts.x ? 'left' : 'right';
+        if (await this.strikeOnce(appleId, fig, beetId)) {
+          changed = true;
+        }
+        continue;
+      }
+      const wasArmed = fig.guavaArmed;
+      this.aimAtTarget(appleId, fig);
+      if (!fig.guavaArmed && !wasArmed) {
+        // Blocked and not moving: give the chase up rather than stand forever.
+        this.chaseTargets.delete(appleId);
+        this.chaseAims.delete(appleId);
+      }
+      changed = true;
+    }
+    return changed;
   }
 
   // A duel swing shares the fig's one attack clock with monster swings.
@@ -682,7 +772,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return null;
     }
-    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs), this.duelOrchard.pairs, this.pendingHits));
+    const baked = bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs), this.duelOrchard.pairs, this.pendingHits);
+    if (this.swungFigs.size === 0) {
+      return JSON.stringify(baked);
+    }
+    const players = baked.snapshot.players.map((row) => (this.swungFigs.has(row.id) ? { ...row, attacking: true } : row));
+    return JSON.stringify({ ...baked, snapshot: { ...baked.snapshot, players } });
   }
 
   private beetsInBloom() {
