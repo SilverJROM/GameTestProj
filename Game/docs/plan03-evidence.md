@@ -12,3 +12,6 @@ Tools: `docs/plan03-tools/measure-gates.mjs`, `docs/plan03-tools/measure-patrol.
 | Coin | Ground coin drawn at 40 px. |
 
 Smoothness (frame by frame) is measured in slice 2 once the interpolation is in, with the same script style.
+
+## Slice 1 after-check (real Chrome, 6 walks)
+All six walks reached their target within 1 px: inside to outside through the south gate from the right part and from the left part of the opening, a far routed walk, outside to inside, and town to cemetery road. Server tests: 367 pass. Observed for slice 2: sampled positions jump up to 24 px between 100 ms samples (12 px per tick, snapshots arrive in pairs), so on-screen motion is steppy.

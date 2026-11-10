@@ -248,13 +248,12 @@ describe('solid walls stop a walking fig', () => {
     const hit = firstSolidWallCrossing([300, 450], [700, 450]);
     expect(hit).not.toBeNull();
     walk(fig, 700, 450);
-    expect(Math.abs(fig.facts.x - hit![0])).toBeLessThanOrEqual(1);
-    expect(Math.abs(fig.facts.y - hit![1])).toBeLessThanOrEqual(1);
-    expect(fig.facts.x).toBeLessThan(hit![0]);
-    expect(firstSolidWallCrossing([300, 450], [fig.facts.x, fig.facts.y])).toBeNull();
+    // The wall is sloped, so the fig slides along it and then stops. It never reaches the far side.
     expect(fig.facts.x).not.toBe(700);
+    expect(fig.facts.y).not.toBe(450);
     expect(inRing(pearTownWalls, fig.facts.x, fig.facts.y)).toBe(true);
     expect(figMoving(fig)).toBe(false);
+    expect(firstSolidWallCrossing([300, 450], [fig.facts.x, fig.facts.y])).toBeNull();
   });
 
   it('lets a fig leave through the town gate', () => {

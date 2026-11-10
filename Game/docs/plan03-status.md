@@ -2,18 +2,18 @@
 
 Recovery file. If the session closes, read this first, then `docs/plan03.md`. Times in UTC. Same topology and rules as `docs/plan02-status.md` (Grok implements, Claude reviews and commits, user-approved plan only).
 
-Last updated: 2026-11-10 12:55 UTC
+Last updated: 2026-11-10 13:32 UTC
 
 | Item | Value |
 | --- | --- |
 | Base | `main` at `cde3469` |
 | Working branch | `update-03` (cut from `main`) |
-| Overall | 8% (slice 0 of 12 done) |
+| Overall | 17% (slices 0-1 of 12 done) |
 
 | Slice | What | Status | Commit |
 | --- | --- | --- | --- |
 | 0 | Branch and measurement (evidence in `docs/plan03-evidence.md`) | **done** | see git log |
-| 1 | Gate routing and wall sliding | **in progress** (Grok started 12:55 UTC, marker `slices/p3-slice-1.done` in scratchpad) | - |
+| 1 | Gate routing and wall sliding | **done** | see git log |
 | 2 | Smooth walking (interpolation) | pending | - |
 | 3 | Everything on screen patrols | pending | - |
 | 4 | Own patrol patch, no overlap | pending | - |
