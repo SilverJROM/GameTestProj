@@ -15,8 +15,8 @@ Last updated: 2026-11-10 14:15 UTC
 | 0 | Branch and measurement (evidence in `docs/plan03-evidence.md`) | **done** | see git log |
 | 1 | Gate routing and wall sliding | **done** | see git log |
 | 2 | Smooth walking (interpolation) | **done** | see git log |
-| 3 | Everything on screen patrols | pending | - |
-| 4 | Own patrol patch, no overlap | pending | - |
+| 3 | Everything on screen patrols (merged with 4) | **in progress** (Grok started 14:25 UTC, marker `slices/p3-slice-3.done`) | - |
+| 4 | Own patrol patch, no overlap (merged into 3) | in progress | - |
 | 5 | Sprite click area | pending | - |
 | 6 | Click to chase and fight | pending | - |
 | 7 | Coin 24 px, walk-on pickup | pending | - |
