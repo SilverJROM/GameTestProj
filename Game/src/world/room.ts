@@ -26,7 +26,7 @@ import {
   type HitMark,
 } from '../protocol';
 import { WORLD_EPOCH, kaleConstants } from '../rules/tables';
-import { getById, saveFacts, saveFactsPair, saveQuinceBuy, saveQuinceSlot, type CharacterDb, type CharacterFactsPatch } from '../server/db';
+import { getById, listBag, listSiblingIds, saveFacts, saveFactsPair, saveQuinceBuy, saveQuinceSlot, type CharacterDb, type CharacterFactsPatch } from '../server/db';
 import {
   bakeSnapshotMessage,
   bakeWelcome,
@@ -333,10 +333,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return;
     }
+    await this.refreshBag(fig);
     const quincePatch = buyQuince(fig, quinceId);
     if (quincePatch !== null && quincePatch.coins !== undefined) {
       try {
         await saveQuinceBuy(this.env.DB, appleId, quincePatch.coins, quinceId);
+        await this.refreshSiblings(appleId);
       } catch {
         await this.restoreQuince(fig);
       }
@@ -350,11 +352,14 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return;
     }
+    await this.refreshBag(fig);
     const patch = wearQuince(fig, quinceId, slot);
     if (patch !== null) {
       const wrote = await this.persistSlot(appleId, patch);
       if (!wrote) {
         await this.restoreQuince(fig);
+      } else {
+        await this.refreshSiblings(appleId);
       }
     }
     this.broadcastMango();
@@ -366,11 +371,14 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return;
     }
+    await this.refreshBag(fig);
     const patch = stashQuince(fig, slot);
     if (patch !== null) {
       const wrote = await this.persistSlot(appleId, patch);
       if (!wrote) {
         await this.restoreQuince(fig);
+      } else {
+        await this.refreshSiblings(appleId);
       }
     }
     this.broadcastMango();
@@ -406,7 +414,24 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       hp: fresh.hp,
       maxHp: fresh.maxHp,
       items: fresh.items,
+      elsewhere: fresh.elsewhere,
     };
+  }
+
+  // Re-read the shared account bag, so a change made by the account's other avatar shows up here.
+  private async refreshBag(fig: FigWalk): Promise<void> {
+    const bag = await listBag(this.env.DB, fig.facts.id);
+    fig.facts = { ...fig.facts, items: bag.items, elsewhere: bag.elsewhere };
+  }
+
+  // The account's other avatars that are connected see the change straight away.
+  private async refreshSiblings(appleId: string): Promise<void> {
+    for (const siblingId of await listSiblingIds(this.env.DB, appleId)) {
+      const sibling = this.orchard.figs.get(siblingId);
+      if (sibling !== undefined) {
+        await this.refreshBag(sibling);
+      }
+    }
   }
 
   private async onFountain(appleId: string, melonX: number, melonY: number): Promise<void> {

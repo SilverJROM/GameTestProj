@@ -763,6 +763,8 @@ export interface InventoryFacts {
   readonly xp: number;
   readonly place: ZoneName;
   readonly items: readonly string[];
+  // Copies the account's other avatars wear: shown greyed with their name, and not usable here.
+  readonly elsewhere?: readonly { readonly itemId: string; readonly by: string }[];
   readonly gender: Gender | undefined;
 }
 
@@ -773,6 +775,8 @@ export interface BagTile {
   readonly label: string;
   readonly worn: boolean;
   readonly slot: 'sword' | 'armor';
+  // Set when another avatar of the account wears this copy: that avatar's name.
+  readonly by?: string;
 }
 
 export interface InventorySheet {
@@ -794,6 +798,7 @@ export function bagTiles(
   items: readonly string[],
   sword: string | null,
   armor: string | null,
+  elsewhere: readonly { readonly itemId: string; readonly by: string }[] = [],
 ): BagTile[] {
   const tiles: BagTile[] = [];
   for (const id of items) {
@@ -808,6 +813,21 @@ export function bagTiles(
       label: bonus.length === 0 ? name : `${name} ${bonus}`,
       worn: id === sword || id === armor,
       slot,
+    });
+  }
+  for (const other of elsewhere) {
+    const slot = gearSlotOf(other.itemId);
+    if (slot === null) continue;
+    const name = gearLabel(other.itemId);
+    const bonus = gearBonus(other.itemId);
+    tiles.push({
+      id: other.itemId,
+      name,
+      bonus,
+      label: bonus.length === 0 ? name : `${name} ${bonus}`,
+      worn: false,
+      slot,
+      by: other.by,
     });
   }
   return tiles;
@@ -840,7 +860,7 @@ export function inventorySheet(facts: InventoryFacts): InventorySheet {
     health: `${facts.hp} / ${facts.maxHp}`,
     strike: strike(hero),
     experience: papayaXpText(facts.level, facts.xp),
-    tiles: bagTiles(facts.items, facts.sword, facts.armor),
+    tiles: bagTiles(facts.items, facts.sword, facts.armor, facts.elsewhere ?? []),
     portrait: figStandSrc(facts.gender),
   };
 }

@@ -18,6 +18,7 @@ import {
   SMITH_Y,
   beetSpriteRect,
   bagTiles,
+  inventorySheet,
   figStandSrc,
   kiwiSliderBox,
   oliveDragFace,
@@ -968,5 +969,27 @@ describe('bag tiles, drag, and the centered sheet', () => {
       expect(papayaRectsOverlap(panel, slider)).toBe(false);
       expect(panel.right).toBeLessThan(slider.left);
     }
+  });
+});
+
+describe('shared account bag tiles', () => {
+  it('lists copies another avatar wears as greyed tiles with that avatar name, and keeps your own first', () => {
+    const tiles = bagTiles(['leather', 'shortSword'], 'shortSword', null, [{ itemId: 'longSword', by: 'Ayla' }]);
+    expect(tiles.map((tile) => tile.id)).toEqual(['leather', 'shortSword', 'longSword']);
+    expect(tiles[1]!.worn).toBe(true);
+    expect(tiles[2]!.by).toBe('Ayla');
+    expect(tiles[2]!.worn).toBe(false);
+    expect(tiles[0]!.by).toBeUndefined();
+  });
+
+  it('inventorySheet carries the elsewhere tiles, and the shop marks them Owned', () => {
+    const sheet = inventorySheet({
+      coins: 10, sword: null, armor: null, level: 1, hp: 70, maxHp: 70, xp: 0, place: 'town', items: [],
+      elsewhere: [{ itemId: 'shortSword', by: 'Ayla' }], gender: 'woman',
+    });
+    expect(sheet.tiles).toHaveLength(1);
+    expect(sheet.tiles[0]!.by).toBe('Ayla');
+    const shop = shopSheet(100, ['shortSword']);
+    expect(shop.rows.find((row) => row.id === 'shortSword')!.state).toBe('owned');
   });
 });

@@ -67,8 +67,11 @@ export interface CharacterFacts {
   readonly coins: number;
   readonly sword: string | null;
   readonly armor: string | null;
-  // Quince ids this fig owns, worn or not. Equipped ids also stay in this list.
+  // Quince copies this fig can see in the shared account bag: unworn ones, and the ones it wears itself.
+  // Equipped ids also stay in this list. A copy another avatar of the account wears is in `elsewhere`.
   readonly items: string[];
+  // Copies worn by the account's other avatars: the quince id and that avatar's name.
+  readonly elsewhere?: readonly { readonly itemId: string; readonly by: string }[];
   readonly place: ZoneName;
   readonly x: number;
   readonly y: number;
@@ -123,7 +126,7 @@ const SAVABLE_COLUMNS: Readonly<Record<keyof CharacterFactsPatch, string>> = {
   y: 'y',
 };
 
-function rowToFacts(peachRow: CharacterRow, items: string[]): CharacterFacts {
+function rowToFacts(peachRow: CharacterRow, bag: Bag): CharacterFacts {
   return {
     id: peachRow.id,
     name: peachRow.name,
@@ -136,24 +139,54 @@ function rowToFacts(peachRow: CharacterRow, items: string[]): CharacterFacts {
     coins: peachRow.coins,
     sword: peachRow.sword,
     armor: peachRow.armor,
-    items,
+    items: bag.items,
+    elsewhere: bag.elsewhere,
     place: peachRow.place,
     x: peachRow.x,
     y: peachRow.y,
   };
 }
 
-// Owned quince ids, in a stable order, so a reconnect matches the bag the page already showed.
-async function listQuinceIds(db: CharacterDb, characterId: string): Promise<string[]> {
+interface Bag {
+  readonly items: string[];
+  readonly elsewhere: { itemId: string; by: string }[];
+}
+
+// The account's shared bag as one avatar sees it, in a stable order so a reconnect matches what the page showed.
+// Unworn copies and copies this avatar wears are `items`; copies another avatar wears are `elsewhere`.
+export async function listBag(db: CharacterDb, characterId: string): Promise<Bag> {
   const statement = db
-    .prepare('SELECT item_id FROM character_items WHERE character_id = ? ORDER BY item_id')
+    .prepare(
+      'SELECT a.item_id AS item_id, a.worn_by AS worn_by, c.name AS worn_name FROM account_items a ' +
+        'LEFT JOIN characters c ON c.id = a.worn_by ' +
+        'WHERE a.account_id = (SELECT account_id FROM characters WHERE id = ?) ORDER BY a.item_id, a.id',
+    )
     .bind(characterId);
-  const rows = await readAll<{ item_id: string }>(statement);
-  return rows.map((row) => row.item_id);
+  const rows = await readAll<{ item_id: string; worn_by: string | null; worn_name: string | null }>(statement);
+  const bag: Bag = { items: [], elsewhere: [] };
+  for (const row of rows) {
+    if (row.worn_by === null || row.worn_by === characterId) {
+      bag.items.push(row.item_id);
+    } else {
+      bag.elsewhere.push({ itemId: row.item_id, by: row.worn_name ?? 'another avatar' });
+    }
+  }
+  return bag;
+}
+
+// The other avatars of the same account, so a bag change can refresh the ones that are connected.
+export async function listSiblingIds(db: CharacterDb, characterId: string): Promise<string[]> {
+  const statement = db
+    .prepare(
+      'SELECT id FROM characters WHERE account_id = (SELECT account_id FROM characters WHERE id = ?) AND id != ?',
+    )
+    .bind(characterId, characterId);
+  const rows = await readAll<{ id: string }>(statement);
+  return rows.map((row) => row.id);
 }
 
 async function factsFromRow(db: CharacterDb, peachRow: CharacterRow): Promise<CharacterFacts> {
-  return rowToFacts(peachRow, await listQuinceIds(db, peachRow.id));
+  return rowToFacts(peachRow, await listBag(db, peachRow.id));
 }
 
 // Starting character: level 1, full health, no coins or XP, no gear, in town at the first town spawn point.
@@ -361,18 +394,28 @@ export async function getByNameKey(db: CharacterDb, nameKey: string): Promise<Ch
   return row === null ? null : factsFromRow(db, row);
 }
 
-// Coins and the new bag row commit together. A duplicate quince rolls the purse back with the insert.
+// A new copy goes into the account bag, then the purse is paid. An account that already owns any copy of the
+// quince (worn by any avatar) buys nothing and pays nothing.
 export async function saveQuinceBuy(db: CharacterDb, id: string, coins: number, itemId: string): Promise<void> {
-  await db.batch([
-    db.prepare('UPDATE characters SET coins = ? WHERE id = ?').bind(coins, id),
-    db.prepare('INSERT INTO character_items (character_id, item_id) VALUES (?, ?)').bind(id, itemId),
-  ]);
+  const added = await db
+    .prepare(
+      'INSERT INTO account_items (id, account_id, item_id, worn_by) ' +
+        'SELECT ?, c.account_id, ?, NULL FROM characters c WHERE c.id = ? ' +
+        'AND NOT EXISTS (SELECT 1 FROM account_items a WHERE a.account_id = c.account_id AND a.item_id = ?)',
+    )
+    .bind(crypto.randomUUID(), itemId, id, itemId)
+    .run();
+  if ((added.meta?.changes ?? 0) < 1) {
+    throw new Error('quince already owned by the account');
+  }
+  await db.prepare('UPDATE characters SET coins = ? WHERE id = ?').bind(coins, id).run();
 }
 
 const QUINCE_SLOT_COLUMN = { sword: 'sword', armor: 'armor' } as const;
 
-// One statement writes the worn slot plus hp and maxHp.
-// A quince the fig does not own cannot be written into the slot. Clearing a slot needs no bag row.
+// Wear or stow one copy in the shared bag, then write the worn slot plus hp and maxHp.
+// Wearing needs a copy that is unworn (or already this avatar's); a copy another avatar wears cannot be taken.
+// The copy that was in the slot goes back to the bag. Clearing a slot frees the copy it held.
 export async function saveQuinceSlot(
   db: CharacterDb,
   id: string,
@@ -382,20 +425,41 @@ export async function saveQuinceSlot(
   maxHp: number,
 ): Promise<boolean> {
   const column = QUINCE_SLOT_COLUMN[slot];
-  if (itemId === null) {
-    const cleared = await db
-      .prepare(`UPDATE characters SET ${column} = NULL, hp = ?, max_hp = ? WHERE id = ?`)
-      .bind(hp, maxHp, id)
-      .run();
-    return (cleared.meta?.changes ?? 0) > 0;
+  const before = await db.prepare(`SELECT ${column} AS worn FROM characters WHERE id = ?`).bind(id).first<{ worn: string | null }>();
+  if (before === null) {
+    return false;
   }
-  const worn = await db
-    .prepare(
-      `UPDATE characters SET ${column} = ?, hp = ?, max_hp = ? WHERE id = ? AND EXISTS (SELECT 1 FROM character_items WHERE character_id = ? AND item_id = ?)`,
-    )
-    .bind(itemId, hp, maxHp, id, id, itemId)
+  if (itemId !== null) {
+    const copy = await db
+      .prepare(
+        'SELECT a.id AS id FROM account_items a WHERE a.account_id = (SELECT account_id FROM characters WHERE id = ?) ' +
+          'AND a.item_id = ? AND a.worn_by IS NULL LIMIT 1',
+      )
+      .bind(id, itemId)
+      .first<{ id: string }>();
+    if (copy === null) {
+      return false;
+    }
+    const claimed = await db
+      .prepare('UPDATE account_items SET worn_by = ? WHERE id = ? AND worn_by IS NULL')
+      .bind(id, copy.id)
+      .run();
+    if ((claimed.meta?.changes ?? 0) < 1) {
+      return false;
+    }
+  }
+  if (before.worn !== null && before.worn !== itemId) {
+    // Free the copy this avatar wore in that slot. One avatar wears at most one copy of an item.
+    await db
+      .prepare('UPDATE account_items SET worn_by = NULL WHERE worn_by = ? AND item_id = ?')
+      .bind(id, before.worn)
+      .run();
+  }
+  const written = await db
+    .prepare(`UPDATE characters SET ${column} = ?, hp = ?, max_hp = ? WHERE id = ?`)
+    .bind(itemId, hp, maxHp, id)
     .run();
-  return (worn.meta?.changes ?? 0) > 0;
+  return (written.meta?.changes ?? 0) > 0;
 }
 
 // Builds the UPDATE for one patch, or null when the patch has no keys.

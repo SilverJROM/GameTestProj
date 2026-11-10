@@ -176,6 +176,7 @@ function ownedGear(fig: FigWalk): OwnedGear {
     sword: fig.facts.sword,
     armor: fig.facts.armor,
     items: fig.facts.items ?? [],
+    elsewhere: (fig.facts.elsewhere ?? []).map((row) => row.itemId),
   };
 }
 

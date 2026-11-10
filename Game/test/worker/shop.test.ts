@@ -880,7 +880,7 @@ describe('lemon forge quince', () => {
 
     async function itemCount(figId: string): Promise<number> {
       const row = await kiwiDb
-        .prepare('SELECT COUNT(*) AS n FROM character_items WHERE character_id = ?')
+        .prepare('SELECT COUNT(*) AS n FROM account_items WHERE account_id = (SELECT account_id FROM characters WHERE id = ?)')
         .bind(figId)
         .first<{ n: number }>();
       return Number(row?.n ?? 0);
@@ -1060,7 +1060,7 @@ describe('lemon forge quince', () => {
       sword: null,
       armor: null,
     });
-    await kiwiDb.prepare('INSERT INTO character_items (character_id, item_id) VALUES (?, ?)').bind(lime.facts.id, 'shortSword').run();
+    await kiwiDb.prepare('INSERT INTO account_items (id, account_id, item_id, worn_by) SELECT ?, account_id, ?, NULL FROM characters WHERE id = ?').bind(crypto.randomUUID(), 'shortSword', lime.facts.id).run();
     const limeJoin = await connectFig(wsUrl, lime.grape);
     openSockets.push(limeJoin.socket);
     expect(limeJoin.welcome.character.place).toBe('green');
