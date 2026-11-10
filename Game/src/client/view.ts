@@ -541,6 +541,58 @@ export function stackOrchard(stills: readonly GuavaStill[]): StackItem[] {
   ];
 }
 
+// Screen-space health. Dark red track, bright red fill, numbers such as "54 / 70".
+// The place does not move when the camera does.
+export const HEALTH_X = 24;
+export const HEALTH_Y = 24;
+export const HEALTH_BAR_W = 220;
+export const HEALTH_BAR_H = 22;
+export const HEALTH_BACK = '#5a0d0d';
+export const HEALTH_FRONT = '#ff2a2a';
+
+export interface HealthReadout {
+  readonly text: string;
+  readonly x: number;
+  readonly y: number;
+  readonly barWidth: number;
+  readonly barHeight: number;
+  readonly fillWidth: number;
+  readonly back: string;
+  readonly front: string;
+}
+
+export function healthReadout(hp: number, maxHp: number): HealthReadout {
+  const span = maxHp > 0 ? maxHp : 1;
+  const share = Math.min(1, Math.max(0, hp / span));
+  return {
+    text: `${hp} / ${maxHp}`,
+    x: HEALTH_X,
+    y: HEALTH_Y,
+    barWidth: HEALTH_BAR_W,
+    barHeight: HEALTH_BAR_H,
+    fillWidth: HEALTH_BAR_W * share,
+    back: HEALTH_BACK,
+    front: HEALTH_FRONT,
+  };
+}
+
+export interface ScreenCtx {
+  fillStyle: string;
+  font: string;
+  fillRect(x: number, y: number, w: number, h: number): void;
+  fillText(text: string, x: number, y: number): void;
+}
+
+export function paintHealth(ctx: ScreenCtx, row: HealthReadout): void {
+  ctx.fillStyle = row.back;
+  ctx.fillRect(row.x, row.y, row.barWidth, row.barHeight);
+  ctx.fillStyle = row.front;
+  ctx.fillRect(row.x, row.y, row.fillWidth, row.barHeight);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 20px Georgia, serif';
+  ctx.fillText(row.text, row.x + row.barWidth + 12, row.y + 18);
+}
+
 // Paints the whole stack through the camera: one scale, map pixels in, canvas pixels out.
 // The caller clears the canvas. Each still keeps its head glow behind its own art (see blitGuava).
 export function paintStack(

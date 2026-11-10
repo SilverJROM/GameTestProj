@@ -9,6 +9,7 @@ import {
   TOWN_WALL_NEAR_SRC,
   stackOrchard,
   blitGuava,
+  paintHealth,
   type BlitCtx, type FigPaint, type GuavaStill } from '../../src/client/view';
 import type { CoinSnapshot, MonsterSnapshot, PickupSnapshot, WorldSnapshot } from '../../src/protocol';
 
@@ -101,6 +102,51 @@ function role(stills: readonly GuavaStill[], roleName: GuavaStill['role'], id?: 
   }
   return found;
 }
+
+describe('health readout', () => {
+  it('draws 54 / 70 in screen space and stays put when the camera moves', () => {
+    const { board } = openBoard();
+    const snap = (x: number, y: number, place: 'town' | 'green') => ({
+      type: 'snapshot',
+      character: { id: 'fig-self', place, gender: 'woman', hp: 54, maxHp: 70 },
+      snapshot: {
+        players: [fig({ id: 'fig-self', x, y, place })],
+        monsters: [],
+        coins: [],
+        pickups: [],
+      },
+    });
+    board.ingest(snap(300, 450, 'town'));
+    const first = board.health();
+    const camTown = board.camera();
+    board.ingest(snap(1100, 600, 'green'));
+    const second = board.health();
+    expect(board.camera()).not.toEqual(camTown);
+    expect(first.text).toBe('54 / 70');
+    expect(second).toEqual(first);
+    expect(first.fillWidth).toBeCloseTo((220 * 54) / 70, 5);
+    expect(first.back).toBe('#5a0d0d');
+    expect(first.front).toBe('#ff2a2a');
+    expect(first.x).toBe(24);
+    expect(first.y).toBe(24);
+    const marks: string[] = [];
+    paintHealth(
+      {
+        fillStyle: '',
+        font: '',
+        fillRect(x, y, w, h) {
+          marks.push(`rect ${x} ${y} ${w} ${h}`);
+        },
+        fillText(text, x, y) {
+          marks.push(`text ${text} ${x} ${y}`);
+        },
+      },
+      first,
+    );
+    expect(marks[0]).toBe('rect 24 24 220 22');
+    expect(marks.some((row) => row.startsWith('text 54 / 70'))).toBe(true);
+  });
+});
 
 describe('world view', () => {
   it('sends exactly one mango for each click kind', () => {

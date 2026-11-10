@@ -17,10 +17,14 @@ import {
   TOWN_WALL_NEAR_SRC,
   createOliveReel,
   paintOrchard,
+  healthReadout,
+  paintHealth,
   paintStack,
   type BlitCtx,
+  type ScreenCtx,
   type FigPaint,
   type GuavaStill,
+  type HealthReadout,
   type OliveReel,
   type OrchardPaint,
 } from './view';
@@ -55,6 +59,8 @@ export interface FigBoard {
   chooseQuince(itemId: string): void;
   ingest(raw: unknown): void;
   draw(): GuavaStill[];
+  // Screen-space bar and numbers from character.hp and character.maxHp.
+  health(): HealthReadout;
   // Window onto the map around the local player, for the player's current zone.
   camera(): PeachView;
   readonly smithOpen: boolean;
@@ -75,6 +81,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   let orchard: OrchardPaint = EMPTY_ORCHARD;
   let selfId = options.selfId ?? '';
   let selfPlace: ZoneName = options.selfPlace ?? 'town';
+  let selfHp = 0;
+  let selfMaxHp = 1;
   const selfGender = options.selfGender;
   let quinceOpen = false;
   let askerHeld = '';
@@ -99,6 +107,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     if ((fig.gender === 'woman' || fig.gender === 'man') && typeof fig.id === 'string') {
       genderMap.set(fig.id, fig.gender);
     }
+    if (typeof fig.hp === 'number') selfHp = fig.hp;
+    if (typeof fig.maxHp === 'number') selfMaxHp = fig.maxHp;
   }
 
   function ingest(raw: unknown): void {
@@ -146,6 +156,10 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       attacking: fig.attacking === true || (swinging && fig.id === selfId),
     }));
     return paintOrchard(reel, { ...orchard, players });
+  }
+
+  function health(): HealthReadout {
+    return healthReadout(selfHp, selfMaxHp);
   }
 
   function camera(): PeachView {
@@ -232,6 +246,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     chooseQuince,
     ingest,
     draw,
+    health,
     camera,
     get smithOpen() {
       return quinceOpen;
@@ -346,6 +361,10 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     if (ctx === null) return;
     ctx.clearRect(0, 0, canvas?.width ?? 1280, canvas?.height ?? 720);
     paintStack(ctx, stills, board.camera(), (src) => layers.get(src) ?? cache.get(src) ?? null);
+    const screen = ctx as BlitCtx & ScreenCtx;
+    if (typeof screen.fillRect === 'function' && typeof screen.fillText === 'function') {
+      paintHealth(screen, board.health());
+    }
   }
 
   function peelImage(img: LooseEl): unknown {
