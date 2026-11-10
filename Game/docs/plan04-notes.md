@@ -160,3 +160,9 @@ Facts found while checking (corrections to the earlier review):
 - Each monster type has 7 in its zone (`count: 7` in `tables.ts`). The earlier "9 wolves, 8 skeletons" were spawn points, not monsters.
 - Wolf and bear aggro is by hit only today (they chase after being hit), the skeleton by proximity. There is no chase limit now; a chase ends only when the target is gone, dead or outside the zone. The 250 px limit is new.
 - With no gate margin, monsters can stand in a gate. Safe by the zone rule today (town is never entered: the town, green and grey figs are never skeleton targets), but a monster blocking a gate route is a risk for best-route walking (item 2).
+
+### Item 3 final answers (developer, 2026-11-10)
+- The 250 px chase limit for wolf and bear is measured from the monster's home (its roaming area), not from where the chase began.
+- Gate openings are kept clear of monsters (patrol cells and the avoidance rule keep monsters out of the gate openings); elsewhere they spread over the whole section.
+- The skeleton has no chase limit.
+- Item 3 is settled and ready to build when the developer says go. Next topic: sound (the developer wants to talk about it again).
