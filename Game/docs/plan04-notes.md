@@ -178,3 +178,10 @@ Details to settle: the grey zone (bears) has no track of its own (we have town, 
 - Music starts on the first click or key press after sign-in.
 - Sign-in and avatar picker are silent for now.
 - Music pauses when the browser tab is hidden.
+
+### Test plan outline for plan 04 (draft for discussion, 2026-11-10)
+Tools: Claude in Chrome extension for what the player sees and does (clicks, screenshots, page text, console, network); local D1 edits
+(`wrangler d1 execute --local`) and the existing test-clock header to force data; automated tests (vitest) for rules; Playwright only where
+timing or two windows are needed, and I say so when it is used.
+Areas: coin lots and duels; Bag expiry line; menu and settings; sound; route walking; monster spacing and speed; regression of plan 03.
+See the chat for the full outline; details to be agreed before building.
