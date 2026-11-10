@@ -6,10 +6,15 @@ import { mangoForgeBox } from '../../src/rules/regions';
 import { onionMonsterRows, pearTimings } from '../../src/rules/tables';
 import {
   CEMETERY_WALL_SRC,
+  HEALTH_BAR_H,
+  HEALTH_X,
+  HEALTH_Y,
   TOWN_WALL_NEAR_SRC,
+  hudReadout,
   stackOrchard,
   blitGuava,
   paintHealth,
+  paintHud,
   type BlitCtx, type FigPaint, type GuavaStill } from '../../src/client/view';
 import type { CoinSnapshot, MonsterSnapshot, PickupSnapshot, WorldSnapshot } from '../../src/protocol';
 
@@ -145,6 +150,48 @@ describe('health readout', () => {
     );
     expect(marks[0]).toBe('rect 24 24 220 22');
     expect(marks.some((row) => row.startsWith('text 54 / 70'))).toBe(true);
+  });
+});
+
+describe('hud readout', () => {
+  it('formats a level 1 start, a mid level, and the level cap', () => {
+    expect(hudReadout({ level: 1, xp: 0, coins: 0 }).lines).toEqual(['Lv 1', 'XP 0 / 10', 'Coins 0']);
+    expect(hudReadout({ level: 3, xp: 7, coins: 12 }).lines).toEqual(['Lv 3', 'XP 7 / 20', 'Coins 12']);
+    const cap = hudReadout({ level: 6, xp: 40, coins: 3 });
+    expect(cap.lines).toEqual(['Lv 6', 'XP 40', 'Coins 3']);
+    expect(cap.lines[1]).not.toContain('/');
+  });
+
+  it('paints those lines under the health bar in the same ink and type', () => {
+    const row = hudReadout({ level: 1, xp: 0, coins: 0 });
+    expect(row.x).toBe(HEALTH_X);
+    expect(row.y).toBeGreaterThan(HEALTH_Y + HEALTH_BAR_H);
+    const marks: string[] = [];
+    const ctx = {
+      fillStyle: '',
+      font: '',
+      fillRect() {},
+      fillText(text: string, x: number, y: number) {
+        marks.push(`${text} ${x} ${y} ${ctx.font} ${ctx.fillStyle}`);
+      },
+    };
+    paintHud(ctx, row);
+    expect(marks).toEqual([
+      `Lv 1 ${row.x} ${row.y} 700 20px Georgia, serif #ffffff`,
+      `XP 0 / 10 ${row.x} ${row.y + row.lineGap} 700 20px Georgia, serif #ffffff`,
+      `Coins 0 ${row.x} ${row.y + row.lineGap * 2} 700 20px Georgia, serif #ffffff`,
+    ]);
+  });
+
+  it('follows the latest snapshot on the board', () => {
+    const { board } = openBoard();
+    expect(board.hud().lines).toEqual(['Lv 1', 'XP 0 / 10', 'Coins 0']);
+    board.ingest({
+      type: 'snapshot',
+      character: { id: 'fig-self', place: 'town', gender: 'woman', level: 6, xp: 40, coins: 3, hp: 140, maxHp: 140 },
+      snapshot: { players: [], monsters: [], coins: [], pickups: [] },
+    });
+    expect(board.hud().lines).toEqual(['Lv 6', 'XP 40', 'Coins 3']);
   });
 });
 
@@ -717,5 +764,16 @@ describe('blacksmith shop and inventory', () => {
       strike: 4,
       experience: '0 / 10',
     });
+
+    expect(board.pressScreen(bag!.x + 4, bag!.y + 4)).toBe(true);
+    expect(board.bagOpen).toBe(false);
+    expect(board.inventory()).toBeNull();
+
+    expect(board.pressScreen(bubble!.x + 4, bubble!.y + 4)).toBe(true);
+    expect(board.smithOpen).toBe(true);
+    board.closePanels();
+    expect(board.smithOpen).toBe(false);
+    expect(board.bagOpen).toBe(false);
+    expect(board.shop()).toBeNull();
   });
 });

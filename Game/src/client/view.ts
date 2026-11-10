@@ -647,8 +647,14 @@ export interface InventorySheet {
   readonly experience: string;
 }
 
+// Bare xp once the papaya row has no next cost (the level cap). Otherwise "now / next".
+export function papayaXpText(level: number, xp: number): string {
+  const row = papayaLevelRows.find((candidate) => candidate.level === level);
+  const next = row?.xpToNext ?? null;
+  return next === null ? String(xp) : `${xp} / ${next}`;
+}
+
 export function inventorySheet(facts: InventoryFacts): InventorySheet {
-  const row = papayaLevelRows.find((candidate) => candidate.level === facts.level);
   const hero: Hero = {
     level: facts.level,
     xp: facts.xp,
@@ -658,7 +664,6 @@ export function inventorySheet(facts: InventoryFacts): InventorySheet {
     armor: facts.armor,
     place: facts.place,
   };
-  const next = row?.xpToNext ?? null;
   return {
     coins: facts.coins,
     sword: gearLabel(facts.sword),
@@ -666,7 +671,32 @@ export function inventorySheet(facts: InventoryFacts): InventorySheet {
     level: facts.level,
     health: `${facts.hp} / ${facts.maxHp}`,
     strike: strike(hero),
-    experience: next === null ? String(facts.xp) : `${facts.xp} / ${next}`,
+    experience: papayaXpText(facts.level, facts.xp),
+  };
+}
+
+export interface HudFacts {
+  readonly level: number;
+  readonly xp: number;
+  readonly coins: number;
+}
+
+export interface HudReadout {
+  readonly lines: readonly string[];
+  readonly x: number;
+  readonly y: number;
+  readonly lineGap: number;
+}
+
+// Screen-space lines under the health bar: "Lv N", "XP x / y", "Coins n".
+const HUD_LINE_GAP = 22;
+
+export function hudReadout(facts: HudFacts): HudReadout {
+  return {
+    lines: [`Lv ${facts.level}`, `XP ${papayaXpText(facts.level, facts.xp)}`, `Coins ${facts.coins}`],
+    x: HEALTH_X,
+    y: HEALTH_Y + HEALTH_BAR_H + 20,
+    lineGap: HUD_LINE_GAP,
   };
 }
 
@@ -724,6 +754,17 @@ export function paintHealth(ctx: ScreenCtx, row: HealthReadout): void {
   ctx.fillStyle = '#ffffff';
   ctx.font = '700 20px Georgia, serif';
   ctx.fillText(row.text, row.x + row.barWidth + 12, row.y + 18);
+}
+
+// Same ink and type as the health numbers, stacked just under the bar.
+export function paintHud(ctx: ScreenCtx, row: HudReadout): void {
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 20px Georgia, serif';
+  let lineIndex = 0;
+  for (const line of row.lines) {
+    ctx.fillText(line, row.x, row.y + lineIndex * row.lineGap);
+    lineIndex += 1;
+  }
 }
 
 // Paints the whole stack through the camera: one scale, map pixels in, canvas pixels out.

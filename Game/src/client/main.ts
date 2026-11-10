@@ -19,7 +19,9 @@ import {
   inventorySheet,
   paintOrchard,
   healthReadout,
+  hudReadout,
   paintHealth,
+  paintHud,
   paintStack,
   shopSheet,
   townControls,
@@ -28,6 +30,7 @@ import {
   type FigPaint,
   type GuavaStill,
   type HealthReadout,
+  type HudReadout,
   type InventorySheet,
   type OliveReel,
   type OrchardPaint,
@@ -89,6 +92,8 @@ export interface FigBoard {
   draw(): GuavaStill[];
   // Screen-space bar and numbers from character.hp and character.maxHp.
   health(): HealthReadout;
+  // Level, experience, and coins under the health bar.
+  hud(): HudReadout;
   // Numbers still on screen. White is monster damage, red is player damage. Each id is drawn once.
   damageNumbers(nowMs: number): DamageNumber[];
   // Window onto the map around the local player, for the player's current zone.
@@ -99,6 +104,8 @@ export interface FigBoard {
   controls(): ScreenControl[];
   shop(): ShopSheet | null;
   inventory(): InventorySheet | null;
+  // Hides the Bag and the Blacksmith and clears both open flags.
+  closePanels(): void;
   readonly smithOpen: boolean;
   readonly bagOpen: boolean;
 }
@@ -298,6 +305,10 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     return healthReadout(selfHp, selfMaxHp);
   }
 
+  function hud(): HudReadout {
+    return hudReadout({ level: selfLevel, xp: selfXp, coins: selfCoins });
+  }
+
   function damageNumbers(nowMs: number): DamageNumber[] {
     const view = camera();
     floats = floats.filter((hit) => nowMs - hit.at < 1000);
@@ -343,6 +354,15 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     return inventorySheet(sheetFacts());
   }
 
+  function closePanels(): void {
+    const smithWas = quinceOpen;
+    const bagWas = bagOpen;
+    quinceOpen = false;
+    bagOpen = false;
+    if (smithWas) hooks.onSmith?.(false);
+    if (bagWas) hooks.onBag?.(false);
+  }
+
   function pressScreen(x: number, y: number): boolean {
     const hit = controlAt(controls(), x, y);
     if (hit === null) return false;
@@ -350,6 +370,11 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       quinceOpen = true;
       bagOpen = false;
       hooks.onSmith?.(true);
+      hooks.onBag?.(false);
+      return true;
+    }
+    if (bagOpen) {
+      bagOpen = false;
       hooks.onBag?.(false);
       return true;
     }
@@ -459,6 +484,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     ingest,
     draw,
     health,
+    hud,
     damageNumbers,
     camera,
     zoom,
@@ -466,6 +492,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     controls,
     shop,
     inventory,
+    closePanels,
     get smithOpen() {
       return quinceOpen;
     },
@@ -590,6 +617,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     const screen = ctx as BlitCtx & ScreenCtx;
     if (typeof screen.fillRect === 'function' && typeof screen.fillText === 'function') {
       paintHealth(screen, board.health());
+      paintHud(screen, board.hud());
       for (const control of board.controls()) {
         screen.fillStyle = control.id === 'bag' ? '#1c1814' : '#ffffff';
         screen.fillRect(control.x, control.y, control.width, control.height);
@@ -649,6 +677,52 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     }
   }
 
+  // Row id, price, and whether the purse can pay. Coins alone do not rebuild the list.
+  let quinceSig = '';
+
+  function oliveText(id: string, text: string): void {
+    const node = doc.getElementById(id);
+    if (node !== null && node.textContent !== text) node.textContent = text;
+  }
+
+  function paintOlive(): void {
+    if (!board.bagOpen) return;
+    const sheet = board.inventory();
+    if (sheet === null) return;
+    oliveText('olive-coins', `Coins: ${sheet.coins}`);
+    oliveText('olive-sword', sheet.sword);
+    oliveText('olive-armor', sheet.armor);
+    oliveText('olive-level', `Level ${sheet.level}`);
+    oliveText('olive-health', sheet.health);
+    oliveText('olive-strike', `Strike ${sheet.strike}`);
+    oliveText('olive-xp', `Experience ${sheet.experience}`);
+  }
+
+  function paintQuince(): void {
+    if (!board.smithOpen || smithList === null) return;
+    const sheet = board.shop();
+    const purse = doc.getElementById('quince-purse');
+    const purseText = sheet === null ? '' : `Your coins: ${sheet.coins}`;
+    if (purse !== null && purse.textContent !== purseText) purse.textContent = purseText;
+    if (sheet === null) return;
+    const nextSig = sheet.rows.map((row) => `${row.id}:${row.price}:${row.canBuy ? 1 : 0}`).join('|');
+    if (nextSig === quinceSig) return;
+    quinceSig = nextSig;
+    smithList.textContent = '';
+    for (const row of sheet.rows) {
+      const button = doc.createElement('button');
+      button.type = 'button';
+      button.textContent = row.canBuy ? `${row.name} (${row.price})` : `${row.name} (Need ${row.price} coins)`;
+      button.disabled = !row.canBuy;
+      if (row.canBuy) {
+        button.addEventListener?.('click', () => {
+          board.chooseQuince(row.id);
+        });
+      }
+      smithList.appendChild?.(button);
+    }
+  }
+
   const board = plantFigBoard({
     createSocket: (_url, _plumCookie) => new root.WebSocket!(lemonUrl(root)),
     plumCookie: '',
@@ -658,44 +732,12 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     hooks: {
       onSmith(open) {
         if (smith !== null) smith.hidden = !open;
-        if (smithList === null || !open) return;
-        smithList.textContent = '';
-        const purse = doc.getElementById('quince-purse');
-        const sheet = board.shop();
-        if (purse !== null) purse.textContent = sheet === null ? '' : `Your coins: ${sheet.coins}`;
-        if (sheet === null) return;
-        for (const row of sheet.rows) {
-          const button = doc.createElement('button');
-          button.type = 'button';
-          button.textContent = row.canBuy
-            ? `${row.name} (${row.price})`
-            : `${row.name} (Need ${row.price} coins)`;
-          button.disabled = !row.canBuy;
-          if (row.canBuy) {
-            button.addEventListener?.('click', () => {
-              board.chooseQuince(row.id);
-            });
-          }
-          smithList.appendChild?.(button);
-        }
+        if (open) paintQuince();
       },
       onBag(open) {
         const sheetEl = doc.getElementById('olive-sheet');
         if (sheetEl !== null) sheetEl.hidden = !open;
-        if (!open) return;
-        const sheet = board.inventory();
-        const write = (id: string, text: string) => {
-          const node = doc.getElementById(id);
-          if (node !== null) node.textContent = text;
-        };
-        if (sheet === null) return;
-        write('olive-coins', `Coins: ${sheet.coins}`);
-        write('olive-sword', sheet.sword);
-        write('olive-armor', sheet.armor);
-        write('olive-level', `Level ${sheet.level}`);
-        write('olive-health', sheet.health);
-        write('olive-strike', `Strike ${sheet.strike}`);
-        write('olive-xp', `Experience ${sheet.experience}`);
+        if (open) paintOlive();
       },
       onOffer(offer) {
         if (plumDuel !== null) plumDuel.hidden = offer === null;
@@ -704,6 +746,8 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
         }
       },
       onSnapshot() {
+        paintOlive();
+        paintQuince();
         const stills = board.draw();
         for (const still of stills) loadSrc(still.src);
         show(stills);
@@ -716,6 +760,20 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   });
   plumDecline?.addEventListener?.('click', () => {
     board.decline();
+  });
+  doc.getElementById('quince-close')?.addEventListener?.('click', () => {
+    board.closePanels();
+  });
+  doc.getElementById('olive-close')?.addEventListener?.('click', () => {
+    board.closePanels();
+  });
+  const keyHost = doc as LooseDoc & {
+    addEventListener?(type: string, listener: (event: LooseEvent) => void): void;
+  };
+  keyHost.addEventListener?.('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (!board.smithOpen && !board.bagOpen) return;
+    board.closePanels();
   });
 
   canvas?.addEventListener?.('mousedown', (event) => {
