@@ -1,7 +1,7 @@
 {
   "name": "check_in",
   "title": "Evaluation Check-in",
-  "description": "Record a locally determined milestone or an immediate instruction-echo report. Milestones may receive Manager's Guidance/Suggestions; instruction-echo reports are stored and acknowledged. Does not inspect work, judge similarity, verify milestones, or grade submissions. Responses may include a separate QA Questions section with one optional conversational question for the developer. Display it faithfully; include any human answer in the next ordinary report, without requiring an answer or inventing one.",
+  "description": "Record a locally determined milestone or an immediate instruction-echo report. Milestones may receive Manager's Guidance/Suggestions; instruction-echo reports are stored and acknowledged. Does not inspect work, judge similarity, verify milestones, or grade submissions. Responses may include a separate QA Questions section with one optional conversational question for the developer. Display it faithfully; include any human answer in the next ordinary report, without requiring an answer or inventing one. A separate Manager's Direction contains the evaluator's exact wording: present it unchanged to the human developer. Do not silently answer a request for human judgment or delegate that decision to a subagent. Brief direction reminders may accompany later reports. Report a disposition only when the human has actually supplied it; never infer one. A mandatory direction requires a reported human response, not automatic compliance or a phase gate. A replacement direction suppresses only generated Manager's Guidance/Suggestions for its originating check-in; QA Questions remain separate.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -160,6 +160,44 @@
           "estimated_overlap_percent",
           "reason"
         ]
+      },
+      "manager_direction_updates": {
+        "type": "array",
+        "maxItems": 20,
+        "uniqueItems": true,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "message_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "status": {
+              "enum": [
+                "addressed",
+                "deferred",
+                "rejected"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "pattern": "\\S"
+            },
+            "source": {
+              "const": "human"
+            }
+          },
+          "required": [
+            "message_id",
+            "status",
+            "reason",
+            "source"
+          ]
+        },
+        "description": "Optional reported human dispositions of previously included Manager's Directions, one per message ID. Include the human's concise reason or explanation; never infer completion, rejection, deferral, or human involvement from silence or an agent's decision. These are reported claims, not verified outcomes."
       }
     },
     "required": [
@@ -201,7 +239,8 @@
           "validation": false,
           "limitations": false,
           "work_reference": false,
-          "instruction_echo": {}
+          "instruction_echo": {},
+          "manager_direction_updates": false
         },
         "required": [
           "instruction_echo"
@@ -295,6 +334,118 @@
               "title",
               "questions"
             ]
+          },
+          "manager_direction": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "const": "Manager's Direction"
+              },
+              "message_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": "\\S"
+              },
+              "requires_response": {
+                "type": "boolean"
+              },
+              "priority": {
+                "enum": [
+                  "regular",
+                  "mandatory"
+                ]
+              },
+              "mode": {
+                "enum": [
+                  "additive",
+                  "replace"
+                ]
+              }
+            },
+            "required": [
+              "title",
+              "message_id",
+              "message",
+              "requires_response",
+              "priority",
+              "mode"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "priority": {
+                      "const": "mandatory"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "requires_response": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "manager_direction_reminders": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "message_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "check_in_sequence": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000,
+                  "pattern": "\\S"
+                },
+                "priority": {
+                  "enum": [
+                    "regular",
+                    "mandatory"
+                  ]
+                }
+              },
+              "required": [
+                "message_id",
+                "check_in_sequence",
+                "message",
+                "priority"
+              ]
+            }
+          },
+          "guidance_unavailable": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": [
+                  "generation_failed",
+                  "budget_exhausted"
+                ]
+              }
+            },
+            "required": [
+              "code"
+            ]
           }
         },
         "required": [
@@ -370,6 +521,118 @@
             "required": [
               "title",
               "questions"
+            ]
+          },
+          "manager_direction": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "const": "Manager's Direction"
+              },
+              "message_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": "\\S"
+              },
+              "requires_response": {
+                "type": "boolean"
+              },
+              "priority": {
+                "enum": [
+                  "regular",
+                  "mandatory"
+                ]
+              },
+              "mode": {
+                "enum": [
+                  "additive",
+                  "replace"
+                ]
+              }
+            },
+            "required": [
+              "title",
+              "message_id",
+              "message",
+              "requires_response",
+              "priority",
+              "mode"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "priority": {
+                      "const": "mandatory"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "requires_response": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "manager_direction_reminders": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "message_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "check_in_sequence": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000,
+                  "pattern": "\\S"
+                },
+                "priority": {
+                  "enum": [
+                    "regular",
+                    "mandatory"
+                  ]
+                }
+              },
+              "required": [
+                "message_id",
+                "check_in_sequence",
+                "message",
+                "priority"
+              ]
+            }
+          },
+          "guidance_unavailable": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": [
+                  "generation_failed",
+                  "budget_exhausted"
+                ]
+              }
+            },
+            "required": [
+              "code"
             ]
           }
         },
