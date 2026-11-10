@@ -12,7 +12,17 @@ import type {
   PlayerSnapshot,
   WorldSnapshot,
 } from '../protocol';
-import { mangoForgeBox, type Box } from '../rules/regions';
+import {
+  berryCemeteryGate,
+  berryCemeteryWalls,
+  inRing,
+  limeTownGate,
+  mangoForgeBox,
+  pearTownWalls,
+  type Box,
+  type Point,
+} from '../rules/regions';
+import type { PeachView } from './camera';
 import { pearTimings } from '../rules/tables';
 import {
   coinCrop,
@@ -452,4 +462,103 @@ export function blitGuava(
     }
     ctx.restore();
   }
+}
+
+export const GROUND_SRC = '/maps/world-ground.jpg';
+export const TOWN_BEHIND_SRC = '/overlays/town-behind.png';
+export const TOWN_WALL_NEAR_SRC = '/overlays/town-wall-near.png';
+export const CEMETERY_WALL_SRC = '/overlays/cemetery-wall.png';
+
+// One step of the draw stack: a full-map layer or a single still.
+export type StackItem =
+  | { readonly kind: 'layer'; readonly src: string }
+  | { readonly kind: 'still'; readonly still: GuavaStill };
+
+// The cemetery wall as one west-to-east line: west chain, road gate, east chain. Every chain climbs in x.
+const cemeteryLine: readonly Point[] = [
+  ...berryCemeteryWalls[0]!,
+  berryCemeteryGate[1],
+  ...berryCemeteryWalls[1]!,
+];
+
+// Wall height at x. Past either end it holds the end value.
+function cemeteryWallY(x: number): number {
+  const first = cemeteryLine[0]!;
+  const last = cemeteryLine[cemeteryLine.length - 1]!;
+  if (x <= first[0]) return first[1];
+  if (x >= last[0]) return last[1];
+  for (let i = 1; i < cemeteryLine.length; i += 1) {
+    const a = cemeteryLine[i - 1]!;
+    const b = cemeteryLine[i]!;
+    if (x <= b[0]) {
+      const span = b[0] - a[0];
+      return span <= 0 ? b[1] : a[1] + ((b[1] - a[1]) * (x - a[0])) / span;
+    }
+  }
+  return last[1];
+}
+
+// Feet below the cemetery wall line: drawn after cemetery-wall.png.
+function southOfCemeteryWall(still: GuavaStill): boolean {
+  return still.y > cemeteryWallY(still.x);
+}
+
+// Feet outside the town walls and south of the town gate: drawn after town-wall-near.png.
+function southOfTownGate(still: GuavaStill): boolean {
+  const gateY = (limeTownGate[0][1] + limeTownGate[1][1]) / 2;
+  return still.y > gateY && !inRing(pearTownWalls, still.x, still.y);
+}
+
+function byFeet(a: GuavaStill, b: GuavaStill): number {
+  return a.y - b.y;
+}
+
+// Draw order for the play picture. The forge still is not drawn: the town art already holds the forge.
+// Pieces, back to front:
+//   ground, town-behind, stills north of the cemetery wall (higher feet first), cemetery-wall,
+//   stills south of that wall but not past the town gate (this is everyone inside the town), town-wall-near,
+//   stills south of the town gate.
+export function stackOrchard(stills: readonly GuavaStill[]): StackItem[] {
+  const north: GuavaStill[] = [];
+  const middle: GuavaStill[] = [];
+  const front: GuavaStill[] = [];
+  for (const still of stills) {
+    if (still.role === 'forge') continue;
+    if (southOfTownGate(still)) front.push(still);
+    else if (southOfCemeteryWall(still)) middle.push(still);
+    else north.push(still);
+  }
+  const stillItems = (rows: GuavaStill[]): StackItem[] =>
+    rows.sort(byFeet).map((still) => ({ kind: 'still', still }));
+  return [
+    { kind: 'layer', src: GROUND_SRC },
+    { kind: 'layer', src: TOWN_BEHIND_SRC },
+    ...stillItems(north),
+    { kind: 'layer', src: CEMETERY_WALL_SRC },
+    ...stillItems(middle),
+    { kind: 'layer', src: TOWN_WALL_NEAR_SRC },
+    ...stillItems(front),
+  ];
+}
+
+// Paints the whole stack through the camera: one scale, map pixels in, canvas pixels out.
+// The caller clears the canvas. Each still keeps its head glow behind its own art (see blitGuava).
+export function paintStack(
+  ctx: BlitCtx,
+  stills: readonly GuavaStill[],
+  view: PeachView,
+  picture: (src: string) => unknown,
+): void {
+  ctx.save();
+  ctx.scale(view.scale, view.scale);
+  ctx.translate(-view.x, -view.y);
+  for (const item of stackOrchard(stills)) {
+    if (item.kind === 'layer') {
+      const image = picture(item.src);
+      if (image != null) ctx.drawImage(image, 0, 0, 1280, 720);
+    } else {
+      blitGuava(ctx, [item.still], picture);
+    }
+  }
+  ctx.restore();
 }

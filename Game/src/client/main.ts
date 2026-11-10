@@ -6,12 +6,18 @@ import type { Gender } from '../server/db';
 import type { ClientMessage } from '../protocol';
 import type { ZoneName } from '../rules/tables';
 import { mangoGearRows } from '../rules/tables';
+import { townSpawn } from '../rules/regions';
 import { removeMagenta } from './sprites';
+import { canvasToMap, viewBox, type PeachView } from './camera';
 import { answerPlum, buyQuince, peelClick, type ClickBerry } from './input';
 import {
-  blitGuava,
+  CEMETERY_WALL_SRC,
+  GROUND_SRC,
+  TOWN_BEHIND_SRC,
+  TOWN_WALL_NEAR_SRC,
   createOliveReel,
   paintOrchard,
+  paintStack,
   type BlitCtx,
   type FigPaint,
   type GuavaStill,
@@ -49,6 +55,8 @@ export interface FigBoard {
   chooseQuince(itemId: string): void;
   ingest(raw: unknown): void;
   draw(): GuavaStill[];
+  // Window onto the map around the local player, for the player's current zone.
+  camera(): PeachView;
   readonly smithOpen: boolean;
 }
 
@@ -140,6 +148,12 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     return paintOrchard(reel, { ...orchard, players });
   }
 
+  function camera(): PeachView {
+    const self = orchard.players.find((fig) => fig.id === selfId);
+    const spawn = townSpawn;
+    return viewBox(selfPlace, self?.x ?? spawn[0], self?.y ?? spawn[1]);
+  }
+
   function click(berry: ClickBerry): void {
     const peeled = peelClick(berry, {
       selfId,
@@ -218,6 +232,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     chooseQuince,
     ingest,
     draw,
+    camera,
     get smithOpen() {
       return quinceOpen;
     },
@@ -321,7 +336,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
 
   const cache = new Map<string, unknown>();
   const loading = new Set<string>();
-  let mapImage: unknown = null;
+  const layers = new Map<string, unknown>();
   let painted: GuavaStill[] = [];
 
   const ctx = canvas?.getContext?.('2d') ?? null;
@@ -330,10 +345,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     painted = stills;
     if (ctx === null) return;
     ctx.clearRect(0, 0, canvas?.width ?? 1280, canvas?.height ?? 720);
-    if (mapImage != null) {
-      ctx.drawImage(mapImage, 0, 0, canvas?.width ?? 1280, canvas?.height ?? 720);
-    }
-    blitGuava(ctx, stills, (src) => cache.get(src) ?? null);
+    paintStack(ctx, stills, board.camera(), (src) => layers.get(src) ?? cache.get(src) ?? null);
   }
 
   function peelImage(img: LooseEl): unknown {
@@ -366,13 +378,17 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     img.src = src;
   }
 
-  if (typeof root.Image === 'function') {
-    const map = new root.Image();
-    map.onload = () => {
-      mapImage = map;
-      show(painted);
-    };
-    map.src = '/maps/world-map-wide.jpg';
+  // Ground and overlays are plain pictures: no magenta peel, drawn at the map origin.
+  const ImageCtor = root.Image;
+  if (typeof ImageCtor === 'function') {
+    for (const src of [GROUND_SRC, TOWN_BEHIND_SRC, TOWN_WALL_NEAR_SRC, CEMETERY_WALL_SRC]) {
+      const layer = new ImageCtor();
+      layer.onload = () => {
+        layers.set(src, layer);
+        show(painted);
+      };
+      layer.src = src;
+    }
   }
 
   const board = plantFigBoard({
@@ -421,7 +437,8 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   canvas?.addEventListener?.('mousedown', (event) => {
     if (event.button !== 0 && event.button !== 2) return;
     event.preventDefault?.();
-    const spot = mapBerry(canvas, event);
+    const pixel = mapBerry(canvas, event);
+    const spot = canvasToMap(board.camera(), pixel.x, pixel.y);
     board.click({ x: spot.x, y: spot.y, button: event.button ?? 0 });
   });
   canvas?.addEventListener?.('contextmenu', (event) => {

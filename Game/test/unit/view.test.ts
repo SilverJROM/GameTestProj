@@ -4,7 +4,12 @@ import { coinCrop, scaleFor } from '../../src/client/sprites';
 import { plantFigBoard, type FigBoard, type LemonLike } from '../../src/client/main';
 import { mangoForgeBox } from '../../src/rules/regions';
 import { pearTimings } from '../../src/rules/tables';
-import { blitGuava, type BlitCtx, type FigPaint, type GuavaStill } from '../../src/client/view';
+import {
+  CEMETERY_WALL_SRC,
+  TOWN_WALL_NEAR_SRC,
+  stackOrchard,
+  blitGuava,
+  type BlitCtx, type FigPaint, type GuavaStill } from '../../src/client/view';
 import type { CoinSnapshot, MonsterSnapshot, PickupSnapshot, WorldSnapshot } from '../../src/protocol';
 
 interface FakeLemon extends LemonLike {
@@ -451,5 +456,49 @@ describe('world view', () => {
     expect(events.filter((event) => event.kind === 'glow')).toHaveLength(2);
     expect(stops.some((color) => color.includes('255,40,40'))).toBe(true);
     expect(stops.some((color) => color.includes(',0)'))).toBe(true);
+  });
+});
+
+describe('draw stack around the overlays', () => {
+  function figAt(x: number, y: number): GuavaStill {
+    const board = openBoard('fig-a').board;
+    board.ingest({
+      type: 'snapshot',
+      snapshot: {
+        players: [{ id: 'fig-a', name: 'A', place: 'town', x, y, facing: 'right', moving: false, gender: 'woman' }],
+        monsters: [],
+        coins: [],
+        pickups: [],
+      },
+    });
+    return board.draw().find((row) => row.role === 'player')!;
+  }
+  function order(still: GuavaStill, src: string): number {
+    const items = stackOrchard([still]);
+    const layer = items.findIndex((row) => row.kind === 'layer' && row.src === src);
+    const at = items.findIndex((row) => row.kind === 'still' && row.still === still);
+    return at - layer;
+  }
+
+  it('a player inside town is drawn before town-wall-near', () => {
+    expect(order(figAt(300, 450), TOWN_WALL_NEAR_SRC)).toBeLessThan(0);
+  });
+  it('a player south of the town gate is drawn after town-wall-near', () => {
+    expect(order(figAt(425, 640), TOWN_WALL_NEAR_SRC)).toBeGreaterThan(0);
+  });
+  it('a player north of the cemetery wall is drawn before cemetery-wall', () => {
+    expect(order(figAt(150, 150), CEMETERY_WALL_SRC)).toBeLessThan(0);
+  });
+  it('a player south of the cemetery wall is drawn after it', () => {
+    expect(order(figAt(150, 300), CEMETERY_WALL_SRC)).toBeGreaterThan(0);
+  });
+  it('sorts by feet, higher feet first, and starts with ground then town-behind', () => {
+    const high = figAt(300, 400);
+    const low = figAt(320, 500);
+    const items = stackOrchard([low, high]);
+    expect(items[0]).toEqual({ kind: 'layer', src: '/maps/world-ground.jpg' });
+    expect(items[1]).toEqual({ kind: 'layer', src: '/overlays/town-behind.png' });
+    const stills = items.filter((row) => row.kind === 'still');
+    expect(stills.map((row) => (row.kind === 'still' ? row.still.y : 0))).toEqual([400, 500]);
   });
 });
