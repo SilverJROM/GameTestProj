@@ -46,3 +46,28 @@ Questions to settle before building:
 - Saving: store settings per account on the server, or per browser? Recommendation: per browser to start.
 - Is the Bag icon drawn like the coin and items (Grok generated), or a plain vector icon? A plain vector icon avoids a new
   asset provenance item.
+
+### Menu answers (developer, 2026-11-10) and the agreed design
+
+1. No "Exit game"; Log out only (returns to the sign-in screen).
+2. "Exit character" is renamed "Change avatar" (stays signed in, shows the avatar picker).
+3. Resolution presets are added; the zoom slider stays beside them.
+4. Sound: find free-to-use sounds. Three ambient tracks (town joyful, fields active/adventure, cemetery gloomy); sword sound when attacking;
+   stab sound when being attacked; one wolf, one bear, one skeleton sound. Volume slider and mute are part of Settings.
+5. Shortcuts can be rebound.
+6. Settings are saved per browser.
+7. The bag icon is generated as a small vector bag icon (no new asset provenance item).
+
+### Sound candidates found online (not downloaded; licenses must be checked on each page before use)
+
+Searched OpenGameArt and Kenney listings on 2026-11-10. Listed license is what the search result said; confirm on the page.
+
+- Town (joyful): "Town Theme RPG" by cynicmusic (CC0); "Sideways City" by Zane Little Music (CC0, chiptune, cheerful).
+- Fields (adventure): "Fairy Adventure" by MintoDog (CC0, loopable); "JRPG Pack 1 Exploration" by SubspaceAudio (CC0); "Flowerbed Fields" (CC0, chiptune).
+- Cemetery (gloomy): "Kokopelli's Graveyard Theme" (CC0, may not loop cleanly); "Lonelyhood" by yd (CC0, loop); "Abandoned passages" (CC0 loop).
+- Sword and stab: Kenney Impact Sounds (CC0); "50 RPG sound effects" by Kenney (CC0); "150 Combat Sound Effects" (CC0, melee set, unconfirmed).
+- Wolf: "Wolf Monster Sound" (CC0, a processed horse snort, so more of a cry than a growl); "Monster or beast sounds" (CC0, growls).
+- Bear: "Bear Growls" (CC0, U.S. Fish and Wildlife Service; growls, not a roar).
+- Skeleton: nothing found yet. Options: a bone rattle from a CC0 pack, or a short synthesized clatter we make ourselves.
+- Avoid: "Dark Ambience Loop" (CC-BY/GPL) and "Monster and Creatures Sound Effects Pack 001" (CC-BY 3.0) unless you accept the credit line.
+- Every sound used goes into docs/asset-provenance.md with its page link and license, and downloading each file needs your yes.
