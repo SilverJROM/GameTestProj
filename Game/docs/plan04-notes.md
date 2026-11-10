@@ -23,4 +23,26 @@ and for transferring lots with stamps.
 
 ## Other improvements the developer wants to add
 
-To be discussed. Not yet specified.
+Logged 2026-11-10 (system clock). Not started.
+
+### 1. Game menu and Bag icon (developer request)
+
+- A three-line (hamburger) button in the upper right, beside the Bag. Clicking it opens the menu.
+- Menu items: Exit game, Log out, Exit character (back to picking avatars), Settings.
+- Settings: game resolution; sound (new, to be added); shortcuts (keys for Bag, Menu, and so on).
+- Replace the word "Bag" with a bag icon; clicking the icon opens the Bag modal.
+
+Questions to settle before building:
+- "Exit game": a browser tab cannot close itself unless the game opened it. Options: return to the sign-in screen,
+  or show a "you can close this tab" screen. Is that fine?
+- Exit character versus Log out: Exit character keeps the account signed in and shows the avatar picker; Log out ends
+  the session. Both should leave the world cleanly (the avatar disappears for other players). Confirm.
+- Resolution: the game is already sized by the zoom slider. Do you mean a few presets (for example Small, Medium, Large,
+  Fit window, Fullscreen), or exact sizes? Does it replace or sit beside the zoom slider?
+- Sound: no audio exists yet. For now only a volume slider and a mute toggle, with the sounds themselves (steps, hits,
+  coin, menu clicks) as a later step? Where do sound files come from (the same Grok provenance question applies)?
+- Shortcuts: which actions get keys, and which defaults (for example B Bag, M Menu, Esc close)? Can the player rebind them,
+  or only see them?
+- Saving: store settings per account on the server, or per browser? Recommendation: per browser to start.
+- Is the Bag icon drawn like the coin and items (Grok generated), or a plain vector icon? A plain vector icon avoids a new
+  asset provenance item.
