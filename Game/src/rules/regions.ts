@@ -66,6 +66,41 @@ export const pearTownWalls: Ring = [
   [110, 575], [80, 545], [62, 520], [45, 500], [30, 470], [22, 440], [23, 420], [24, 400], [30, 378],
 ];
 
+// Lime gate: the open south road on the pear edge (444, 574) -> (400, 598).
+// Not solid. The road passes through around (425, 584).
+export const limeTownGate: readonly [Point, Point] = [
+  [444, 574],
+  [410, 593],
+];
+
+// Kiwi post: the rest of that pear edge, from the lime gate to (400, 598). Still solid.
+export const kiwiTownPost: readonly [Point, Point] = [
+  [410, 593],
+  [400, 598],
+];
+
+// Berry wall: solid cemetery line, open only at the road gate between the west chain
+// and the east chain. The third chain is the pine edge, solid up to the grey ground,
+// so the road gate stays the only way in.
+export const berryCemeteryWalls: readonly (readonly Point[])[] = [
+  [
+    [0, 145], [30, 190], [50, 210], [90, 235], [150, 250], [225, 245], [295, 235], [317, 229],
+  ],
+  [
+    [365, 217], [400, 200], [450, 187], [500, 180], [530, 160], [542, 140], [542, 105],
+  ],
+  [
+    [542, 105], [548, 95], [520, 60], [470, 30], [432, 0],
+  ],
+];
+
+// Berry gate: the open cemetery road between the west chain and the east chain.
+// Not solid. The road passes through around (340, 222).
+export const berryCemeteryGate: readonly [Point, Point] = [
+  [317, 229],
+  [365, 217],
+];
+
 // Melon fountain: the round stone well in the south of the courtyard, centred near (242, 566).
 export const melonFountainBox: Box = { x0: 218, y0: 548, x1: 266, y1: 584 };
 
@@ -145,4 +180,113 @@ export function hitFountain(x: number, y: number): boolean {
 
 export function hitForge(x: number, y: number): boolean {
   return hitBox(mangoForgeBox, x, y);
+}
+
+const FIG_EPS = 1e-9;
+
+function peachChainEdges(chain: readonly Point[]): readonly (readonly [Point, Point])[] {
+  const edges: (readonly [Point, Point])[] = [];
+  for (let i = 0; i < chain.length - 1; i++) edges.push([chain[i]!, chain[i + 1]!]);
+  return edges;
+}
+
+// Pear edges stay solid, except the south road, which is replaced by the kiwi post.
+// Berry chains are solid. Lime and berry gates are left out on purpose.
+function guavaSolidSegments(): readonly (readonly [Point, Point])[] {
+  const edges: (readonly [Point, Point])[] = [];
+  const count = pearTownWalls.length;
+  const gateStart = limeTownGate[0];
+  const postEnd = kiwiTownPost[1];
+  for (let i = 0; i < count; i++) {
+    const a = pearTownWalls[i]!;
+    const b = pearTownWalls[(i + 1) % count]!;
+    const forward = a[0] === gateStart[0] && a[1] === gateStart[1] && b[0] === postEnd[0] && b[1] === postEnd[1];
+    const backward = b[0] === gateStart[0] && b[1] === gateStart[1] && a[0] === postEnd[0] && a[1] === postEnd[1];
+    if (forward) {
+      edges.push(kiwiTownPost);
+      continue;
+    }
+    if (backward) {
+      edges.push([kiwiTownPost[1], kiwiTownPost[0]]);
+      continue;
+    }
+    edges.push([a, b]);
+  }
+  for (const chain of berryCemeteryWalls) edges.push(...peachChainEdges(chain));
+  return edges;
+}
+
+const guavaWalls = guavaSolidSegments();
+
+// Hit of segment `from` -> `to` against one solid wall, or null.
+// A single shared point that is only a wall endpoint counts when its parameter
+// on the query is strictly after the start. The start point itself does not.
+// A positive-length overlap returns the earliest point of that overlap, which
+// may be the start when the segment already lies on the wall.
+function dateWallHit(
+  from: Point,
+  to: Point,
+  wallA: Point,
+  wallB: Point,
+): { t: number; point: Point } | null {
+  const ax = from[0];
+  const ay = from[1];
+  const bx = to[0];
+  const by = to[1];
+  const cx = wallA[0];
+  const cy = wallA[1];
+  const dx = wallB[0];
+  const dy = wallB[1];
+  const rx = bx - ax;
+  const ry = by - ay;
+  const sx = dx - cx;
+  const sy = dy - cy;
+  if (sx * sx + sy * sy <= FIG_EPS) return null;
+  const denom = rx * sy - ry * sx;
+  const qpx = cx - ax;
+  const qpy = cy - ay;
+
+  if (Math.abs(denom) > FIG_EPS) {
+    const t = (qpx * sy - qpy * sx) / denom;
+    const u = (qpx * ry - qpy * rx) / denom;
+    if (t <= FIG_EPS || t > 1 + FIG_EPS) return null;
+    if (u < -FIG_EPS || u > 1 + FIG_EPS) return null;
+    const tt = Math.min(t, 1);
+    if (u <= FIG_EPS) return { t: tt, point: [cx, cy] };
+    if (u >= 1 - FIG_EPS) return { t: tt, point: [dx, dy] };
+    return { t: tt, point: [ax + tt * rx, ay + tt * ry] };
+  }
+
+  // Parallel. Collinear when the wall start lies on the query line.
+  if (Math.abs(qpx * ry - qpy * rx) > FIG_EPS) return null;
+  const len2 = rx * rx + ry * ry;
+  if (len2 <= FIG_EPS) return null;
+  const tOf = (px: number, py: number) => ((px - ax) * rx + (py - ay) * ry) / len2;
+  const lo = Math.min(tOf(cx, cy), tOf(dx, dy));
+  const hi = Math.max(tOf(cx, cy), tOf(dx, dy));
+  const clipLo = Math.max(lo, 0);
+  const clipHi = Math.min(hi, 1);
+  if (clipHi < clipLo - 1e-8) return null;
+  if (clipHi - clipLo <= 1e-8) {
+    if (clipLo <= FIG_EPS) return null;
+    const tt = Math.min(clipLo, 1);
+    return { t: tt, point: [ax + tt * rx, ay + tt * ry] };
+  }
+  const tt = clipLo <= FIG_EPS ? 0 : Math.min(clipLo, 1);
+  return { t: tt, point: [ax + tt * rx, ay + tt * ry] };
+}
+
+// First solid-wall crossing of the segment from `from` to `to`, or null when
+// the segment crosses none. An open gate is not solid.
+export function firstSolidWallCrossing(from: Point, to: Point): Point | null {
+  let bestT = Number.POSITIVE_INFINITY;
+  let best: Point | null = null;
+  for (const [wallA, wallB] of guavaWalls) {
+    const hit = dateWallHit(from, to, wallA, wallB);
+    if (hit && hit.t < bestT) {
+      bestT = hit.t;
+      best = hit.point;
+    }
+  }
+  return best;
 }
