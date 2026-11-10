@@ -208,7 +208,7 @@ describe('G4 hunt flow', () => {
     expect(inReach(heard.senderSnap, wolfReady)).toBe(true);
     expect(inReach(heard.otherSnap, wolfReady)).toBe(true);
 
-    heard = await fromBasil({ type: 'attack', monsterId: wolf.id });
+    heard = await fromBasil({ type: 'attack', once: true, monsterId: wolf.id });
     expect(beetIn(heard.senderSnap, wolf.id)!.hp).toBe(wolfRow.hp - basilStrike);
     expect(beetIn(heard.otherSnap, wolf.id)!.hp).toBe(wolfRow.hp - basilStrike);
 
@@ -231,7 +231,7 @@ describe('G4 hunt flow', () => {
     let wolfHp = wolfRow.hp - basilStrike;
     let killSnap: SnapshotMessage | undefined;
     for (let hit = 0; hit < 40 && killSnap === undefined; hit += 1) {
-      heard = await fromFern({ type: 'attack', monsterId: wolf.id });
+      heard = await fromFern({ type: 'attack', once: true, monsterId: wolf.id });
       wolfHp -= fernStrike;
       if (wolfHp <= 0) {
         expect(beetIn(heard.senderSnap, wolf.id)).toBeUndefined();
@@ -385,7 +385,7 @@ describe('G4 hunt flow', () => {
       heard = await fromRowan({ type: 'ripen', steps: 1 });
       expect(heard.senderSnap.character.hp).toBe(wolfRow.attack);
     }
-    heard = await fromRowan({ type: 'attack', monsterId: wolf.id });
+    heard = await fromRowan({ type: 'attack', once: true, monsterId: wolf.id });
     expect(beetIn(heard.senderSnap, wolf.id)!.hp).toBeLessThan(wolfRow.hp);
     expect(heard.senderSnap.character.hp).toBe(wolfRow.attack);
 

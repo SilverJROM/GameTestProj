@@ -269,7 +269,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       return;
     }
     if (peeled.type === 'attack') {
-      await this.onAttack(appleId, 'monsterId' in peeled ? peeled.monsterId : undefined, 'playerId' in peeled ? peeled.playerId : undefined);
+      await this.onAttack(appleId, 'monsterId' in peeled ? peeled.monsterId : undefined, 'playerId' in peeled ? peeled.playerId : undefined, 'once' in peeled && peeled.once === true);
       return;
     }
     if (peeled.type === 'duel_request' || peeled.type === 'duel_accept' || peeled.type === 'duel_decline') {
@@ -566,7 +566,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
 
   // The attacker is the socket's fig. The beet id is the only thing the mango names.
   // A message that names a monster runs the monster path only; otherwise a named player is a duel swing.
-  private async onAttack(appleId: string, beetId: string | undefined, rivalId: string | undefined): Promise<void> {
+  private async onAttack(appleId: string, beetId: string | undefined, rivalId: string | undefined, once = false): Promise<void> {
     const fig = this.orchard.figs.get(appleId);
     if (fig === undefined) {
       return;
@@ -579,14 +579,16 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     await this.sproutCabbage();
     const target = this.cabbage.beets.find((candidate) => candidate.id === beetId);
-    if (target !== undefined && fig.facts.hp > 0 && fig.facts.place === target.zone) {
+    if (!once && target !== undefined && fig.facts.hp > 0 && fig.facts.place === target.zone) {
       // A click on a monster walks the fig to it and keeps swinging until it dies or the player clicks the ground.
       this.chaseTargets.set(appleId, beetId);
       this.chaseAims.delete(appleId);
       this.noteMelon();
     }
     await this.strikeOnce(appleId, fig, beetId);
-    this.aimAtTarget(appleId, fig);
+    if (!once) {
+      this.aimAtTarget(appleId, fig);
+    }
     await this.armOrchard(false);
     this.broadcastMango();
   }

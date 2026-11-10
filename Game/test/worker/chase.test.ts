@@ -252,4 +252,13 @@ describe('lemon room click to chase and fight', () => {
     expect(Math.hypot(end.x - start.x, end.y - start.y)).toBeLessThan(1);
     expect(snap.snapshot.hits.some((row) => row.targetKind === 'monster')).toBe(false);
   }, 60_000);
+
+  it('a one-swing attack (once) does not walk or follow', async () => {
+    const hero = await joinNear('Single', 4, 130);
+    let snap = await ask(hero.socket, { type: 'attack', monsterId: hero.wolfId, once: true });
+    const start = selfOf(snap, hero.id);
+    for (let tick = 0; tick < 10; tick += 1) snap = await ripen(hero.socket);
+    const end = selfOf(snap, hero.id);
+    expect(Math.hypot(end.x - start.x, end.y - start.y)).toBeLessThan(1);
+  }, 60_000);
 });

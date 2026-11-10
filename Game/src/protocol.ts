@@ -31,7 +31,8 @@ export type ClientMessage =
   | { readonly type: 'unequip'; readonly slot: 'sword' | 'armor' }
   | { readonly type: 'ripen'; readonly steps: number }
   | { readonly type: 'prune'; readonly beetId: string }
-  | { readonly type: 'attack'; readonly monsterId: string }
+  // once: one swing only, no walking to the monster and no following fights (the page never sends it; tests use it).
+  | { readonly type: 'attack'; readonly monsterId: string; readonly once?: true }
   | { readonly type: 'attack'; readonly playerId: string }
   | { readonly type: 'duel_request'; readonly playerId: string }
   | { readonly type: 'duel_accept'; readonly playerId: string }
@@ -217,7 +218,7 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
   }
   if (peeled.type === 'attack' && typeof peeled.monsterId === 'string' && peeled.monsterId.length > 0) {
     // A message that names a monster is a monster attack; a playerId beside it is dropped.
-    return { type: 'attack', monsterId: peeled.monsterId };
+    return peeled.once === true ? { type: 'attack', monsterId: peeled.monsterId, once: true } : { type: 'attack', monsterId: peeled.monsterId };
   }
   if (peeled.type === 'attack' && typeof peeled.playerId === 'string' && peeled.playerId.length > 0) {
     return { type: 'attack', playerId: peeled.playerId };
