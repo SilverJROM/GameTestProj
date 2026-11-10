@@ -84,3 +84,33 @@ Searched OpenGameArt and Kenney listings on 2026-11-10. Listed license is what t
 - Proposal for the details: the nearest enemy inside that distance is the one that plays; each creature repeats no faster than
   about once every 6 seconds; the sword sound (when you attack) and the stab sound (when you are hit) follow the same
   one-at-a-time rule among themselves, but a hit sound may cut in over a creature sound.
+
+### Sound details confirmed (developer, 2026-11-10)
+Creature sounds repeat no faster than once every 6 seconds; the sword sound is included in the plan.
+
+### 2. Best-route walking (developer request, review done, not started)
+
+Request: when the player clicks a place, the game should work out the best way there. Example: clicking outside the town from
+inside should send the avatar through the town gate and then out to the spot, not into the wall.
+
+Review of what exists (`papayaGateBend` in `src/rules/regions.ts`, used by `src/world/core.ts`):
+- It is a one-bend rule. If the straight line crosses a solid wall, it tries the two gates (town, cemetery) and uses one only if
+  start -> gate middle and gate middle -> target are both straight and clear. Otherwise there is no route and the avatar walks
+  the straight line and slides along the wall.
+- So it fails when the way needs two or more bends: a start spot from which the gate is not in a straight clear line, a
+  target outside that needs to go around a wall corner after the gate, or walls, houses and the fountain in between.
+- It aims at the gate middle point, not the best crossing line.
+- A click inside a wall or house has no rule (the avatar just pushes against it).
+- Not yet reproduced with numbers; the first step would be to measure many start/target pairs, as done for the gates.
+
+Proposed fix (to discuss):
+- Build a walkable grid from the solid walls, gates, houses and fountain (cells about 16 px, with the avatar's width kept clear
+  of walls), and find the shortest path with A* on the server when a click arrives, then straighten the path so it has few turns.
+- The path is a list of waypoints the existing walking code follows. Click-to-fight chase uses the same path to reach an enemy.
+- A click on a blocked spot goes to the nearest reachable spot.
+- If no route exists, the avatar stays put and the client shows no walk marker.
+- The grid is built once at start-up. One search per click is cheap on the server.
+- Tests: a table of start/target pairs (inside to outside, outside to inside, cemetery, around houses) that must reach the target
+  with no wall contact and a path length within a small margin of the best; a regression run in real Chrome.
+Size estimate: about 1 to 1.5 hours with a Sonnet check, because it touches the walking core.
+Questions: should the client draw the planned path as a faint dotted line, or just show the click marker?
