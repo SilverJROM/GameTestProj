@@ -36,3 +36,7 @@ for use in the game and commercial use is allowed.
 
 No asset is flagged for replacement on the developer's statement. If the terms evidence above cannot be produced for
 an asset, that asset is to be regenerated or redrawn from a source with a recorded license.
+
+## Sounds (added 2026-11-10)
+
+See `assets/sounds/SOURCES.md`: eight files from OpenGameArt, each listed CC0 on its page. The skeleton file is a placeholder. These are third-party files, not Grok generated.
