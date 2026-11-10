@@ -29,7 +29,9 @@ const wolfRow = rowOf('wolf');
 const skeletonRow = rowOf('skeleton');
 const levelRowOf = (level: number) => papayaLevelRows.find((row) => row.level === level)!;
 // Ticks per monster swing, per player swing gap, and per axolotl pickup.
-const biteTicks = (pearTimings.monsterSwingSeconds * 1000) / kaleConstants.tickMs;
+const biteTicksOf = (kind: string) =>
+  (onionMonsterRows.find((row) => row.id === kind)!.attackGapSeconds * 1000) / kaleConstants.tickMs;
+const biteTicks = biteTicksOf('wolf');
 const swingTicks = Math.ceil((pearTimings.playerAttackGapSeconds * 1000) / kaleConstants.tickMs);
 const dripTicks = (pearTimings.coinPickupSeconds * 1000) / kaleConstants.tickMs;
 

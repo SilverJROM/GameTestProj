@@ -17,17 +17,25 @@ import {
 describe('level table', () => {
   it('matches the requirements rows', () => {
     expect(papayaLevelRows).toEqual([
-      { level: 1, baseHp: 24, strike: 4, xpToNext: 10 },
-      { level: 2, baseHp: 32, strike: 5, xpToNext: 15 },
-      { level: 3, baseHp: 40, strike: 6, xpToNext: 20 },
-      { level: 4, baseHp: 52, strike: 8, xpToNext: 30 },
-      { level: 5, baseHp: 64, strike: 10, xpToNext: 40 },
-      { level: 6, baseHp: 80, strike: 12, xpToNext: null },
+      { level: 1, baseHp: 70, strike: 4, xpToNext: 10 },
+      { level: 2, baseHp: 80, strike: 5, xpToNext: 15 },
+      { level: 3, baseHp: 92, strike: 6, xpToNext: 20 },
+      { level: 4, baseHp: 106, strike: 8, xpToNext: 30 },
+      { level: 5, baseHp: 122, strike: 10, xpToNext: 40 },
+      { level: 6, baseHp: 140, strike: 12, xpToNext: null },
     ]);
   });
 
   it('has a cap of 6', () => {
     expect(LEVEL_CAP).toBe(6);
+  });
+
+  it('raises base HP at every level', () => {
+    const column = papayaLevelRows.map((row) => row.baseHp);
+    expect(column).toEqual([70, 80, 92, 106, 122, 140]);
+    for (let i = 1; i < column.length; i += 1) {
+      expect(column[i]).toBeGreaterThan(column[i - 1]!);
+    }
   });
 
   it('sums the experience costs from level 1 to level 6 to 115', () => {
@@ -55,8 +63,8 @@ describe('gear table', () => {
 describe('monster table', () => {
   it('matches the three monsters with seven of each', () => {
     expect(onionMonsterRows).toEqual([
-      { id: 'wolf', zone: 'green', hp: 20, attack: 5, xp: 2, coins: 4, aggro: 'hit', count: 7 },
-      { id: 'bear', zone: 'grey', hp: 45, attack: 9, xp: 5, coins: 10, aggro: 'hit', count: 7 },
+      { id: 'wolf', zone: 'green', hp: 20, attack: 5, xp: 2, coins: 4, aggro: 'hit', count: 7, attackGapSeconds: 1 },
+      { id: 'bear', zone: 'grey', hp: 45, attack: 9, xp: 5, coins: 10, aggro: 'hit', count: 7, attackGapSeconds: 0.8 },
       {
         id: 'skeleton',
         zone: 'cemetery',
@@ -66,6 +74,7 @@ describe('monster table', () => {
         coins: 18,
         aggro: 'proximity',
         count: 7,
+        attackGapSeconds: 0.75,
       },
     ]);
   });
@@ -81,7 +90,6 @@ describe('timing and frozen constants', () => {
   it('matches the timing values in seconds', () => {
     expect(pearTimings).toEqual({
       playerAttackGapSeconds: 0.45,
-      monsterSwingSeconds: 2,
       respawnSeconds: 5,
       coinPickupSeconds: 4,
     });
@@ -92,6 +100,7 @@ describe('timing and frozen constants', () => {
       tickMs: 100,
       walkSpeedPxPerSec: 120,
       monsterChaseSpeedPxPerSec: 90,
+      monsterPatrolSpeedPxPerSec: 40,
       meleeReachPx: 48,
     });
   });

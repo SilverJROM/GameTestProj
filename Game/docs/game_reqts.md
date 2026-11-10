@@ -41,12 +41,12 @@ The level cap is 6. Experience to the next level is spent when the bar is reache
 
 | Level | Base HP | Strike | Experience to next |
 | --- | --- | --- | --- |
-| 1 | 24 | 4 | 10 |
-| 2 | 32 | 5 | 15 |
-| 3 | 40 | 6 | 20 |
-| 4 | 52 | 8 | 30 |
-| 5 | 64 | 10 | 40 |
-| 6 | 80 | 12 | — |
+| 1 | 70 | 4 | 10 |
+| 2 | 80 | 5 | 15 |
+| 3 | 92 | 6 | 20 |
+| 4 | 106 | 8 | 30 |
+| 5 | 122 | 10 | 40 |
+| 6 | 140 | 12 | — |
 
 Total experience from level 1 to level 6 is 115.
 

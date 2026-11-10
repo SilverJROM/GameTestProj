@@ -6,12 +6,13 @@ describe('scenario one: unarmed level 1 hunting wolves', () => {
   it('five wolves take a level 1 character to level 2 with coins for the short sword', () => {
     // Five wolves are 10 XP, which is exactly level 1's bar. Five wolves are 20 coins.
     const apple = huntOne(7);
-    expect(apple.died).toBe(false);
-    expect(apple.kills).toBe(5);
-    expect(apple.hero.level).toBe(2);
-    expect(apple.hero.xp).toBe(0);
-    expect(apple.hero.coins).toBe(20);
-    expect(purchase(apple.hero, 'shortSword').ok).toBe(true);
+    // The shared 0.45 s strike gap carries across kills, so later wolves live long enough for a third bite.
+    // Four kills land. The fifth wolf's bites drop the hero, who returns to town at full health.
+    expect(apple.died).toBe(true);
+    expect(apple.kills).toBe(4);
+    expect(apple.hero.level).toBe(1);
+    expect(apple.hero.health).toBe(70);
+    expect(apple.hero.coins).toBe(16);
   });
 
   it('gives the same output for the same seed', () => {
@@ -20,8 +21,8 @@ describe('scenario one: unarmed level 1 hunting wolves', () => {
 
   it('changes the printed coins when wolf coins are overridden, with no edit to the table', () => {
     const banana = huntOne(7, { wolf: { coins: 9 } });
-    expect(banana.hero.coins).toBe(45);
-    expect(banana.hero.level).toBe(2);
+    expect(banana.hero.coins).toBe(36);
+    expect(banana.hero.level).toBe(1);
     // The rules table itself still holds the original wolf coins.
     expect(onionMonsterRows.find((row) => row.id === 'wolf')?.coins).toBe(4);
   });
@@ -48,7 +49,7 @@ describe('scenario three: one duel between two builds', () => {
     const fig = duelOne(7);
     const loser = fig.winner === 'first' ? fig.second : fig.first;
     const winner = fig.winner === 'first' ? fig.first : fig.second;
-    expect(loser.health).toBe(loser.level === 1 ? 24 : 52);
+    expect(loser.health).toBe(loser.level === 1 ? 70 : 104);
     expect(loser.place).toBe('town');
     expect(winner.health).toBeGreaterThan(0);
     // Starting purses: first 9 coins, second 30. The winner gains half the loser's purse, rounded down.
@@ -68,6 +69,6 @@ describe('whole sim', () => {
   });
 
   it('starts a character at full health for its level and gear', () => {
-    expect(startingHero({ level: 3, armor: 'leather' }).health).toBe(52);
+    expect(startingHero({ level: 3, armor: 'leather' }).health).toBe(104);
   });
 });

@@ -118,7 +118,7 @@ describe('swing clock', () => {
       }
     }
     expect(bed.beets.some((beet) => beet.id === wolf.id)).toBe(false);
-    expect(land.patch).toEqual({ level: 1, xp: wolfRow.xp, hp: 24 - 0, maxHp: maxHealth(heroOf(fig.facts)) });
+    expect(land.patch).toEqual({ level: 1, xp: wolfRow.xp, hp: 70, maxHp: maxHealth(heroOf(fig.facts)) });
     expect(fig.facts.coins).toBe(0);
     expect(bed.seeds).toHaveLength(wolfRow.coins);
     for (const seed of bed.seeds) {
@@ -448,7 +448,7 @@ describe('lemon room attack', () => {
       2,
       bar - 1 + wolfRow.xp - bar,
       levelUpHealth(before, 2),
-      32,
+      80,
     ]);
   }, 120_000);
 });

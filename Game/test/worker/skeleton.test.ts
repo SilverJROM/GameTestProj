@@ -24,7 +24,7 @@ import { plantCabbage } from '../../src/world/monsters';
 
 const guavaSecret = 'skeleton-session-secret';
 const rowOf = (kind: string) => onionMonsterRows.find((row) => row.id === kind)!;
-const biteTicks = (pearTimings.monsterSwingSeconds * 1000) / kaleConstants.tickMs;
+const biteTicks = (onionMonsterRows.find((row) => row.id === 'skeleton')!.attackGapSeconds * 1000) / kaleConstants.tickMs;
 
 function migrationStatements(sqlText: string): string[] {
   return sqlText

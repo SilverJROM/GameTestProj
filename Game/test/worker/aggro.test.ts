@@ -24,7 +24,7 @@ import { plantCabbage } from '../../src/world/monsters';
 
 const guavaSecret = 'aggro-session-secret';
 const rowOf = (kind: string) => onionMonsterRows.find((row) => row.id === kind)!;
-const biteTicks = (pearTimings.monsterSwingSeconds * 1000) / kaleConstants.tickMs;
+const biteTicksOf = (kind: string) => (rowOf(kind).attackGapSeconds * 1000) / kaleConstants.tickMs;
 
 function migrationStatements(sqlText: string): string[] {
   return sqlText
@@ -103,6 +103,12 @@ function bootLemon(orchardDir: string): Promise<Unstable_DevWorker> {
 
 function firstBeet(kind: string): MonsterSnapshot {
   const beet = plantCabbage().beets.find((candidate) => candidate.kind === kind)!;
+  return { ...beet, swung: false };
+}
+
+// A later beet of a kind, so a test that needs an untouched monster does not share the first one.
+function nthBeet(kind: string, nth: number): MonsterSnapshot {
+  const beet = plantCabbage().beets.filter((candidate) => candidate.kind === kind)[nth]!;
   return { ...beet, swung: false };
 }
 
@@ -209,9 +215,10 @@ describe('lemon room aggro', () => {
     snap = await duo(fern.socket, { type: 'ripen', steps: 1 });
     expect(beetIn(snap, wolf.id)!.swung).toBe(true);
     expect(snap.character.hp).toBe(80 - bite);
-    for (let tick = 1; tick <= biteTicks; tick += 1) {
+    const wolfGap = biteTicksOf('wolf');
+    for (let tick = 1; tick <= wolfGap; tick += 1) {
       snap = await duo(fern.socket, { type: 'ripen', steps: 1 });
-      expect(beetIn(snap, wolf.id)!.swung, `tick ${tick}`).toBe(tick === biteTicks);
+      expect(beetIn(snap, wolf.id)!.swung, `tick ${tick}`).toBe(tick === wolfGap);
     }
     expect(snap.character.hp).toBe(80 - 2 * bite);
     expect((await getById(kiwiDb, basil.id))!.hp).toBe(basilHp);
@@ -236,7 +243,7 @@ describe('lemon room aggro', () => {
   it('reaches the player at the chase speed and then bites for the bear row attack', async () => {
     const bear = firstBeet('bear');
     const gap = kaleConstants.meleeReachPx * 3;
-    const hero = await joinFig('Hazel', { x: bear.x + gap, y: bear.y, place: 'grey', level: 6, hp: 80, maxHp: 80 });
+    const hero = await joinFig('Hazel', { x: bear.x + gap, y: bear.y, place: 'grey', level: 6, hp: 140, maxHp: 140 });
     // Out of reach, so the swing needs a walk first; stand in reach to hit, then step back.
     await ask(hero.socket, { type: 'move', x: bear.x + kaleConstants.meleeReachPx, y: bear.y });
     await ripen(hero.socket, 20);
@@ -256,10 +263,41 @@ describe('lemon room aggro', () => {
       kaleConstants.meleeReachPx,
     );
     const hp = snap.character.hp;
-    for (let tick = 0; tick < biteTicks * 2; tick += 1) {
+    for (let tick = 0; tick < biteTicksOf('bear') * 2; tick += 1) {
       snap = await ripen(hero.socket, 1);
     }
     expect(hp - snap.character.hp).toBe(rowOf('bear').attack * 2);
+  }, 60_000);
+
+  // Bite times on the stepped clock with the monster already in reach. The times are read tick by tick
+  // from the swung flag, so a gap snapped to the 100 ms tick (0.75 s -> 0.8 s) would show in the list.
+  async function biteTimesMs(socket: WebSocket, monsterId: string, ticks: number): Promise<number[]> {
+    const times: number[] = [];
+    for (let tick = 0; tick <= ticks; tick += 1) {
+      const snap = await ripen(socket, 1);
+      if (beetIn(snap, monsterId)!.swung) {
+        times.push(tick * kaleConstants.tickMs);
+      }
+    }
+    return times;
+  }
+
+  it('bites a wolf at 0 and 1000 ms, a bear at 0, 800 and 1600 ms, with the monster already in reach', async () => {
+    const wolf = nthBeet('wolf', 4);
+    const wolfHero = await joinFig('Pear', { x: wolf.x, y: wolf.y, place: 'green', level: 6, hp: 140, maxHp: 140 });
+    await ask(wolfHero.socket, { type: 'attack', monsterId: wolf.id });
+    expect(await biteTimesMs(wolfHero.socket, wolf.id, 14)).toEqual([0, 1000]);
+
+    const bear = nthBeet('bear', 4);
+    const bearHero = await joinFig('Plum', { x: bear.x, y: bear.y, place: 'grey', level: 6, hp: 140, maxHp: 140 });
+    await ask(bearHero.socket, { type: 'attack', monsterId: bear.id });
+    expect(await biteTimesMs(bearHero.socket, bear.id, 20)).toEqual([0, 800, 1600]);
+  }, 60_000);
+
+  it('bites a skeleton at 0, 800, 1500, 2300 and 3000 ms, so the 0.75 s gap is not snapped to the tick', async () => {
+    const skeleton = nthBeet('skeleton', 4);
+    const hero = await joinFig('Leek', { x: skeleton.x, y: skeleton.y, place: 'cemetery', level: 6, hp: 140, maxHp: 140 });
+    expect(await biteTimesMs(hero.socket, skeleton.id, 34)).toEqual([0, 800, 1500, 2300, 3000]);
   }, 60_000);
 
   it('still ignores a player who is not in the cemetery, even beside a skeleton', async () => {

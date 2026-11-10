@@ -46,8 +46,8 @@ describe('character store on local D1', () => {
     expect(pearFacts.level).toBe(1);
     expect(pearFacts.xp).toBe(0);
     expect(pearFacts.coins).toBe(0);
-    expect(pearFacts.hp).toBe(24);
-    expect(pearFacts.maxHp).toBe(24);
+    expect(pearFacts.hp).toBe(70);
+    expect(pearFacts.maxHp).toBe(70);
     expect(pearFacts.sword).toBeNull();
     expect(pearFacts.armor).toBeNull();
     expect(pearFacts.place).toBe('town');

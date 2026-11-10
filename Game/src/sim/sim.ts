@@ -61,7 +61,6 @@ export interface DuelResult {
 // Clock values in milliseconds, read once from the rules module.
 const tickMs = kaleConstants.tickMs; // 100
 const pearGapMs = Math.round(pearTimings.playerAttackGapSeconds * 1000); // 450
-const figSwingMs = Math.round(pearTimings.monsterSwingSeconds * 1000); // 2000
 const defaultMaxSeconds = 600;
 
 // Seeded generator. The same seed gives the same sequence of values.
@@ -136,7 +135,8 @@ export function hunt(options: HuntOptions): HuntResult {
     if (!monsterAlive) {
       monsterAlive = true;
       monsterHp = row.hp;
-      nextSwingMs = nowMs + figSwingMs;
+      // Already in reach: the first bite is this tick.
+      nextSwingMs = nowMs;
     }
 
     const dueActions: Array<'strike' | 'swing'> = [];
@@ -166,7 +166,7 @@ export function hunt(options: HuntOptions): HuntResult {
           continue;
         }
         hero = { ...hero, health: Math.max(0, hero.health - row.attack) };
-        nextSwingMs += figSwingMs;
+        nextSwingMs += Math.round(row.attackGapSeconds * 1000);
         if (hero.health === 0) {
           died = true;
         }

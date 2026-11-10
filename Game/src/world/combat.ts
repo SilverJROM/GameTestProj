@@ -140,7 +140,6 @@ export function stepAggro(
   const felledFigs = new Set<string>();
   let changed = false;
   const chasePx = (kaleConstants.monsterChaseSpeedPxPerSec * elapsedMs) / 1000;
-  const biteGapMs = pearTimings.monsterSwingSeconds * 1000;
 
   let beets: Beet[] = bed.beets.map((sprout) => {
     let beet = sprout;
@@ -180,8 +179,18 @@ export function stepAggro(
       changed = true;
       return { ...beet, x: beet.x + (dx / dist) * travel, y: beet.y + (dy / dist) * travel };
     }
-    if (beet.swingMs !== undefined && nowMs - beet.swingMs < biteGapMs) {
-      return beet;
+    // Advance the bite clock by the exact gap so a 0.75 s skeleton does not snap to the 100 ms tick.
+    // A bite a full tick or more late starts again from now, so late bites are not queued.
+    const biteGapMs = row.attackGapSeconds * 1000;
+    let nextSwing = nowMs;
+    if (beet.swingMs !== undefined) {
+      const since = nowMs - beet.swingMs;
+      if (since < biteGapMs) {
+        return beet;
+      }
+      if (since < biteGapMs + kaleConstants.tickMs) {
+        nextSwing = beet.swingMs + biteGapMs;
+      }
     }
     changed = true;
     swung.push(beet.id);
@@ -199,7 +208,7 @@ export function stepAggro(
       felledFigs.add(fig.facts.id);
       writes.push({ id: fig.facts.id, patch: { hp: risen.health, place: risen.place, x: townX, y: townY } });
     }
-    return { ...beet, swingMs: nowMs };
+    return { ...beet, swingMs: nextSwing };
   });
 
   if (felledFigs.size > 0) {
