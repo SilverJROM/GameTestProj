@@ -15,3 +15,6 @@ Smoothness (frame by frame) is measured in slice 2 once the interpolation is in,
 
 ## Slice 1 after-check (real Chrome, 6 walks)
 All six walks reached their target within 1 px: inside to outside through the south gate from the right part and from the left part of the opening, a far routed walk, outside to inside, and town to cemetery road. Server tests: 367 pass. Observed for slice 2: sampled positions jump up to 24 px between 100 ms samples (12 px per tick, snapshots arrive in pairs), so on-screen motion is steppy.
+
+## Slice 2 after-check (real Chrome)
+Draw calls were counted in the page during a 3.5 s walk: about 52 painted frames per second, gap between frames median 14.8 ms (p95 20.2, max 27.4). Before the change the page repainted only when a snapshot arrived (about 10 per second, positions jumping 12 to 24 px). Unit tests prove the per-frame step is even and never exceeds 1.25 x speed x dt. The six gate walks still pass with the new camera (clicks map correctly). Tests: 382 pass.
