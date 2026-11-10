@@ -587,3 +587,86 @@ describe('draw stack around the overlays', () => {
     expect(stills.map((row) => (row.kind === 'still' ? row.still.y : 0))).toEqual([400, 500]);
   });
 });
+
+describe('blacksmith shop and inventory', () => {
+  it('opens the six-item shop from the thought bubble and the inventory from Bag', () => {
+    const { board } = openBoard();
+    const players = [fig({ id: 'fig-self', x: 300, y: 450, place: 'town' })];
+    const snap = (character: Record<string, unknown>) => ({
+      type: 'snapshot',
+      character: { id: 'fig-self', place: 'town', gender: 'woman', ...character },
+      snapshot: { players, monsters: [], coins: [], pickups: [] },
+    });
+    board.ingest(
+      snap({
+        level: 2,
+        xp: 4,
+        hp: 54,
+        maxHp: 92,
+        coins: 48,
+        sword: 'shortSword',
+        armor: 'leather',
+      }),
+    );
+
+    const smith = role(board.draw(), 'blacksmith');
+    expect(smith.src).toBe('/avatars/blacksmith/stand.png');
+    expect(smith.height).toBe(scaleFor('player'));
+    const bubble = board.controls().find((row) => row.id === 'bubble');
+    const bag = board.controls().find((row) => row.id === 'bag');
+    expect(bubble?.text).toBe('Armor and weapons');
+    expect(bag?.text).toBe('Bag');
+    expect(bubble!.x).toBeGreaterThanOrEqual(0);
+    expect(bubble!.y).toBeGreaterThanOrEqual(0);
+    expect(bubble!.x + bubble!.width).toBeLessThanOrEqual(1280);
+    expect(bubble!.y + bubble!.height).toBeLessThanOrEqual(720);
+
+    expect(board.pressScreen(bubble!.x + 4, bubble!.y + 4)).toBe(true);
+    expect(board.smithOpen).toBe(true);
+    const shop = board.shop();
+    expect(shop?.coins).toBe(48);
+    expect(shop?.rows).toHaveLength(6);
+    expect(shop?.rows.filter((row) => row.canBuy).map((row) => row.id)).toEqual([
+      'shortSword',
+      'longSword',
+      'leather',
+      'chain',
+    ]);
+    expect(shop?.rows.filter((row) => !row.canBuy).map((row) => row.id)).toEqual(['greatSword', 'plate']);
+
+    board.ingest(
+      snap({
+        level: 2,
+        xp: 4,
+        hp: 54,
+        maxHp: 92,
+        coins: 14,
+        sword: 'shortSword',
+        armor: 'leather',
+      }),
+    );
+    expect(board.pressScreen(bag!.x + 4, bag!.y + 4)).toBe(true);
+    expect(board.bagOpen).toBe(true);
+    expect(board.smithOpen).toBe(false);
+    expect(board.inventory()).toEqual({
+      coins: 14,
+      sword: 'Short sword',
+      armor: 'Leather',
+      level: 2,
+      health: '54 / 92',
+      strike: 7,
+      experience: '4 / 15',
+    });
+
+    board.ingest(snap({ level: 1, xp: 0, hp: 70, maxHp: 70, coins: 0, sword: null, armor: null }));
+    expect(board.inventory()).toEqual({
+      coins: 0,
+      sword: 'Nothing worn',
+      armor: 'Nothing worn',
+      level: 1,
+      health: '70 / 70',
+      strike: 4,
+      experience: '0 / 10',
+    });
+  });
+});

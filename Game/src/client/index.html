@@ -9,7 +9,7 @@
       #apple-login { max-width: 28rem; margin: 2rem auto; padding: 1rem 1.25rem; }
       #lime-preview { display: block; height: 240px; width: auto; margin: 0.75rem 0; background: transparent; }
       #papaya-canvas { display: block; width: 100%; height: auto; background: #000; }
-      #quince-smith, #plum-duel {
+      #quince-smith, #plum-duel, #olive-sheet {
         position: fixed;
         top: 1rem;
         right: 1rem;
@@ -38,8 +38,19 @@
     <!-- The papaya canvas stays hidden until a sign-in succeeds, then shows the map picture. -->
     <canvas id="papaya-canvas" width="1280" height="720" hidden></canvas>
     <section id="quince-smith" hidden>
-      <p>Forge</p>
+      <p>Blacksmith</p>
+      <p id="quince-purse"></p>
       <div id="quince-list"></div>
+    </section>
+    <section id="olive-sheet" hidden>
+      <p>Inventory</p>
+      <p id="olive-coins"></p>
+      <p id="olive-level"></p>
+      <p id="olive-health"></p>
+      <p id="olive-strike"></p>
+      <p id="olive-xp"></p>
+      <p id="olive-sword"></p>
+      <p id="olive-armor"></p>
     </section>
     <section id="plum-duel" hidden>
       <p id="plum-offer"></p>

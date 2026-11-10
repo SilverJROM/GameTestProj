@@ -22,8 +22,9 @@ import {
   type Box,
   type Point,
 } from '../rules/regions';
-import type { PeachView } from './camera';
-import { pearTimings } from '../rules/tables';
+import { CANVAS_WIDTH, mapToCanvas, type PeachView } from './camera';
+import { strike, type Hero } from '../rules/logic';
+import { mangoGearRows, papayaLevelRows, pearTimings, type ZoneName } from '../rules/tables';
 import {
   COIN_DRAW_PX,
   COIN_SRC,
@@ -77,6 +78,9 @@ export function createOliveReel(): OliveReel {
     beetSpots: new Map(),
   };
 }
+
+export const SMITH_X = (mangoForgeBox.x0 + mangoForgeBox.x1) / 2;
+export const SMITH_Y = (mangoForgeBox.y0 + mangoForgeBox.y1) / 2;
 
 const WALK_STEMS = ['walk-1', 'walk-2', 'walk-3'] as const;
 const ATTACK_STEMS = ['attack-1', 'attack-2'] as const;
@@ -278,8 +282,8 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
       ownerId: null,
       still: 'stand',
       src: smithSrc,
-      x: (mangoForgeBox.x0 + mangoForgeBox.x1) / 2,
-      y: (mangoForgeBox.y0 + mangoForgeBox.y1) / 2,
+      x: SMITH_X,
+      y: SMITH_Y,
       width: smithSize.width,
       height: smithSize.height,
       facing: 'right',
@@ -580,6 +584,136 @@ export interface ScreenCtx {
   font: string;
   fillRect(x: number, y: number, w: number, h: number): void;
   fillText(text: string, x: number, y: number): void;
+}
+
+const GEAR_LABEL: Readonly<Record<string, string>> = {
+  shortSword: 'Short sword',
+  longSword: 'Long sword',
+  greatSword: 'Great sword',
+  leather: 'Leather',
+  chain: 'Chain',
+  plate: 'Plate',
+};
+
+export function gearLabel(id: string | null): string {
+  if (id === null || id.length === 0) return 'Nothing worn';
+  return GEAR_LABEL[id] ?? id;
+}
+
+export interface ShopRow {
+  readonly id: string;
+  readonly name: string;
+  readonly price: number;
+  readonly effect: string;
+  readonly canBuy: boolean;
+}
+
+export interface ShopSheet {
+  readonly coins: number;
+  readonly rows: readonly ShopRow[];
+}
+
+export function shopSheet(coins: number): ShopSheet {
+  return {
+    coins,
+    rows: mangoGearRows.map((row) => ({
+      id: row.id,
+      name: gearLabel(row.id),
+      price: row.price,
+      effect: row.effect === 'strike' ? `Strike +${row.amount}` : `Max HP +${row.amount}`,
+      canBuy: coins >= row.price,
+    })),
+  };
+}
+
+export interface InventoryFacts {
+  readonly coins: number;
+  readonly sword: string | null;
+  readonly armor: string | null;
+  readonly level: number;
+  readonly hp: number;
+  readonly maxHp: number;
+  readonly xp: number;
+  readonly place: ZoneName;
+}
+
+export interface InventorySheet {
+  readonly coins: number;
+  readonly sword: string;
+  readonly armor: string;
+  readonly level: number;
+  readonly health: string;
+  readonly strike: number;
+  readonly experience: string;
+}
+
+export function inventorySheet(facts: InventoryFacts): InventorySheet {
+  const row = papayaLevelRows.find((candidate) => candidate.level === facts.level);
+  const hero: Hero = {
+    level: facts.level,
+    xp: facts.xp,
+    health: facts.hp,
+    coins: facts.coins,
+    sword: facts.sword,
+    armor: facts.armor,
+    place: facts.place,
+  };
+  const next = row?.xpToNext ?? null;
+  return {
+    coins: facts.coins,
+    sword: gearLabel(facts.sword),
+    armor: gearLabel(facts.armor),
+    level: facts.level,
+    health: `${facts.hp} / ${facts.maxHp}`,
+    strike: strike(hero),
+    experience: next === null ? String(facts.xp) : `${facts.xp} / ${next}`,
+  };
+}
+
+export interface ScreenControl {
+  readonly id: 'bubble' | 'bag';
+  readonly text: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+// Thought bubble over the blacksmith, and the Bag control at the top right. Both are screen space.
+export function townControls(view: PeachView): ScreenControl[] {
+  const feet = mapToCanvas(view, SMITH_X, SMITH_Y);
+  const headTop = feet.y - scaleFor('blacksmith') * view.scale;
+  const bubbleWidth = 220;
+  const bubbleHeight = 64;
+  let bubbleY = headTop - 8 - bubbleHeight;
+  if (bubbleY < 8) bubbleY = 8;
+  let bubbleX = feet.x - bubbleWidth / 2;
+  if (bubbleX < 8) bubbleX = 8;
+  if (bubbleX + bubbleWidth > CANVAS_WIDTH - 8) bubbleX = CANVAS_WIDTH - 8 - bubbleWidth;
+  return [
+    {
+      id: 'bubble',
+      text: 'Armor and weapons',
+      x: bubbleX,
+      y: bubbleY,
+      width: bubbleWidth,
+      height: bubbleHeight,
+    },
+    { id: 'bag', text: 'Bag', x: CANVAS_WIDTH - 24 - 92, y: 24, width: 92, height: 44 },
+  ];
+}
+
+export function controlAt(
+  controls: readonly ScreenControl[],
+  x: number,
+  y: number,
+): ScreenControl | null {
+  for (const control of controls) {
+    if (x >= control.x && x < control.x + control.width && y >= control.y && y < control.y + control.height) {
+      return control;
+    }
+  }
+  return null;
 }
 
 export function paintHealth(ctx: ScreenCtx, row: HealthReadout): void {

@@ -5,7 +5,6 @@
 import type { Gender } from '../server/db';
 import type { ClientMessage, HitMark } from '../protocol';
 import type { ZoneName } from '../rules/tables';
-import { mangoGearRows } from '../rules/tables';
 import { townSpawn } from '../rules/regions';
 import { removeMagenta } from './sprites';
 import { canvasToMap, mapToCanvas, viewBox, type PeachView } from './camera';
@@ -15,18 +14,25 @@ import {
   GROUND_SRC,
   TOWN_BEHIND_SRC,
   TOWN_WALL_NEAR_SRC,
+  controlAt,
   createOliveReel,
+  inventorySheet,
   paintOrchard,
   healthReadout,
   paintHealth,
   paintStack,
+  shopSheet,
+  townControls,
   type BlitCtx,
   type ScreenCtx,
   type FigPaint,
   type GuavaStill,
   type HealthReadout,
+  type InventorySheet,
   type OliveReel,
   type OrchardPaint,
+  type ScreenControl,
+  type ShopSheet,
 } from './view';
 
 export interface LemonLike {
@@ -51,6 +57,7 @@ interface FloatHit extends HitMark {
 
 export interface FigHooks {
   onSmith?: (open: boolean) => void;
+  onBag?: (open: boolean) => void;
   onOffer?: (offer: { fromId: string; fromName: string } | null) => void;
   onSnapshot?: () => void;
 }
@@ -66,6 +73,8 @@ export interface PlantOptions {
 
 export interface FigBoard {
   click(click: ClickBerry): void;
+  // Screen click on the thought bubble or the Bag control. Returns true when that click was used.
+  pressScreen(x: number, y: number): boolean;
   accept(askerId?: string): void;
   decline(askerId?: string): void;
   chooseQuince(itemId: string): void;
@@ -77,7 +86,11 @@ export interface FigBoard {
   damageNumbers(nowMs: number): DamageNumber[];
   // Window onto the map around the local player, for the player's current zone.
   camera(): PeachView;
+  controls(): ScreenControl[];
+  shop(): ShopSheet | null;
+  inventory(): InventorySheet | null;
   readonly smithOpen: boolean;
+  readonly bagOpen: boolean;
 }
 
 const EMPTY_ORCHARD: OrchardPaint = { players: [], monsters: [], coins: [], pickups: [] };
@@ -97,10 +110,16 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   let selfPlace: ZoneName = options.selfPlace ?? 'town';
   let selfHp = 0;
   let selfMaxHp = 1;
+  let selfLevel = 1;
+  let selfXp = 0;
+  let selfCoins = 0;
+  let selfSword: string | null = null;
+  let selfArmor: string | null = null;
   const seenHits = new Set<string>();
   let floats: FloatHit[] = [];
   const selfGender = options.selfGender;
   let quinceOpen = false;
+  let bagOpen = false;
   let askerHeld = '';
   let oliveDepth = 0;
   let papayaSwings = 0;
@@ -125,6 +144,11 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     }
     if (typeof fig.hp === 'number') selfHp = fig.hp;
     if (typeof fig.maxHp === 'number') selfMaxHp = fig.maxHp;
+    if (typeof fig.level === 'number') selfLevel = fig.level;
+    if (typeof fig.xp === 'number') selfXp = fig.xp;
+    if (typeof fig.coins === 'number') selfCoins = fig.coins;
+    if (typeof fig.sword === 'string' || fig.sword === null) selfSword = fig.sword as string | null;
+    if (typeof fig.armor === 'string' || fig.armor === null) selfArmor = fig.armor as string | null;
   }
 
   function ingest(raw: unknown): void {
@@ -216,6 +240,50 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     });
   }
 
+  function sheetFacts() {
+    return {
+      coins: selfCoins,
+      sword: selfSword,
+      armor: selfArmor,
+      level: selfLevel,
+      hp: selfHp,
+      maxHp: selfMaxHp,
+      xp: selfXp,
+      place: selfPlace,
+    };
+  }
+
+  function controls(): ScreenControl[] {
+    return townControls(camera());
+  }
+
+  function shop(): ShopSheet | null {
+    if (!quinceOpen) return null;
+    return shopSheet(selfCoins);
+  }
+
+  function inventory(): InventorySheet | null {
+    if (!bagOpen) return null;
+    return inventorySheet(sheetFacts());
+  }
+
+  function pressScreen(x: number, y: number): boolean {
+    const hit = controlAt(controls(), x, y);
+    if (hit === null) return false;
+    if (hit.id === 'bubble') {
+      quinceOpen = true;
+      bagOpen = false;
+      hooks.onSmith?.(true);
+      hooks.onBag?.(false);
+      return true;
+    }
+    bagOpen = true;
+    quinceOpen = false;
+    hooks.onBag?.(true);
+    hooks.onSmith?.(false);
+    return true;
+  }
+
   function camera(): PeachView {
     const self = orchard.players.find((fig) => fig.id === selfId);
     const spawn = townSpawn;
@@ -295,6 +363,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
 
   return {
     click,
+    pressScreen,
     accept,
     decline,
     chooseQuince,
@@ -303,8 +372,14 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     health,
     damageNumbers,
     camera,
+    controls,
+    shop,
+    inventory,
     get smithOpen() {
       return quinceOpen;
+    },
+    get bagOpen() {
+      return bagOpen;
     },
   };
 }
@@ -322,6 +397,7 @@ interface LooseEl {
   height?: number;
   src?: string;
   type?: string;
+  disabled?: boolean;
   onload?: (() => void) | null;
   naturalWidth?: number;
   naturalHeight?: number;
@@ -419,6 +495,13 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     const screen = ctx as BlitCtx & ScreenCtx;
     if (typeof screen.fillRect === 'function' && typeof screen.fillText === 'function') {
       paintHealth(screen, board.health());
+      for (const control of board.controls()) {
+        screen.fillStyle = control.id === 'bag' ? '#1c1814' : '#ffffff';
+        screen.fillRect(control.x, control.y, control.width, control.height);
+        screen.fillStyle = control.id === 'bag' ? '#ffffff' : '#1a140c';
+        screen.font = '800 22px Georgia, serif';
+        screen.fillText(control.text, control.x + 12, control.y + 36);
+      }
       const now = Date.now();
       for (const num of board.damageNumbers(now)) {
         screen.fillStyle = num.color;
@@ -480,6 +563,44 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     hooks: {
       onSmith(open) {
         if (smith !== null) smith.hidden = !open;
+        if (smithList === null || !open) return;
+        smithList.textContent = '';
+        const purse = doc.getElementById('quince-purse');
+        const sheet = board.shop();
+        if (purse !== null) purse.textContent = sheet === null ? '' : `Your coins: ${sheet.coins}`;
+        if (sheet === null) return;
+        for (const row of sheet.rows) {
+          const button = doc.createElement('button');
+          button.type = 'button';
+          button.textContent = row.canBuy
+            ? `${row.name} (${row.price})`
+            : `${row.name} (Need ${row.price} coins)`;
+          button.disabled = !row.canBuy;
+          if (row.canBuy) {
+            button.addEventListener?.('click', () => {
+              board.chooseQuince(row.id);
+            });
+          }
+          smithList.appendChild?.(button);
+        }
+      },
+      onBag(open) {
+        const sheetEl = doc.getElementById('olive-sheet');
+        if (sheetEl !== null) sheetEl.hidden = !open;
+        if (!open) return;
+        const sheet = board.inventory();
+        const write = (id: string, text: string) => {
+          const node = doc.getElementById(id);
+          if (node !== null) node.textContent = text;
+        };
+        if (sheet === null) return;
+        write('olive-coins', `Coins: ${sheet.coins}`);
+        write('olive-sword', sheet.sword);
+        write('olive-armor', sheet.armor);
+        write('olive-level', `Level ${sheet.level}`);
+        write('olive-health', sheet.health);
+        write('olive-strike', `Strike ${sheet.strike}`);
+        write('olive-xp', `Experience ${sheet.experience}`);
       },
       onOffer(offer) {
         if (plumDuel !== null) plumDuel.hidden = offer === null;
@@ -495,18 +616,6 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     },
   });
 
-  if (smithList !== null) {
-    for (const quince of mangoGearRows) {
-      const button = doc.createElement('button');
-      button.type = 'button';
-      button.textContent = `${quince.id} (${quince.price})`;
-      button.addEventListener?.('click', () => {
-        board.chooseQuince(quince.id);
-      });
-      smithList.appendChild?.(button);
-    }
-  }
-
   plumAccept?.addEventListener?.('click', () => {
     board.accept();
   });
@@ -518,6 +627,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     if (event.button !== 0 && event.button !== 2) return;
     event.preventDefault?.();
     const pixel = mapBerry(canvas, event);
+    if (board.pressScreen(pixel.x, pixel.y)) return;
     const spot = canvasToMap(board.camera(), pixel.x, pixel.y);
     board.click({ x: spot.x, y: spot.y, button: event.button ?? 0 });
   });
