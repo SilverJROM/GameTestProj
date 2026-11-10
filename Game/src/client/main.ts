@@ -361,7 +361,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   }
 
   function controls(): ScreenControl[] {
-    return townControls(camera());
+    // The blacksmith's bubble belongs to the town. The Bag button stays everywhere.
+    return townControls(camera()).filter((row) => row.id !== 'bubble' || selfPlace === 'town');
   }
 
   function shop(): ShopSheet | null {

@@ -500,11 +500,11 @@ describe('live bag and blacksmith panels', () => {
     expect(xpLine[0]!.y).toBeGreaterThan(lv[0]!.y);
     expect(coinLine[0]?.x).toBe(HEALTH_X);
     expect(coinLine[0]!.y).toBeGreaterThan(xpLine[0]!.y);
-    const bubbleInk = painted.filter((mark) => mark.text === 'Armor and weapons');
+    const bubbleInk = painted.filter((mark) => mark.text === '...');
     expect(bubbleInk.length).toBeGreaterThan(0);
-    expect(bubbleInk[0]!.font).toContain('14px');
-    expect(bubble!.width).toBe(156);
-    expect(bubble!.height).toBe(42);
+    expect(bubbleInk[0]!.font).toContain('24px');
+    expect(bubble!.width).toBe(64);
+    expect(bubble!.height).toBe(36);
 
     press(canvas, bubble!.x + 4, bubble!.y + 4);
     expect(smith.hidden).toBe(false);

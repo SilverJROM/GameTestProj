@@ -700,6 +700,20 @@ describe('draw stack around the overlays', () => {
 });
 
 describe('blacksmith shop and inventory', () => {
+  it('shows the three-dot bubble in town only; Bag stays everywhere', () => {
+    const { board } = openBoard();
+    const send = (place: string) =>
+      board.ingest({
+        type: 'snapshot',
+        character: { id: 'fig-self', place, gender: 'woman' },
+        snapshot: { players: [fig({ id: 'fig-self', x: 300, y: 450, place })], monsters: [], coins: [], pickups: [] },
+      });
+    send('town');
+    expect(board.controls().map((row) => row.id)).toEqual(['bubble', 'bag']);
+    send('green');
+    expect(board.controls().map((row) => row.id)).toEqual(['bag']);
+  });
+
   it('opens the six-item shop from the thought bubble and the inventory from Bag', () => {
     const { board } = openBoard();
     const players = [fig({ id: 'fig-self', x: 300, y: 450, place: 'town' })];
@@ -725,10 +739,10 @@ describe('blacksmith shop and inventory', () => {
     expect(smith.height).toBe(scaleFor('player'));
     const bubble = board.controls().find((row) => row.id === 'bubble');
     const bag = board.controls().find((row) => row.id === 'bag');
-    expect(bubble?.text).toBe('Armor and weapons');
+    expect(bubble?.text).toBe('...');
     expect(bag?.text).toBe('Bag');
-    expect(LIME_BUBBLE_W).toBe(156);
-    expect(LIME_BUBBLE_H).toBe(42);
+    expect(LIME_BUBBLE_W).toBe(64);
+    expect(LIME_BUBBLE_H).toBe(36);
     expect(bubble!.width).toBe(LIME_BUBBLE_W);
     expect(bubble!.height).toBe(LIME_BUBBLE_H);
     expect(bubble!.font).toBe(LIME_BUBBLE_FONT);

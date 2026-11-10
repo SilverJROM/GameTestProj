@@ -2,7 +2,7 @@
 
 Recovery file. If the session closes (out of memory, suspend, crash), read this first, then `docs/plan02.md` for the full plan. Update this file after every slice event: started, passed, failed.
 
-Last updated: 2026-11-10 10:15 UTC
+Last updated: 2026-11-10 10:25 UTC
 
 ## Where things stand
 
@@ -82,3 +82,5 @@ Source: replies from the check-in server, saved in `.evaluation/check-ins/*.resp
 3. **QA Questions** (informal, unanswered): wolf patrol vs shared attack clock cause; how the regenerated shell bundle was checked to differ only in six scale numbers; why the test-clock header is still accepted outside tests.
 
 Other open items: hide the blacksmith bubble outside town (old behaviour); user reviews the 14 running screenshots; merge to `main` only after approval, no deploy planned.
+
+- 2026-11-10 10:25 UTC: user approved: blacksmith bubble is now three dots and shows in town only (359 tests pass, checked in Chrome, screenshots retaken); user will review screenshots; merged `update-02` into `main` locally (no push, no deploy).

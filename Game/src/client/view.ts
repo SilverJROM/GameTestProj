@@ -939,10 +939,10 @@ export interface ScreenControl {
   readonly font: string;
 }
 
-// Lime thought over the fig smith. 156 by 42 keeps "Armor and weapons" off the box edges.
-export const LIME_BUBBLE_W = 156;
-export const LIME_BUBBLE_H = 42;
-export const LIME_BUBBLE_FONT = '800 14px system-ui, Arial, sans-serif';
+// Lime thought over the fig smith: three dots, shown in town only.
+export const LIME_BUBBLE_W = 64;
+export const LIME_BUBBLE_H = 36;
+export const LIME_BUBBLE_FONT = '800 24px system-ui, Arial, sans-serif';
 
 // Thought bubble over the blacksmith, and the Bag control at the top right. Both are screen space.
 export function townControls(view: PeachView): ScreenControl[] {
@@ -958,7 +958,7 @@ export function townControls(view: PeachView): ScreenControl[] {
   return [
     {
       id: 'bubble',
-      text: 'Armor and weapons',
+      text: '...',
       x: bubbleX,
       y: bubbleY,
       width: bubbleWidth,
