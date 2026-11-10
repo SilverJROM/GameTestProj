@@ -243,4 +243,20 @@ describe('shared account bag', () => {
     const snap = await act(joined.socket, { type: 'equip', itemId: 'shortSword' }, () => true);
     expect(me(snap).sword).toBeNull();
   }, 60_000);
+
+  it('two quick equip messages from one avatar never leave a copy stuck as worn', async () => {
+    const { a, b } = await pair('Race');
+    await act(a.socket, { type: 'buy', item: 'shortSword' }, (x) => me(x).items.includes('shortSword'));
+    await act(a.socket, { type: 'buy', item: 'longSword' }, (x) => me(x).items.includes('longSword'));
+    // Back to back, before the first one has finished.
+    a.socket.send(JSON.stringify({ type: 'equip', itemId: 'shortSword' }));
+    a.socket.send(JSON.stringify({ type: 'equip', itemId: 'longSword' }));
+    const after = await until(a.socket, (x) => me(x).sword === 'longSword');
+    expect(me(after).sword).toBe('longSword');
+    const worn = (await kiwiDb.prepare('SELECT item_id FROM account_items WHERE worn_by = ? ORDER BY item_id').bind(a.id).all<{ item_id: string }>()).results;
+    expect(worn.map((row) => row.item_id)).toEqual(['longSword']);
+    // The first sword is free for the other avatar.
+    const snapB = await act(b.socket, { type: 'equip', itemId: 'shortSword' }, (x) => me(x).sword === 'shortSword');
+    expect(me(snapB).sword).toBe('shortSword');
+  }, 60_000);
 });

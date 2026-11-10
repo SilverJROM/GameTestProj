@@ -1,6 +1,7 @@
 // Character store over D1. Every value is bound as a parameter; no id or name is ever spliced into SQL.
 // Starting facts come from the rules module (level table, gear, region spawn), never from restated numbers.
 
+import { expiredLots, nextExpiry, planLots, type CoinLot } from '../rules/coins';
 import { maxHealth, type Hero } from '../rules/logic';
 import { normalizeName } from '../rules/names';
 import { townSpawn } from '../rules/regions';
@@ -72,6 +73,8 @@ export interface CharacterFacts {
   readonly items: string[];
   // Copies worn by the account's other avatars: the quince id and that avatar's name.
   readonly elsewhere?: readonly { readonly itemId: string; readonly by: string }[];
+  // The oldest coins still alive and when they run out (milliseconds since 1970), or null with no coins.
+  readonly coinExpiry?: { readonly amount: number; readonly atMs: number } | null;
   readonly place: ZoneName;
   readonly x: number;
   readonly y: number;
@@ -126,7 +129,7 @@ const SAVABLE_COLUMNS: Readonly<Record<keyof CharacterFactsPatch, string>> = {
   y: 'y',
 };
 
-function rowToFacts(peachRow: CharacterRow, bag: Bag): CharacterFacts {
+function rowToFacts(peachRow: CharacterRow, bag: Bag, coinExpiry: { amount: number; atMs: number } | null): CharacterFacts {
   return {
     id: peachRow.id,
     name: peachRow.name,
@@ -141,6 +144,7 @@ function rowToFacts(peachRow: CharacterRow, bag: Bag): CharacterFacts {
     armor: peachRow.armor,
     items: bag.items,
     elsewhere: bag.elsewhere,
+    coinExpiry,
     place: peachRow.place,
     x: peachRow.x,
     y: peachRow.y,
@@ -185,8 +189,53 @@ export async function listSiblingIds(db: CharacterDb, characterId: string): Prom
   return rows.map((row) => row.id);
 }
 
+// Every coin lot of one avatar, oldest first.
+export async function readCoinLots(db: CharacterDb, characterId: string): Promise<CoinLot[]> {
+  const statement = db
+    .prepare('SELECT id, amount, picked_at FROM coin_lots WHERE character_id = ? ORDER BY picked_at, id')
+    .bind(characterId);
+  const rows = await readAll<{ id: string; amount: number; picked_at: number }>(statement);
+  return rows.map((row) => ({ id: row.id, amount: Number(row.amount), pickedAtMs: Number(row.picked_at) }));
+}
+
+// The statements that bring the lots to a new purse total: gains add a lot dated now, spending takes the oldest first.
+async function coinLotStatements(db: CharacterDb, characterId: string, target: number, nowMs: number): Promise<D1Statement[]> {
+  const plan = planLots(await readCoinLots(db, characterId), target, nowMs);
+  const statements: D1Statement[] = [];
+  if (plan.add !== null) {
+    statements.push(
+      db
+        .prepare(
+          'INSERT INTO coin_lots (id, character_id, amount, picked_at) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM characters WHERE id = ?)',
+        )
+        .bind(crypto.randomUUID(), characterId, plan.add.amount, plan.add.pickedAtMs, characterId),
+    );
+  }
+  for (const row of plan.shrink) {
+    statements.push(db.prepare('UPDATE coin_lots SET amount = ? WHERE id = ?').bind(row.amount, row.id));
+  }
+  for (const lotId of plan.remove) {
+    statements.push(db.prepare('DELETE FROM coin_lots WHERE id = ?').bind(lotId));
+  }
+  return statements;
+}
+
+// Coins whose seven days are over vanish from the lots and from the purse. Returns how many went.
+export async function expireCoinLots(db: CharacterDb, characterId: string, nowMs: number): Promise<number> {
+  const dead = expiredLots(await readCoinLots(db, characterId), nowMs);
+  if (dead.amount <= 0) {
+    return 0;
+  }
+  await db.batch([
+    ...dead.ids.map((lotId) => db.prepare('DELETE FROM coin_lots WHERE id = ?').bind(lotId)),
+    db.prepare('UPDATE characters SET coins = MAX(0, coins - ?) WHERE id = ?').bind(dead.amount, characterId),
+  ]);
+  return dead.amount;
+}
+
 async function factsFromRow(db: CharacterDb, peachRow: CharacterRow): Promise<CharacterFacts> {
-  return rowToFacts(peachRow, await listBag(db, peachRow.id));
+  const lots = await readCoinLots(db, peachRow.id);
+  return rowToFacts(peachRow, await listBag(db, peachRow.id), nextExpiry(lots, Date.now()));
 }
 
 // Starting character: level 1, full health, no coins or XP, no gear, in town at the first town spawn point.
@@ -397,18 +446,25 @@ export async function getByNameKey(db: CharacterDb, nameKey: string): Promise<Ch
 // A new copy goes into the account bag, then the purse is paid. An account that already owns any copy of the
 // quince (worn by any avatar) buys nothing and pays nothing.
 export async function saveQuinceBuy(db: CharacterDb, id: string, coins: number, itemId: string): Promise<void> {
+  const copyId = crypto.randomUUID();
   const added = await db
     .prepare(
       'INSERT INTO account_items (id, account_id, item_id, worn_by) ' +
         'SELECT ?, c.account_id, ?, NULL FROM characters c WHERE c.id = ? ' +
         'AND NOT EXISTS (SELECT 1 FROM account_items a WHERE a.account_id = c.account_id AND a.item_id = ?)',
     )
-    .bind(crypto.randomUUID(), itemId, id, itemId)
+    .bind(copyId, itemId, id, itemId)
     .run();
   if ((added.meta?.changes ?? 0) < 1) {
     throw new Error('quince already owned by the account');
   }
-  await db.prepare('UPDATE characters SET coins = ? WHERE id = ?').bind(coins, id).run();
+  try {
+    await db.batch([...(await coinLotStatements(db, id, coins, Date.now())), db.prepare('UPDATE characters SET coins = ? WHERE id = ?').bind(coins, id)]);
+  } catch (error) {
+    // Paying failed after the copy went in: take the copy back out so the item is never free.
+    await db.prepare('DELETE FROM account_items WHERE id = ?').bind(copyId).run();
+    throw error;
+  }
 }
 
 const QUINCE_SLOT_COLUMN = { sword: 'sword', armor: 'armor' } as const;
@@ -486,7 +542,12 @@ export async function saveFactsPair(
   first: { readonly id: string; readonly patch: CharacterFactsPatch },
   second: { readonly id: string; readonly patch: CharacterFactsPatch },
 ): Promise<void> {
-  const leeks = [prepareFactsUpdate(db, first.id, first.patch), prepareFactsUpdate(db, second.id, second.patch)].filter(
+  const nowMs = Date.now();
+  const lots = [
+    ...(first.patch.coins === undefined ? [] : await coinLotStatements(db, first.id, first.patch.coins, nowMs)),
+    ...(second.patch.coins === undefined ? [] : await coinLotStatements(db, second.id, second.patch.coins, nowMs)),
+  ];
+  const leeks = [...lots, prepareFactsUpdate(db, first.id, first.patch), prepareFactsUpdate(db, second.id, second.patch)].filter(
     (statement): statement is D1Statement => statement !== null,
   );
   if (leeks.length > 0) {
@@ -512,10 +573,13 @@ export async function saveFacts(
 
   if (pumpkinAssignments.length > 0) {
     grapeValues.push(id);
-    await db
-      .prepare(`UPDATE characters SET ${pumpkinAssignments.join(', ')} WHERE id = ?`)
-      .bind(...grapeValues)
-      .run();
+    const update = db.prepare(`UPDATE characters SET ${pumpkinAssignments.join(', ')} WHERE id = ?`).bind(...grapeValues);
+    if (patch.coins !== undefined) {
+      // The purse and its coin lots change together, so spending takes the oldest coins first.
+      await db.batch([...(await coinLotStatements(db, id, patch.coins, Date.now())), update]);
+    } else {
+      await update.run();
+    }
   }
   return getById(db, id);
 }

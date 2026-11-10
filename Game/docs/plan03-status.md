@@ -2,13 +2,13 @@
 
 Recovery file. If the session closes, read this first, then `docs/plan03.md`. Times in UTC. Same topology and rules as `docs/plan02-status.md` (Grok implements, Claude reviews and commits, user-approved plan only).
 
-Last updated: 2026-11-10 16:40 UTC
+Last updated: 2026-11-10 16:55 UTC
 
 | Item | Value |
 | --- | --- |
 | Base | `main` at `cde3469` |
 | Working branch | `update-03` (cut from `main`) |
-| Overall | 83% (slices 0-9 done, 10 in progress, 11 left) |
+| Overall | 90% (slices 0-8 merged to main; 9-10 on `update-03` awaiting Opus; 11 final left) |
 
 | Slice | What | Status | Commit |
 | --- | --- | --- | --- |
@@ -21,8 +21,8 @@ Last updated: 2026-11-10 16:40 UTC
 | 6 | Click to chase and fight (L3, Claude implements, Opus validates) | **done, Opus PASS** | `e1e077d` + `488ff98` |
 | 7 | Coin 24 px, walk-on pickup | **done** | see git log |
 | 8 | Checkpoint: full suite (422 pass), screenshots retaken, slices 0-7 merged to `main` locally | **done** | see git log |
-| 9 | Shared account bag (L3, Claude implements, Opus validates) | **done, Opus validation running** | `5fbb2bc` |
-| 10 | Coin expiry (L3) | **in progress** (design: coin_lots table + migration 0005, expiry at join and every minute, oldest spent first) | - |
+| 9 | Shared account bag (L3, Claude implements, Opus validates) | **fixes committed; Opus FAILED the first pass (race when two equips overlap) and the fix (bag actions queued one at a time) awaits re-validation** | `5fbb2bc` + fix in the slice 10 commit |
+| 10 | Coin expiry (L3) | **implemented, Opus validation pending** (migration 0005 coin_lots, `src/rules/coins.ts`, db.ts lot statements, room sweep at join + every minute, Bag line) | see git log |
 | 11 | Final suite, regression, merge | pending | - |
 
 Levels: L1/L2 = Grok implements, Sonnet 5.5 tests; L3 = Sonnet 5.5 implements, Opus tests (see plan03.md revision). Slice levels: 0 L1, 1 L2, 2 L2, 3 L2, 4 L2, 5 L1, 6 L3, 7 L2, 8 L2, 9 L3, 10 L3, 11 L2.

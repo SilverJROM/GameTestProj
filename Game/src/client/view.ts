@@ -765,6 +765,7 @@ export interface InventoryFacts {
   readonly items: readonly string[];
   // Copies the account's other avatars wear: shown greyed with their name, and not usable here.
   readonly elsewhere?: readonly { readonly itemId: string; readonly by: string }[];
+  readonly coinExpiry?: { readonly amount: number; readonly atMs: number } | null;
   readonly gender: Gender | undefined;
 }
 
@@ -789,8 +790,24 @@ export interface InventorySheet {
   readonly health: string;
   readonly strike: number;
   readonly experience: string;
+  // When the oldest coins run out, in words, or empty when there are no coins.
+  readonly expiry: string;
   readonly tiles: readonly BagTile[];
   readonly portrait: string;
+}
+
+// "Oldest 12 coins expire in 6 days." The time left is rounded up to days, then hours, then minutes.
+export function coinExpiryText(expiry: { readonly amount: number; readonly atMs: number } | null | undefined, nowMs: number): string {
+  if (expiry === null || expiry === undefined || expiry.amount <= 0) return '';
+  const left = expiry.atMs - nowMs;
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const when =
+    left > 86_400_000
+      ? unit(Math.ceil(left / 86_400_000), 'day')
+      : left > 3_600_000
+        ? unit(Math.ceil(left / 3_600_000), 'hour')
+        : unit(Math.max(1, Math.ceil(left / 60_000)), 'minute');
+  return `Oldest ${unit(expiry.amount, 'coin')} expire${expiry.amount === 1 ? 's' : ''} in ${when}.`;
 }
 
 // One grape per owned quince, in bag order. A worn quince keeps its seal.
@@ -801,17 +818,21 @@ export function bagTiles(
   elsewhere: readonly { readonly itemId: string; readonly by: string }[] = [],
 ): BagTile[] {
   const tiles: BagTile[] = [];
+  // With two copies of one item, only one of them is the worn copy.
+  const wornShown = new Set<string>();
   for (const id of items) {
     const slot = gearSlotOf(id);
     if (slot === null) continue;
     const name = gearLabel(id);
     const bonus = gearBonus(id);
+    const isWorn = (id === sword || id === armor) && !wornShown.has(id);
+    if (isWorn) wornShown.add(id);
     tiles.push({
       id,
       name,
       bonus,
       label: bonus.length === 0 ? name : `${name} ${bonus}`,
-      worn: id === sword || id === armor,
+      worn: isWorn,
       slot,
     });
   }
@@ -860,6 +881,7 @@ export function inventorySheet(facts: InventoryFacts): InventorySheet {
     health: `${facts.hp} / ${facts.maxHp}`,
     strike: strike(hero),
     experience: papayaXpText(facts.level, facts.xp),
+    expiry: coinExpiryText(facts.coinExpiry, Date.now()),
     tiles: bagTiles(facts.items, facts.sword, facts.armor, facts.elsewhere ?? []),
     portrait: figStandSrc(facts.gender),
   };

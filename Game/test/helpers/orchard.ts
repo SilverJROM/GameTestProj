@@ -40,6 +40,7 @@ export async function applyMigrations(db: CharacterDb): Promise<void> {
 
 export async function clearOrchard(db: CharacterDb): Promise<void> {
   await db.prepare('DELETE FROM account_items').run();
+  await db.prepare('DELETE FROM coin_lots').run();
   await db.prepare('DELETE FROM characters').run();
   await db.prepare('DELETE FROM accounts').run();
 }

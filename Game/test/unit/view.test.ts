@@ -18,6 +18,7 @@ import {
   SMITH_Y,
   beetSpriteRect,
   bagTiles,
+  coinExpiryText,
   inventorySheet,
   figStandSrc,
   kiwiSliderBox,
@@ -825,6 +826,7 @@ describe('blacksmith shop and inventory', () => {
     expect(board.smithOpen).toBe(false);
     expect(board.inventory()).toEqual({
       coins: 14,
+      expiry: '',
       sword: 'Short sword',
       armor: 'Leather',
       swordBonus: '+2 strike',
@@ -839,6 +841,7 @@ describe('blacksmith shop and inventory', () => {
 
     board.ingest(snap({ level: 1, xp: 0, hp: 70, maxHp: 70, coins: 0, sword: null, armor: null }));
     expect(board.inventory()).toEqual({
+      expiry: '',
       coins: 0,
       sword: 'Nothing worn',
       armor: 'Nothing worn',
@@ -991,5 +994,16 @@ describe('shared account bag tiles', () => {
     expect(sheet.tiles[0]!.by).toBe('Ayla');
     const shop = shopSheet(100, ['shortSword']);
     expect(shop.rows.find((row) => row.id === 'shortSword')!.state).toBe('owned');
+  });
+});
+
+describe('coin expiry text', () => {
+  const now = 1_000_000_000_000;
+  it('words the time left in days, hours or minutes, and is empty with no coins', () => {
+    expect(coinExpiryText(null, now)).toBe('');
+    expect(coinExpiryText({ amount: 0, atMs: now + 1000 }, now)).toBe('');
+    expect(coinExpiryText({ amount: 12, atMs: now + 6.5 * 86_400_000 }, now)).toBe('Oldest 12 coins expire in 7 days.');
+    expect(coinExpiryText({ amount: 1, atMs: now + 5 * 3_600_000 }, now)).toBe('Oldest 1 coin expires in 5 hours.');
+    expect(coinExpiryText({ amount: 4, atMs: now + 90_000 }, now)).toBe('Oldest 4 coins expire in 2 minutes.');
   });
 });

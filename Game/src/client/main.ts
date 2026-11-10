@@ -187,6 +187,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   let selfArmor: string | null = null;
   let selfItems: string[] = [];
   let selfElsewhere: { itemId: string; by: string }[] = [];
+  let selfCoinExpiry: { amount: number; atMs: number } | null = null;
   const seenHits = new Set<string>();
   let floats: FloatHit[] = [];
   const selfGender = options.selfGender;
@@ -229,6 +230,11 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     if (Array.isArray(fig.items)) {
       selfItems = fig.items.filter((id): id is string => typeof id === 'string');
     }
+    const expiry = fig.coinExpiry as { amount?: unknown; atMs?: unknown } | null | undefined;
+    selfCoinExpiry =
+      expiry !== null && expiry !== undefined && typeof expiry.amount === 'number' && typeof expiry.atMs === 'number'
+        ? { amount: expiry.amount, atMs: expiry.atMs }
+        : null;
     selfElsewhere = Array.isArray(fig.elsewhere)
       ? (fig.elsewhere as { itemId?: unknown; by?: unknown }[]).filter(
           (row): row is { itemId: string; by: string } => typeof row?.itemId === 'string' && typeof row?.by === 'string',
@@ -494,6 +500,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       place: selfPlace,
       items: selfItems,
       elsewhere: selfElsewhere,
+      coinExpiry: selfCoinExpiry,
       gender: genderMap.get(selfId) ?? selfGender,
     };
   }
@@ -1363,6 +1370,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     const sheet = board.inventory();
     if (sheet === null) return;
     oliveText('olive-coins', `Coins: ${sheet.coins}`);
+    oliveText('olive-expiry', sheet.expiry);
     oliveText('olive-level', String(sheet.level));
     oliveText('olive-health', sheet.health);
     oliveText('olive-strike', String(sheet.strike));

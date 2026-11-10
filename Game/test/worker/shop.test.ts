@@ -569,7 +569,7 @@ describe('lemon forge quince', () => {
     expect(pepperSnap.character.place).toBe('town');
     expect(strike(heroFrom(pepperSnap.character))).toBe(strike(heroFrom(pepperReady)));
     const pepperRow = await readFig(pepperReady.id);
-    expect(pepperRow).toEqual({ ...pepperReady, coins: 0, items: ['shortSword'] });
+    expect(pepperRow).toEqual({ ...pepperReady, coins: 0, items: ['shortSword'], coinExpiry: null });
     expect(await figWrites(pepperReady.id)).toBe(pepperWrites + 1);
     expect(await readFig(sageReady.id)).toEqual(sageReady);
     expect(await readFig(berryReady.id)).toEqual(berryReady);
@@ -689,6 +689,8 @@ describe('lemon forge quince', () => {
     const chivePlate = await readFig(chiveReady.id);
     expect(chivePlate).toEqual({
       ...chiveReady,
+      // Spending took the oldest coins, so the "coins expire" line is its own value.
+      coinExpiry: expect.anything(),
       coins: leatherQuince.price,
       items: ['plate'],
     });
@@ -729,6 +731,7 @@ describe('lemon forge quince', () => {
     const chiveLeather = await readFig(chiveReady.id);
     expect(chiveLeather).toEqual({
       ...chiveReady,
+      coinExpiry: null,
       coins: 0,
       items: ['leather', 'plate'],
     });
@@ -831,7 +834,7 @@ describe('lemon forge quince', () => {
     expect(figSnap(appleBuy, sageReady.id).character.coins).toBe(17);
     expect(figSnap(appleBuy, chiveReady.id).character).toEqual(chiveLeather);
     const appleRow = await readFig(appleReady.id);
-    expect(appleRow).toEqual({ ...appleReady, coins: 0, items: ['shortSword'] });
+    expect(appleRow).toEqual({ ...appleReady, coins: 0, items: ['shortSword'], coinExpiry: null });
     expect(await readFig(berryReady.id)).toEqual(berryReady);
     expect(berryReady.coins).not.toBe(0);
     expect(await figWrites(appleReady.id)).toBe(appleWrites + 1);
@@ -982,7 +985,7 @@ describe('lemon forge quince', () => {
     expect(figSnap(stolen, ready.id).character).toEqual(boughtMango);
     expect(figSnap(stolen, ready.id).character.sword).toBeNull();
     expect(figSnap(stolen, guavaReady.id).character).toEqual(guavaReady);
-    expect(await readFig(ready.id)).toEqual({ ...ready, coins: leatherQuince.price, items: ['shortSword'] });
+    expect(await readFig(ready.id)).toEqual({ ...ready, coins: leatherQuince.price, items: ['shortSword'], coinExpiry: expect.anything() });
     expect(await figWrites(guavaReady.id)).toBe(guavaWrites);
 
     const equipped = await hearAll(mangoJoin.socket, { type: 'equip', itemId: 'shortSword' });
