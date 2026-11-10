@@ -1,5 +1,5 @@
 // Papaya paint: one snapshot becomes the stills the canvas draws.
-// Heights come from sprites.ts. The ground coin is the peach crop inside the axolotl pickup still.
+// Heights come from sprites.ts. The ground coin is items/coin.png, drawn whole, with no crop.
 // A moving fig cycles walk-1, walk-2, walk-3. An attacking fig shows attack-1 then attack-2.
 // A beet that has not shifted and has not swung keeps its stand still.
 
@@ -25,7 +25,8 @@ import {
 import type { PeachView } from './camera';
 import { pearTimings } from '../rules/tables';
 import {
-  coinCrop,
+  COIN_DRAW_PX,
+  COIN_SRC,
   scaledSize,
   scaleFor,
   type CropRect,
@@ -59,7 +60,7 @@ export interface GuavaStill {
   readonly headGlow: boolean;
   readonly crop: CropRect | null;
   readonly box: Box | null;
-  readonly kind: SpriteKind | 'forge';
+  readonly kind: SpriteKind | 'forge' | 'coin';
 }
 
 // Remembers the papaya walk step, the attack step, and the last beet spot.
@@ -218,25 +219,23 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
   );
 
   for (const seed of orchard.coins) {
-    const crop = coinCrop();
-    const coinSize = scaledSize(crop.width, crop.height, 'axolotl');
     stills.push(
       makeStill({
         role: 'coin',
         id: seed.id,
         ownerId: seed.ownerId,
         still: 'coin',
-        src: '/avatars/axolotl/pickup.png',
+        src: COIN_SRC,
         x: seed.x,
         y: seed.y,
-        width: coinSize.width,
-        height: coinSize.height,
+        width: COIN_DRAW_PX,
+        height: COIN_DRAW_PX,
         facing: 'right',
         redGlow: false,
         headGlow: false,
-        crop,
+        crop: null,
         box: null,
-        kind: 'axolotl',
+        kind: 'coin',
       }),
     );
   }

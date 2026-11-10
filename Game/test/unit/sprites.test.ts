@@ -219,6 +219,31 @@ describe('scaleFor and scaledSize', () => {
   });
 });
 
+describe('ground coin still', () => {
+  const COIN_PATH = fileURLToPath(new URL('../../assets/items/coin.png', import.meta.url));
+
+  it('is a magenta-field square that removeMagenta clears at the corners and keeps the disc', () => {
+    const coin = decodePng(readFileSync(COIN_PATH));
+    expect(coin.width).toBe(coin.height);
+    expect(coin.width).toBeGreaterThan(0);
+    for (const [x, y] of cornersOf(coin)) {
+      const [red, green, blue, alpha] = pixelAt(coin, x, y);
+      expect(alpha).toBe(255);
+      expect(isMagentaField(red, green, blue)).toBe(true);
+    }
+    const peeled = removeMagenta(coin);
+    for (const [x, y] of cornersOf(peeled)) {
+      expect(pixelAt(peeled, x, y)).toEqual([0, 0, 0, 0]);
+    }
+    const midX = Math.floor(coin.width / 2);
+    const midY = Math.floor(coin.height / 2);
+    const [red, green, blue, alpha] = pixelAt(coin, midX, midY);
+    expect(isMagentaField(red, green, blue)).toBe(false);
+    expect(alpha).toBe(255);
+    expect(pixelAt(peeled, midX, midY)).toEqual([red, green, blue, alpha]);
+  });
+});
+
 describe('coinCrop', () => {
   // The coin is the only gold in the picture: bright yellow-orange, opaque.
   function goldPixels(image: RgbaImage): Array<[number, number]> {

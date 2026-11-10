@@ -1,6 +1,6 @@
 // World view with a fake lemon: clicks send one mango, stills follow the snapshot.
 import { describe, expect, it } from 'vitest';
-import { coinCrop, scaleFor } from '../../src/client/sprites';
+import { COIN_DRAW_PX, COIN_SRC, scaleFor } from '../../src/client/sprites';
 import { plantFigBoard, type FigBoard, type LemonLike } from '../../src/client/main';
 import { mangoForgeBox } from '../../src/rules/regions';
 import { pearTimings } from '../../src/rules/tables';
@@ -173,12 +173,13 @@ describe('damage numbers', () => {
       character: { id: 'fig-self', place: 'green', gender: 'woman', hp: 60, maxHp: 70 },
       snapshot: { players, monsters: [], coins: [], pickups: [], hits: [hit('hit-1', 'monster', 4), hit('hit-2', 'player', 5)] },
     });
-    const second = board.damageNumbers(now);
+    const after = Date.now();
+    const second = board.damageNumbers(after);
     expect(second.map((row) => [row.id, row.amount, row.color])).toEqual([
       ['hit-1', 4, '#ffffff'],
       ['hit-2', 5, '#ff3030'],
     ]);
-    expect(board.damageNumbers(now + 1000)).toEqual([]);
+    expect(board.damageNumbers(after + 1000)).toEqual([]);
   });
 });
 
@@ -289,7 +290,7 @@ describe('world view', () => {
     expect(second.src).toBe('/avatars/warrior-f/attack-2.png');
   });
 
-  it('draws a pet pickup toward the owner coin and a cropped ground coin', () => {
+  it('draws a pet pickup toward the owner coin and the ground coin from items/coin.png', () => {
     const owner = fig({ id: 'fig-self', x: 40, y: 80, moving: false });
     const coin: CoinSnapshot = { id: 'seed-1', ownerId: owner.id, x: 140, y: 80 };
     const dig = (elapsedSeconds: number): PickupSnapshot => ({
@@ -326,9 +327,13 @@ describe('world view', () => {
     expect(atFull.y).toBe(coin.y);
 
     const ground = role(board.draw(), 'coin', coin.id);
-    expect(ground.crop).toEqual(coinCrop());
-    expect(ground.src).toBe('/avatars/axolotl/pickup.png');
-    expect(ground.height).toBe(scaleFor('axolotl'));
+    expect(ground.crop).toBeNull();
+    expect(ground.src).toBe(COIN_SRC);
+    expect(ground.src).toBe('/items/coin.png');
+    expect(ground.x).toBe(coin.x);
+    expect(ground.y).toBe(coin.y);
+    expect(ground.width).toBe(COIN_DRAW_PX);
+    expect(ground.height).toBe(COIN_DRAW_PX);
 
     const forge = role(board.draw(), 'forge');
     const smith = role(board.draw(), 'blacksmith');

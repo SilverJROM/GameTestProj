@@ -82,8 +82,13 @@ export function removeMagenta(image: RgbaImage): RgbaImage {
 
 // The gold coin in the axolotl's hand, inside assets/avatars/axolotl/pickup.png (782 x 508).
 // A small margin of peach-colored hand pixels surrounds the disc; the rectangle stays inside the image.
+// The ground coin does not use this crop. It is drawn from COIN_SRC.
 const PEACH_COIN_CROP: CropRect = { x: 644, y: 296, width: 96, height: 96 };
 
 export function coinCrop(): CropRect {
   return { ...PEACH_COIN_CROP };
 }
+
+// Ground coin still: assets/items/coin.png, a square disc on a magenta field. No crop.
+export const COIN_SRC = '/items/coin.png';
+export const COIN_DRAW_PX = 40;
