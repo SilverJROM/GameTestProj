@@ -19,6 +19,7 @@ import {
 } from '../../src/protocol';
 import { firstSolidWallCrossing, spawnPoints, zoneAt } from '../../src/rules/regions';
 import { kaleConstants, onionMonsterRows, pearTimings, type ZoneName } from '../../src/rules/tables';
+import { figSeesBeet } from '../../src/rules/view';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import type { CharacterDb, CharacterFacts } from '../../src/server/db';
 import { createPapayaClock, sproutFig, type FigWalk } from '../../src/world/core';
@@ -53,6 +54,26 @@ function sortedBeets(beets: readonly { id: string; kind: string; zone: string; x
 
 function herdOf(beets: readonly MonsterSnapshot[] | readonly Beet[], kind: string): MonsterSnapshot[] {
   return beets.filter((beet) => beet.kind === kind) as MonsterSnapshot[];
+}
+
+function beetIds(beets: readonly { id: string }[]): string[] {
+  return beets.map((beet) => beet.id).sort();
+}
+
+// A living herd: seven of each kind, each in its own zone. A fresh plant is also standing on a leek.
+function expectHerd(beets: readonly MonsterSnapshot[] | readonly Beet[]): void {
+  expect(beets.some((beet) => beet.zone === 'town')).toBe(false);
+  expect(beets.some((beet) => zoneAt(beet.x, beet.y) === 'town')).toBe(false);
+  expect(beets).toHaveLength(onionMonsterRows.reduce((sum, row) => sum + row.count, 0));
+  for (const row of onionMonsterRows) {
+    const patch = herdOf(beets, row.id);
+    expect(patch).toHaveLength(row.count);
+    for (const beet of patch) {
+      expect(beet.zone).toBe(row.zone);
+      expect(beet.hp).toBe(row.hp);
+      expect(zoneAt(beet.x, beet.y)).toBe(row.zone);
+    }
+  }
 }
 
 function expectFreshCabbage(beets: readonly MonsterSnapshot[] | readonly Beet[]): void {
@@ -308,8 +329,8 @@ describe('lemon room cabbage', () => {
       fern.facts.x,
       fern.facts.y,
     ]);
-    expectFreshCabbage(fernJoin.welcome.snapshot.monsters);
-    expectFreshCabbage(basilJoin.welcome.snapshot.monsters);
+    expectHerd(fernJoin.welcome.snapshot.monsters);
+    expectHerd(basilJoin.welcome.snapshot.monsters);
     expect(sortedBeets(basilJoin.welcome.snapshot.monsters)).toEqual(sortedBeets(fernJoin.welcome.snapshot.monsters));
 
     const zones = new Set(fernJoin.welcome.snapshot.monsters.map((beet) => beet.zone));
@@ -340,10 +361,13 @@ describe('lemon room cabbage', () => {
     const early = await broadcastMango(fernJoin.socket, basilJoin.socket, { type: 'ripen', steps: earlyTicks });
     expect(herdOf(early.senderSnap.snapshot.monsters, 'wolf')).toHaveLength(6);
     expect(early.senderSnap.snapshot.monsters.some((beet) => beet.id === victim.id)).toBe(false);
-    expect(sortedBeets(early.senderSnap.snapshot.monsters)).toEqual(prunedLabels);
-    expect(sortedBeets(early.otherSnap.snapshot.monsters)).toEqual(prunedLabels);
+    expect(beetIds(early.senderSnap.snapshot.monsters)).toEqual(beetIds(pruned.senderSnap.snapshot.monsters));
+    expect(sortedBeets(early.otherSnap.snapshot.monsters)).toEqual(sortedBeets(early.senderSnap.snapshot.monsters));
     for (const kept of pruned.senderSnap.snapshot.monsters) {
-      expect(early.senderSnap.snapshot.monsters.find((beet) => beet.id === kept.id)).toEqual(kept);
+      const still = early.senderSnap.snapshot.monsters.find((beet) => beet.id === kept.id)!;
+      expect(still.kind).toBe(kept.kind);
+      expect(still.zone).toBe(kept.zone);
+      expect(still.hp).toBe(kept.hp);
     }
 
     const ripe = await broadcastMango(fernJoin.socket, basilJoin.socket, { type: 'ripen', steps: 1 });
@@ -368,7 +392,10 @@ describe('lemon room cabbage', () => {
     expect(zoneAt(born.x, born.y)).toBe('green');
     expect(born.hp).toBe(onionMonsterRows.find((row) => row.id === 'wolf')?.hp);
     for (const kept of pruned.senderSnap.snapshot.monsters) {
-      expect(ripe.senderSnap.snapshot.monsters.find((beet) => beet.id === kept.id)).toEqual(kept);
+      const still = ripe.senderSnap.snapshot.monsters.find((beet) => beet.id === kept.id)!;
+      expect(still.kind).toBe(kept.kind);
+      expect(still.zone).toBe(kept.zone);
+      expect(still.hp).toBe(kept.hp);
     }
     expect(sortedBeets(ripe.otherSnap.snapshot.monsters)).toEqual(sortedBeets(ripe.senderSnap.snapshot.monsters));
     const living = sortedBeets(ripe.senderSnap.snapshot.monsters);
@@ -392,14 +419,60 @@ describe('lemon room cabbage', () => {
     expect(fernAgain.welcome.type).toBe('welcome');
     expect(fernAgain.welcome.character.id).toBe(fern.facts.id);
     expect([fernAgain.welcome.character.x, fernAgain.welcome.character.y]).toEqual([fern.facts.x, fern.facts.y]);
-    expectFreshCabbage(fernAgain.welcome.snapshot.monsters);
+    expectHerd(fernAgain.welcome.snapshot.monsters);
     expect(sortedBeets(fernAgain.welcome.snapshot.monsters)).toEqual(living);
     expect(fernAgain.welcome.snapshot.monsters.find((beet) => beet.id === born.id)).toEqual(born);
     expect(fernAgain.welcome.snapshot.monsters.some((beet) => beet.id === victim.id)).toBe(false);
+
+    // Fern walks to the green. After she arrives, beets in her zone or on her widest window move, and far ones do not.
+    const moveHeard = nextMango(fernAgain.socket);
+    fernAgain.socket.send(JSON.stringify({ type: 'move', x: 800, y: 330 }));
+    await moveHeard;
+    const arriveHeard = nextMango(fernAgain.socket);
+    fernAgain.socket.send(JSON.stringify({ type: 'ripen', steps: 300 }));
+    const arrived = await arriveHeard;
+    expect(arrived.character.place).toBe('green');
+    const parked = arrived.snapshot.monsters;
+    const stepHeard = nextMango(fernAgain.socket);
+    fernAgain.socket.send(JSON.stringify({ type: 'ripen', steps: 40 }));
+    const stepped = await stepHeard;
+    let seenBears = 0;
+    let hidden = 0;
+    for (const before of parked) {
+      const after = stepped.snapshot.monsters.find((beet) => beet.id === before.id)!;
+      const watched = before.zone === 'green' || figSeesBeet('green', arrived.character.x, arrived.character.y, before.x, before.y);
+      const moved = after.x !== before.x || after.y !== before.y;
+      if (watched) {
+        if (before.kind === 'bear') seenBears += 1;
+        expect(moved, before.id).toBe(true);
+      } else {
+        hidden += 1;
+        expect(moved, before.id).toBe(false);
+      }
+    }
+    expect(seenBears).toBeGreaterThan(0);
+    expect(hidden).toBeGreaterThan(0);
+
+    // A second fig in the cemetery keeps that herd walking while Fern keeps the wolves walking.
+    const plum = await postFig('Plum', 'woman');
+    const plumJoin = await connectFig(wsUrl, plum.grape);
+    openSockets.push(plumJoin.socket);
+    const plumMove = broadcastMango(plumJoin.socket, fernAgain.socket, { type: 'move', x: 200, y: 160 });
+    await plumMove;
+    const plumArrive = await broadcastMango(plumJoin.socket, fernAgain.socket, { type: 'ripen', steps: 300 });
+    expect(plumArrive.senderSnap.character.place).toBe('cemetery');
+    expect(plumArrive.otherSnap.character.place).toBe('green');
+    const bothParked = plumArrive.senderSnap.snapshot.monsters;
+    const bothLater = (await broadcastMango(plumJoin.socket, fernAgain.socket, { type: 'ripen', steps: 30 })).senderSnap;
+    for (const before of bothParked) {
+      if (before.zone !== 'green' && before.zone !== 'cemetery') continue;
+      const after = bothLater.snapshot.monsters.find((beet) => beet.id === before.id)!;
+      expect(after.x !== before.x || after.y !== before.y, before.id).toBe(true);
+    }
   }, 120_000);
 });
 
-// A connected fig standing still in a zone. Only its place matters to the patrol rule.
+// A connected fig standing still. Place and feet both matter: the zone, and the widest window around the feet.
 function figIn(place: ZoneName): FigWalk {
   return sproutFig({
     id: `fig-${place}`,
@@ -467,18 +540,45 @@ describe('cabbage patrol on the rules tick', () => {
     expect(walked).toBeGreaterThan(0);
     // Patrol alone is never a storage event.
     expect(first.stored).toBe(false);
-    // Bears and skeletons have no fig in their zone, so they stay on their leeks.
+    // A beet outside the green and outside this fig's window stays on its leek. One inside the window walks.
+    const fig = figIn('green');
+    let seenOther = 0;
+    let hiddenOther = 0;
     for (const beet of first.bed.beets.filter((candidate) => candidate.kind !== 'wolf')) {
       const start = plantCabbage().beets.find((candidate) => candidate.id === beet.id)!;
-      expect([beet.x, beet.y]).toEqual([start.x, start.y]);
+      const seen = figSeesBeet(fig.facts.place, fig.facts.x, fig.facts.y, start.x, start.y);
+      if (seen) {
+        seenOther += 1;
+        expect([beet.x, beet.y]).not.toEqual([start.x, start.y]);
+      } else {
+        hiddenOther += 1;
+        expect([beet.x, beet.y]).toEqual([start.x, start.y]);
+      }
     }
+    expect(seenOther).toBeGreaterThan(0);
+    expect(hiddenOther).toBeGreaterThan(0);
   });
 
-  it('moves nothing with no fig connected, or with a fig only in town', () => {
-    const none = walkBed(plantCabbage(), new Map(), 10_000);
+  it('moves nothing with no fig connected, and only on-screen beets for a fig in town', () => {
+    const none = walkBed(plantCabbage(), new Map(), 50);
     expect(none.bed).toEqual(plantCabbage());
-    const town = walkBed(plantCabbage(), new Map([['fig-town', figIn('town')]]), 10_000);
-    expect(town.bed).toEqual(plantCabbage());
+    const fig = figIn('town');
+    const town = walkBed(plantCabbage(), new Map([['fig-town', fig]]), 40);
+    let seen = 0;
+    let hidden = 0;
+    for (const start of plantCabbage().beets) {
+      const later = town.bed.beets.find((beet) => beet.id === start.id)!;
+      const watched = figSeesBeet(fig.facts.place, fig.facts.x, fig.facts.y, start.x, start.y);
+      if (watched) {
+        seen += 1;
+        expect(later.x !== start.x || later.y !== start.y).toBe(true);
+      } else {
+        hidden += 1;
+        expect([later.x, later.y]).toEqual([start.x, start.y]);
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
+    expect(hidden).toBeGreaterThan(0);
   });
 
   it('drops one seed per kill, worth that row’s coins, for a wolf, a bear, and a skeleton', () => {
@@ -517,14 +617,22 @@ describe('cabbage patrol on the rules tick', () => {
     });
   });
 
-  it('reads a stored beet that lacks a spawn index and a leg with defaults', () => {
+  it('reads a stored beet that lacks a spawn index and a leg onto the nearest stop', () => {
     const fresh = plantCabbage();
     const old = JSON.parse(JSON.stringify(fresh)) as { beets: Array<Record<string, unknown>> };
     for (const beet of old.beets) {
       delete beet.spawnIndex;
       delete beet.legDir;
+      delete beet.loopAt;
     }
-    expect(readCabbage(old)).toEqual(fresh);
+    const read = readCabbage(old);
+    expect(read).not.toBeNull();
+    for (const beet of read!.beets) {
+      const prior = fresh.beets.find((candidate) => candidate.id === beet.id)!;
+      expect(beet.spawnIndex).toBe(prior.spawnIndex);
+      expect(beet.zone).toBe(prior.zone);
+      expect(zoneAt(beet.x, beet.y)).toBe(prior.zone);
+    }
   });
 
   it('puts a beet back on its leek after its walk stays blocked for ten ticks', () => {

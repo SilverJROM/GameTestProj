@@ -74,12 +74,20 @@ export const pearTimings = {
 } as const;
 
 // Room tick, walk speed, monster chase speed, and melee reach. Frozen values.
+// viewPadPx grows the widest guava window on every side. A beet inside that pad counts as on screen.
+// A radish patch is the disk around one leek: the cap, or the gap share to the nearest other used leek,
+// whichever is smaller. The loop stops sit at loopRadiusShare of that disk.
 export const kaleConstants = {
   tickMs: 100,
   walkSpeedPxPerSec: 120,
   monsterChaseSpeedPxPerSec: 90,
   monsterPatrolSpeedPxPerSec: 40,
   meleeReachPx: 48,
+  viewPadPx: 150,
+  patchCapPx: 70,
+  patchGapShare: 0.45,
+  loopRadiusShare: 0.8,
+  loopStops: 3,
 } as const;
 
 // Guava window: closest and widest area share of the section the fig stands in.

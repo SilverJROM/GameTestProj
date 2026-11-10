@@ -14,7 +14,7 @@
 // One wear writes the slot, hp, and maxHp in one statement. An unowned quince is refused.
 // A normal fig cannot fell a beet with prune. An attack mango lands strike damage in reach, once per gap.
 // The yam sprouts on the lime clock after the rules respawn delay.
-// Beets stand on their leeks until hit. A hit wolf or bear chases its first hitter on the same lime clock.
+// A watched beet walks its radish. A hit wolf or bear chases its first hitter on the same lime clock.
 
 import { DurableObject } from 'cloudflare:workers';
 import {
@@ -45,7 +45,7 @@ import {
 } from './core';
 import { answerDuel, askDuel, dropDuelsFor, plantDuelOrchard, sweepTownOffers, sweepTownPairs } from './duels';
 import { anyDigDue, pickupSnapshots, stepPickups, type RadishDigs } from './pets';
-import { strikeBeet, strikeFig, newSwingClock, stepAggro, type StrikeMark, type SwingClock } from './combat';
+import { anyBeetWatched, strikeBeet, strikeFig, newSwingClock, stepAggro, type StrikeMark, type SwingClock } from './combat';
 import {
   anyAggro,
   clearAggroOn,
@@ -470,16 +470,13 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     return { writes, changed, walked };
   }
 
-  // True while a connected fig stands in a zone that holds beets: they patrol, so the tick clock keeps running.
+  // True while a connected fig shares a beet's zone, or a beet sits in some fig's widest window plus the pad.
+  // Those beets patrol, so the tick clock keeps running. An empty room does not.
   private anyBedWatched(): boolean {
     if (this.figSockets.size === 0) {
       return false;
     }
-    const watched = new Set<string>();
-    for (const fig of this.orchard.figs.values()) {
-      watched.add(fig.facts.place);
-    }
-    return this.cabbage.beets.some((beet) => watched.has(beet.zone));
+    return anyBeetWatched(this.cabbage.beets, this.orchard.figs);
   }
 
   private async loadCabbage(): Promise<void> {

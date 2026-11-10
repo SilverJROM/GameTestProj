@@ -104,6 +104,11 @@ describe('timing and frozen constants', () => {
       monsterChaseSpeedPxPerSec: 90,
       monsterPatrolSpeedPxPerSec: 40,
       meleeReachPx: 48,
+      viewPadPx: 150,
+      patchCapPx: 70,
+      patchGapShare: 0.45,
+      loopRadiusShare: 0.8,
+      loopStops: 3,
     });
   });
 
