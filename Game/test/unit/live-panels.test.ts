@@ -226,6 +226,7 @@ describe('live bag and blacksmith panels', () => {
       ['olive-xp', xp],
       ['olive-sword', sword],
       ['olive-armor', fakeEl('olive-armor')],
+      ['olive-items', fakeEl('olive-items')],
       ['quince-smith', smith],
       ['quince-close', quinceClose],
       ['quince-purse', purse],
@@ -399,5 +400,87 @@ describe('live bag and blacksmith panels', () => {
     key('Escape');
     expect(smith.hidden).toBe(true);
     expect(sheet.hidden).toBe(true);
+
+    const owned = {
+      level: 1,
+      xp: 0,
+      hp: 40,
+      maxHp: 70,
+      coins: 200,
+      sword: null,
+      armor: null,
+      items: ['shortSword', 'leather'],
+    };
+    deliver(figSnapshot(owned));
+    press(canvas, bubble!.x + 4, bubble!.y + 4);
+    expect(smith.hidden).toBe(false);
+    expect(buttonState(list.children)).toEqual([
+      { text: 'Short sword (Owned)', disabled: true },
+      { text: 'Long sword (40)', disabled: false },
+      { text: 'Great sword (70)', disabled: false },
+      { text: 'Leather (Owned)', disabled: true },
+      { text: 'Chain (36)', disabled: false },
+      { text: 'Plate (64)', disabled: false },
+    ]);
+    const sentBeforeOwned = FakeSocket.open?.sent.length ?? 0;
+    click(list.children[0]!);
+    click(list.children[3]!);
+    expect(FakeSocket.open?.sent.length).toBe(sentBeforeOwned);
+    expect(smith.hidden).toBe(false);
+
+    click(list.children[1]!);
+    expect(smith.hidden).toBe(true);
+    expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'buy', item: 'longSword' });
+
+    press(canvas, bag!.x + 4, bag!.y + 4);
+    expect(sheet.hidden).toBe(false);
+    const itemHost = elements.get('olive-items');
+    if (itemHost === undefined) {
+      throw new Error('olive-items missing');
+    }
+    expect(itemHost.children.map((button) => button.textContent)).toEqual([
+      'Short sword +2 strike',
+      'Leather +12 max HP',
+    ]);
+    const health = elements.get('olive-health')!;
+    const strikeLine = elements.get('olive-strike')!;
+    const armorLine = elements.get('olive-armor')!;
+    if (health === undefined || strikeLine === undefined || armorLine === undefined) {
+      throw new Error('bag lines missing');
+    }
+    expect(sword.textContent).toBe('Nothing worn');
+    expect(armorLine.textContent).toBe('Nothing worn');
+    expect(strikeLine.textContent).toBe('Strike 4');
+    expect(health.textContent).toBe('40 / 70');
+
+    click(itemHost.children[0]!);
+    expect(sheet.hidden).toBe(false);
+    expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'equip', itemId: 'shortSword' });
+
+    deliver(figSnapshot({ ...owned, sword: 'shortSword' }));
+    expect(sheet.hidden).toBe(false);
+    expect(sword.textContent).toBe('Short sword');
+    expect(strikeLine.textContent).toBe('Strike 6');
+    expect(health.textContent).toBe('40 / 70');
+
+    click(sword);
+    expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'unequip', slot: 'sword' });
+    deliver(figSnapshot({ ...owned, sword: null }));
+    expect(sword.textContent).toBe('Nothing worn');
+    expect(strikeLine.textContent).toBe('Strike 4');
+
+    click(itemHost.children[1]!);
+    expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'equip', itemId: 'leather' });
+    deliver(figSnapshot({ ...owned, armor: 'leather', maxHp: 82 }));
+    expect(armorLine.textContent).toBe('Leather');
+    expect(health.textContent).toBe('40 / 82');
+    expect(strikeLine.textContent).toBe('Strike 4');
+
+    click(armorLine);
+    expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'unequip', slot: 'armor' });
+    deliver(figSnapshot({ ...owned, armor: null, maxHp: 70 }));
+    expect(armorLine.textContent).toBe('Nothing worn');
+    expect(health.textContent).toBe('40 / 70');
+    expect(sheet.hidden).toBe(false);
   });
 });

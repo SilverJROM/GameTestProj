@@ -20,11 +20,6 @@ export interface Hero {
   readonly place: ZoneName;
 }
 
-export interface PurchaseResult {
-  readonly ok: boolean;
-  readonly hero: Hero;
-}
-
 // Duel payout takes half of the loser's purse, rounded down. A carrot-sized purse pays nothing.
 const DUEL_SHARE_DIVISOR = 2;
 
@@ -109,25 +104,6 @@ export function awardXp(hero: Hero, amount: number): Hero {
 // Death sends the hero to town at full max health. Level, XP, gear, and coins are kept.
 export function deathResult(hero: Hero): Hero {
   return { ...hero, place: 'town', health: maxHealth(hero) };
-}
-
-// Buy an item at full price. The piece in its slot is replaced with no refund.
-// A short purse is refused, and the hero comes back unchanged.
-export function purchase(hero: Hero, itemId: string): PurchaseResult {
-  const item = gearRow(itemId);
-  if (hero.coins < item.price) {
-    return { ok: false, hero };
-  }
-
-  const bought: Hero = {
-    ...hero,
-    coins: hero.coins - item.price,
-    sword: item.slot === 'sword' ? item.id : hero.sword,
-    armor: item.slot === 'armor' ? item.id : hero.armor,
-  };
-  // Current health stays as it was, clamped to the new maximum.
-  const health = clampHealth(bought.health, maxHealth(bought));
-  return { ok: true, hero: { ...bought, health } };
 }
 
 // Coins a duelist takes from the loser.

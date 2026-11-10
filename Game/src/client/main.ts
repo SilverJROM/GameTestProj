@@ -8,7 +8,7 @@ import { ZOOM_CLOSE, ZOOM_FAR, type ZoneName } from '../rules/tables';
 import { townSpawn } from '../rules/regions';
 import { removeMagenta } from './sprites';
 import { canvasToMap, mapToCanvas, viewBox, type PeachView } from './camera';
-import { answerPlum, buyQuince, peelClick, type ClickBerry } from './input';
+import { answerPlum, buyQuince, equipQuince, peelClick, unequipQuince, type ClickBerry } from './input';
 import {
   CEMETERY_WALL_SRC,
   GROUND_SRC,
@@ -17,6 +17,7 @@ import {
   controlAt,
   createOliveReel,
   inventorySheet,
+  ownedItemLabel,
   paintOrchard,
   healthReadout,
   hudReadout,
@@ -160,6 +161,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   let selfCoins = 0;
   let selfSword: string | null = null;
   let selfArmor: string | null = null;
+  let selfItems: string[] = [];
   const seenHits = new Set<string>();
   let floats: FloatHit[] = [];
   const selfGender = options.selfGender;
@@ -195,6 +197,9 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     if (typeof fig.coins === 'number') selfCoins = fig.coins;
     if (typeof fig.sword === 'string' || fig.sword === null) selfSword = fig.sword as string | null;
     if (typeof fig.armor === 'string' || fig.armor === null) selfArmor = fig.armor as string | null;
+    if (Array.isArray(fig.items)) {
+      selfItems = fig.items.filter((id): id is string => typeof id === 'string');
+    }
   }
 
   function ingest(raw: unknown): void {
@@ -346,7 +351,23 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
 
   function shop(): ShopSheet | null {
     if (!quinceOpen) return null;
-    return shopSheet(selfCoins);
+    return shopSheet(selfCoins, selfItems);
+  }
+
+  function equipOwned(itemId: string): void {
+    if (!selfItems.includes(itemId)) return;
+    if (itemId === selfSword || itemId === selfArmor) return;
+    sendOne(equipQuince(itemId));
+  }
+
+  function unequipWorn(slot: 'sword' | 'armor'): void {
+    if (slot === 'sword' && (selfSword === null || selfSword.length === 0)) return;
+    if (slot === 'armor' && (selfArmor === null || selfArmor.length === 0)) return;
+    sendOne(unequipQuince(slot));
+  }
+
+  function bagGear(): { readonly items: readonly string[]; readonly sword: string | null; readonly armor: string | null } {
+    return { items: selfItems, sword: selfSword, armor: selfArmor };
   }
 
   function inventory(): InventorySheet | null {
@@ -481,6 +502,9 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     accept,
     decline,
     chooseQuince,
+    equipOwned,
+    unequipWorn,
+    bagGear,
     ingest,
     draw,
     health,
@@ -677,8 +701,9 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     }
   }
 
-  // Row id, price, and whether the purse can pay. Coins alone do not rebuild the list.
+  // Row id, price, ownership, and whether the purse can pay. Coins alone do not rebuild the list.
   let quinceSig = '';
+  let oliveSig = '';
 
   function oliveText(id: string, text: string): void {
     const node = doc.getElementById(id);
@@ -696,6 +721,29 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     oliveText('olive-health', sheet.health);
     oliveText('olive-strike', `Strike ${sheet.strike}`);
     oliveText('olive-xp', `Experience ${sheet.experience}`);
+    paintOliveItems();
+  }
+
+  function paintOliveItems(): void {
+    const host = doc.getElementById('olive-items');
+    if (host === null || host === undefined) return;
+    const gear = board.bagGear();
+    const next = `${gear.items.join(',')}|${gear.sword ?? ''}|${gear.armor ?? ''}`;
+    if (next === oliveSig) return;
+    oliveSig = next;
+    host.textContent = '';
+    for (const itemId of gear.items) {
+      const button = doc.createElement('button');
+      button.type = 'button';
+      button.textContent = ownedItemLabel(itemId);
+      const worn = itemId === gear.sword || itemId === gear.armor;
+      if (!worn) {
+        button.addEventListener?.('click', () => {
+          board.equipOwned(itemId);
+        });
+      }
+      host.appendChild?.(button);
+    }
   }
 
   function paintQuince(): void {
@@ -705,15 +753,19 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     const purseText = sheet === null ? '' : `Your coins: ${sheet.coins}`;
     if (purse !== null && purse.textContent !== purseText) purse.textContent = purseText;
     if (sheet === null) return;
-    const nextSig = sheet.rows.map((row) => `${row.id}:${row.price}:${row.canBuy ? 1 : 0}`).join('|');
+    const nextSig = sheet.rows.map((row) => `${row.id}:${row.price}:${row.owned ? 1 : 0}:${row.canBuy ? 1 : 0}`).join('|');
     if (nextSig === quinceSig) return;
     quinceSig = nextSig;
     smithList.textContent = '';
     for (const row of sheet.rows) {
       const button = doc.createElement('button');
       button.type = 'button';
-      button.textContent = row.canBuy ? `${row.name} (${row.price})` : `${row.name} (Need ${row.price} coins)`;
-      button.disabled = !row.canBuy;
+      button.textContent = row.owned
+        ? `${row.name} (Owned)`
+        : row.canBuy
+          ? `${row.name} (${row.price})`
+          : `${row.name} (Need ${row.price} coins)`;
+      button.disabled = row.owned || !row.canBuy;
       if (row.canBuy) {
         button.addEventListener?.('click', () => {
           board.chooseQuince(row.id);
@@ -766,6 +818,12 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   });
   doc.getElementById('olive-close')?.addEventListener?.('click', () => {
     board.closePanels();
+  });
+  doc.getElementById('olive-sword')?.addEventListener?.('click', () => {
+    board.unequipWorn('sword');
+  });
+  doc.getElementById('olive-armor')?.addEventListener?.('click', () => {
+    board.unequipWorn('armor');
   });
   const keyHost = doc as LooseDoc & {
     addEventListener?(type: string, listener: (event: LooseEvent) => void): void;

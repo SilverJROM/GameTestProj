@@ -15,7 +15,8 @@ export const DROP_FIG_PATH = '/internal/drop-fig';
 
 // A client message. There is no id field. The socket's fig comes from the cookie.
 // move carries a guava target. fountain carries the melon click x,y and no fig id.
-// buy carries a quince item id and no fig id. The socket's fig pays for that quince.
+// buy carries a quince item id and no fig id. The socket's fig pays and the quince goes in the bag.
+// equip carries an owned quince id. unequip carries the sword or armor slot. Neither names a fig.
 // ripen sprouts the room's lime clock by whole ticks.
 // prune fells one beet by id only while the room is on the papaya clock.
 // attack carries a beet id only. The socket's fig swings; a radish id on it is dropped.
@@ -26,6 +27,8 @@ export type ClientMessage =
   | { readonly type: 'move'; readonly x: number; readonly y: number }
   | { readonly type: 'fountain'; readonly x: number; readonly y: number }
   | { readonly type: 'buy'; readonly item: string }
+  | { readonly type: 'equip'; readonly itemId: string; readonly slot?: 'sword' | 'armor' }
+  | { readonly type: 'unequip'; readonly slot: 'sword' | 'armor' }
   | { readonly type: 'ripen'; readonly steps: number }
   | { readonly type: 'prune'; readonly beetId: string }
   | { readonly type: 'attack'; readonly monsterId: string }
@@ -178,6 +181,27 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
       return null;
     }
     return { type: 'buy', item: quinceItem };
+  }
+  if (peeled.type === 'equip') {
+    const quinceId = peeled.itemId;
+    if (typeof quinceId !== 'string' || quinceId.length === 0) {
+      return null;
+    }
+    const quinceSlot = peeled.slot;
+    if (quinceSlot !== undefined && quinceSlot !== 'sword' && quinceSlot !== 'armor') {
+      return null;
+    }
+    if (quinceSlot === 'sword' || quinceSlot === 'armor') {
+      return { type: 'equip', itemId: quinceId, slot: quinceSlot };
+    }
+    return { type: 'equip', itemId: quinceId };
+  }
+  if (peeled.type === 'unequip') {
+    const quinceSlot = peeled.slot;
+    if (quinceSlot !== 'sword' && quinceSlot !== 'armor') {
+      return null;
+    }
+    return { type: 'unequip', slot: quinceSlot };
   }
   if (peeled.type === 'ripen') {
     const oliveSteps = peeled.steps;

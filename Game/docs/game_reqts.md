@@ -127,7 +127,7 @@ When that coin reaches the owner's purse, a gold "+N" floats up for one second a
 
 The forge sells the only gear. The blacksmith stands at the painted forge, on the courtyard ground inside the walls, at the same height as the player. A thought bubble reading "Armor and weapons" opens the shop. A Bag button opens the inventory. The inventory shows coins, the worn sword, the worn armor, level, health, strike, and experience. An empty sword or armor slot shows that nothing is worn.
 
-Prices are paid from the purse in full. The player wears one sword and one armor. Buying a new piece replaces the worn one. There is no refund.
+Buying spends the coins and puts the item in the bag. It does not equip it. Each item can be owned once; buying a copy you already own is refused and costs nothing. Equipping puts an owned sword in the sword slot or an owned armor in the armor slot, and the piece already in that slot goes back to the bag. Unequipping returns the worn piece to the bag. The bonus belongs to the equipped item: strike is the level's base plus the equipped sword, and maximum health is the level's base plus the equipped armor. Equipping armor raises maximum health and leaves current health where it is. Unequipping armor lowers maximum health and clamps current health down to it. Equipping or unequipping a sword does not change health. Equip and unequip work anywhere. A purchase the purse cannot cover, an unknown item, or a second copy is refused and changes nothing. Selling is not offered.
 
 | Item | Effect | Price |
 | --- | --- | --- |
@@ -137,8 +137,6 @@ Prices are paid from the purse in full. The player wears one sword and one armor
 | Leather | +12 maximum HP | 16 |
 | Chain | +24 maximum HP | 36 |
 | Plate | +40 maximum HP | 64 |
-
-A purchase the purse cannot cover is refused and changes nothing. Selling is not offered.
 
 These prices line up with the hunt. Five wolves reach level 2 and pay for the short sword. A level of bears pays for either the long sword or the chain, not both. A level of skeletons pays for either the great sword or the plate, not both. The sword shortens the fight. The armor raises the health the player can lose. That is the gear choice.
 

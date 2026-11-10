@@ -281,7 +281,8 @@ describe('G3 room core flow', () => {
       type: 'buy',
       item: shortSwordRow.id,
     });
-    expect(bought.senderSnap.character.sword).toBe(shortSwordRow.id);
+    expect(bought.senderSnap.character.sword).toBeNull();
+    expect(bought.senderSnap.character.items).toEqual([shortSwordRow.id]);
     expect(bought.senderSnap.character.coins).toBe(0);
     const sipped = await broadcastMango(shopperJoin.socket, walkerAgain.socket, {
       type: 'fountain',
@@ -302,14 +303,16 @@ describe('G3 room core flow', () => {
     const shopperAgain = await connectFig(wsUrl, shopper.grape);
     openSockets.push(shopperAgain.socket);
     expect(shopperAgain.welcome.character).toMatchObject({
-      sword: shortSwordRow.id,
+      sword: null,
+      items: [shortSwordRow.id],
       coins: 0,
       hp: healedHp,
       maxHp: healedHp,
       place: 'town',
     });
     expect(await getById(kiwiDb, shopper.facts.id)).toMatchObject({
-      sword: shortSwordRow.id,
+      sword: null,
+      items: [shortSwordRow.id],
       coins: 0,
       hp: healedHp,
     });

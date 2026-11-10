@@ -6,7 +6,6 @@ import {
   duelPayout,
   levelUpHealth,
   maxHealth,
-  purchase,
   strike,
   type Hero,
 } from '../../src/rules/logic';
@@ -180,43 +179,6 @@ describe('death', () => {
     expect(after.xp).toBe(7);
     expect(after.sword).toBe('longSword');
     expect(after.armor).toBe('chain');
-  });
-});
-
-describe('purchase', () => {
-  it('refuses a short purse and changes nothing', () => {
-    // 17 coins cannot pay for the 18-coin short sword.
-    const peach = makeHero({ coins: 17, sword: null });
-    const result = purchase(peach, 'shortSword');
-    expect(result.ok).toBe(false);
-    expect(result.hero).toEqual(peach);
-    expect(result.hero.coins).toBe(17);
-    expect(result.hero.sword).toBeNull();
-  });
-
-  it('charges the full price and wields the sword', () => {
-    const plum = makeHero({ coins: 18 });
-    const result = purchase(plum, 'shortSword');
-    expect(result.ok).toBe(true);
-    expect(result.hero.coins).toBe(0);
-    expect(result.hero.sword).toBe('shortSword');
-  });
-
-  it('replaces the worn piece with no refund', () => {
-    const fig = makeHero({ coins: 40, sword: 'shortSword' });
-    const result = purchase(fig, 'longSword');
-    expect(result.ok).toBe(true);
-    expect(result.hero.sword).toBe('longSword');
-    expect(result.hero.coins).toBe(0);
-  });
-
-  it('replaces worn armor and leaves current health as it was', () => {
-    const olive = makeHero({ coins: 36, health: 10, armor: 'leather' });
-    const result = purchase(olive, 'chain');
-    expect(result.ok).toBe(true);
-    expect(result.hero.armor).toBe('chain');
-    expect(result.hero.coins).toBe(0);
-    expect(result.hero.health).toBe(10);
   });
 });
 

@@ -600,11 +600,20 @@ export function gearLabel(id: string | null): string {
   return GEAR_LABEL[id] ?? id;
 }
 
+// Bag tile text, such as "Long sword +4 strike".
+export function ownedItemLabel(id: string): string {
+  const row = mangoGearRows.find((candidate) => candidate.id === id);
+  const name = gearLabel(id);
+  if (row === undefined) return name;
+  return row.effect === 'strike' ? `${name} +${row.amount} strike` : `${name} +${row.amount} max HP`;
+}
+
 export interface ShopRow {
   readonly id: string;
   readonly name: string;
   readonly price: number;
   readonly effect: string;
+  readonly owned: boolean;
   readonly canBuy: boolean;
 }
 
@@ -613,16 +622,21 @@ export interface ShopSheet {
   readonly rows: readonly ShopRow[];
 }
 
-export function shopSheet(coins: number): ShopSheet {
+export function shopSheet(coins: number, ownedIds: readonly string[] = []): ShopSheet {
+  const owned = new Set(ownedIds);
   return {
     coins,
-    rows: mangoGearRows.map((row) => ({
-      id: row.id,
-      name: gearLabel(row.id),
-      price: row.price,
-      effect: row.effect === 'strike' ? `Strike +${row.amount}` : `Max HP +${row.amount}`,
-      canBuy: coins >= row.price,
-    })),
+    rows: mangoGearRows.map((row) => {
+      const already = owned.has(row.id);
+      return {
+        id: row.id,
+        name: gearLabel(row.id),
+        price: row.price,
+        effect: row.effect === 'strike' ? `Strike +${row.amount}` : `Max HP +${row.amount}`,
+        owned: already,
+        canBuy: !already && coins >= row.price,
+      };
+    }),
   };
 }
 

@@ -8,10 +8,10 @@
 // A prune starts a yam only while this room is on the papaya clock.
 // A fountain mango sips the melon well for the socket's fig. A radish id on that mango is ignored.
 // The sip fills hp to the stored maxHp when the fig is in town and the click lands in the melon box.
-// A buy mango plucks a quince for the socket's fig. A radish id on that mango is ignored.
-// The fig must already stand in town. purchase() sets the purse, the slot, and the clamped health.
-// One ripe quince writes coins, sword, armor, hp, and maxHp with one saveFacts call.
-// A short purse, an unknown quince, or a fig outside town leaves the pear as it was.
+// A buy mango puts a quince in the socket's fig bag. A radish id on that mango is ignored.
+// The fig must already stand in town. The purse and the new bag row commit in one batch.
+// equip and unequip wear or stow that fig's own quince in any zone.
+// One wear writes the slot, hp, and maxHp in one statement. An unowned quince is refused.
 // A normal fig cannot fell a beet with prune. An attack mango lands strike damage in reach, once per gap.
 // The yam sprouts on the lime clock after the rules respawn delay.
 // Beets stand on their leeks until hit. A hit wolf or bear chases its first hitter on the same lime clock.
@@ -26,7 +26,7 @@ import {
   type HitMark,
 } from '../protocol';
 import { WORLD_EPOCH, kaleConstants } from '../rules/tables';
-import { getById, saveFacts, saveFactsPair, type CharacterDb } from '../server/db';
+import { getById, saveFacts, saveFactsPair, saveQuinceBuy, saveQuinceSlot, type CharacterDb, type CharacterFactsPatch } from '../server/db';
 import {
   bakeSnapshotMessage,
   bakeWelcome,
@@ -36,6 +36,8 @@ import {
   ripenDue,
   sipMelon,
   sproutFig,
+  stashQuince,
+  wearQuince,
   type FigWalk,
   type LimeClock,
   type PapayaOrchard,
@@ -253,6 +255,14 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       await this.onBuy(appleId, peeled.item);
       return;
     }
+    if (peeled.type === 'equip') {
+      await this.onEquip(appleId, peeled.itemId, peeled.slot);
+      return;
+    }
+    if (peeled.type === 'unequip') {
+      await this.onUnequip(appleId, peeled.slot);
+      return;
+    }
     if (peeled.type === 'attack') {
       await this.onAttack(appleId, 'monsterId' in peeled ? peeled.monsterId : undefined, 'playerId' in peeled ? peeled.playerId : undefined);
       return;
@@ -303,17 +313,86 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   // The quince id comes from the mango. The fig id is the socket's apple, never a radish on the body.
-  // buyQuince catches an unknown quince, so this lemon stays open and still answers.
+  // buyQuince refuses an unknown, owned, or unaffordable quince, so this lemon stays open.
   private async onBuy(appleId: string, quinceId: string): Promise<void> {
     const fig = this.orchard.figs.get(appleId);
     if (fig === undefined) {
       return;
     }
     const quincePatch = buyQuince(fig, quinceId);
-    if (quincePatch !== null) {
-      await saveFacts(this.env.DB, appleId, quincePatch);
+    if (quincePatch !== null && quincePatch.coins !== undefined) {
+      try {
+        await saveQuinceBuy(this.env.DB, appleId, quincePatch.coins, quinceId);
+      } catch {
+        await this.restoreQuince(fig);
+      }
     }
     this.broadcastMango();
+  }
+
+  // Wear one owned quince. A slot that does not match the quince is refused inside wearQuince.
+  private async onEquip(appleId: string, quinceId: string, slot?: 'sword' | 'armor'): Promise<void> {
+    const fig = this.orchard.figs.get(appleId);
+    if (fig === undefined) {
+      return;
+    }
+    const patch = wearQuince(fig, quinceId, slot);
+    if (patch !== null) {
+      const wrote = await this.persistSlot(appleId, patch);
+      if (!wrote) {
+        await this.restoreQuince(fig);
+      }
+    }
+    this.broadcastMango();
+  }
+
+  // Stow the worn quince in one slot. The bag row stays.
+  private async onUnequip(appleId: string, slot: 'sword' | 'armor'): Promise<void> {
+    const fig = this.orchard.figs.get(appleId);
+    if (fig === undefined) {
+      return;
+    }
+    const patch = stashQuince(fig, slot);
+    if (patch !== null) {
+      const wrote = await this.persistSlot(appleId, patch);
+      if (!wrote) {
+        await this.restoreQuince(fig);
+      }
+    }
+    this.broadcastMango();
+  }
+
+  // The slot column, hp, and maxHp share one UPDATE. The bag is not rewritten.
+  private async persistSlot(appleId: string, patch: CharacterFactsPatch): Promise<boolean> {
+    const hp = patch.hp;
+    const maxHp = patch.maxHp;
+    if (hp === undefined || maxHp === undefined) {
+      return false;
+    }
+    if (patch.sword !== undefined) {
+      return saveQuinceSlot(this.env.DB, appleId, 'sword', patch.sword, hp, maxHp);
+    }
+    if (patch.armor !== undefined) {
+      return saveQuinceSlot(this.env.DB, appleId, 'armor', patch.armor, hp, maxHp);
+    }
+    return false;
+  }
+
+  // Put the purse, the worn slots, health, and the bag back to the stored row.
+  private async restoreQuince(fig: FigWalk): Promise<void> {
+    const fresh = await getById(this.env.DB, fig.facts.id);
+    if (fresh === null) {
+      return;
+    }
+    fig.facts = {
+      ...fig.facts,
+      coins: fresh.coins,
+      sword: fresh.sword,
+      armor: fresh.armor,
+      hp: fresh.hp,
+      maxHp: fresh.maxHp,
+      items: fresh.items,
+    };
   }
 
   private async onFountain(appleId: string, melonX: number, melonY: number): Promise<void> {

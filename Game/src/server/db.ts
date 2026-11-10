@@ -67,6 +67,8 @@ export interface CharacterFacts {
   readonly coins: number;
   readonly sword: string | null;
   readonly armor: string | null;
+  // Quince ids this fig owns, worn or not. Equipped ids also stay in this list.
+  readonly items: string[];
   readonly place: ZoneName;
   readonly x: number;
   readonly y: number;
@@ -121,7 +123,7 @@ const SAVABLE_COLUMNS: Readonly<Record<keyof CharacterFactsPatch, string>> = {
   y: 'y',
 };
 
-function rowToFacts(peachRow: CharacterRow): CharacterFacts {
+function rowToFacts(peachRow: CharacterRow, items: string[]): CharacterFacts {
   return {
     id: peachRow.id,
     name: peachRow.name,
@@ -134,10 +136,24 @@ function rowToFacts(peachRow: CharacterRow): CharacterFacts {
     coins: peachRow.coins,
     sword: peachRow.sword,
     armor: peachRow.armor,
+    items,
     place: peachRow.place,
     x: peachRow.x,
     y: peachRow.y,
   };
+}
+
+// Owned quince ids, in a stable order, so a reconnect matches the bag the page already showed.
+async function listQuinceIds(db: CharacterDb, characterId: string): Promise<string[]> {
+  const statement = db
+    .prepare('SELECT item_id FROM character_items WHERE character_id = ? ORDER BY item_id')
+    .bind(characterId);
+  const rows = await readAll<{ item_id: string }>(statement);
+  return rows.map((row) => row.item_id);
+}
+
+async function factsFromRow(db: CharacterDb, peachRow: CharacterRow): Promise<CharacterFacts> {
+  return rowToFacts(peachRow, await listQuinceIds(db, peachRow.id));
 }
 
 // Starting character: level 1, full health, no coins or XP, no gear, in town at the first town spawn point.
@@ -317,7 +333,7 @@ export async function getOwnedCharacter(
     .prepare(`SELECT ${ALL_COLUMNS} FROM characters WHERE id = ? AND account_id = ?`)
     .bind(id, accountId)
     .first<CharacterRow>();
-  return row === null ? null : rowToFacts(row);
+  return row === null ? null : factsFromRow(db, row);
 }
 
 export async function deleteAvatar(db: CharacterDb, accountId: string, id: string): Promise<boolean> {
@@ -333,7 +349,7 @@ export async function getById(db: CharacterDb, id: string): Promise<CharacterFac
     .prepare(`SELECT ${ALL_COLUMNS} FROM characters WHERE id = ?`)
     .bind(id)
     .first<CharacterRow>();
-  return row === null ? null : rowToFacts(row);
+  return row === null ? null : factsFromRow(db, row);
 }
 
 // Takes the comparison key (see normalizeName), not the raw typed name.
@@ -342,7 +358,44 @@ export async function getByNameKey(db: CharacterDb, nameKey: string): Promise<Ch
     .prepare(`SELECT ${ALL_COLUMNS} FROM characters WHERE name_key = ?`)
     .bind(nameKey)
     .first<CharacterRow>();
-  return row === null ? null : rowToFacts(row);
+  return row === null ? null : factsFromRow(db, row);
+}
+
+// Coins and the new bag row commit together. A duplicate quince rolls the purse back with the insert.
+export async function saveQuinceBuy(db: CharacterDb, id: string, coins: number, itemId: string): Promise<void> {
+  await db.batch([
+    db.prepare('UPDATE characters SET coins = ? WHERE id = ?').bind(coins, id),
+    db.prepare('INSERT INTO character_items (character_id, item_id) VALUES (?, ?)').bind(id, itemId),
+  ]);
+}
+
+const QUINCE_SLOT_COLUMN = { sword: 'sword', armor: 'armor' } as const;
+
+// One statement writes the worn slot plus hp and maxHp.
+// A quince the fig does not own cannot be written into the slot. Clearing a slot needs no bag row.
+export async function saveQuinceSlot(
+  db: CharacterDb,
+  id: string,
+  slot: 'sword' | 'armor',
+  itemId: string | null,
+  hp: number,
+  maxHp: number,
+): Promise<boolean> {
+  const column = QUINCE_SLOT_COLUMN[slot];
+  if (itemId === null) {
+    const cleared = await db
+      .prepare(`UPDATE characters SET ${column} = NULL, hp = ?, max_hp = ? WHERE id = ?`)
+      .bind(hp, maxHp, id)
+      .run();
+    return (cleared.meta?.changes ?? 0) > 0;
+  }
+  const worn = await db
+    .prepare(
+      `UPDATE characters SET ${column} = ?, hp = ?, max_hp = ? WHERE id = ? AND EXISTS (SELECT 1 FROM character_items WHERE character_id = ? AND item_id = ?)`,
+    )
+    .bind(itemId, hp, maxHp, id, id, itemId)
+    .run();
+  return (worn.meta?.changes ?? 0) > 0;
 }
 
 // Builds the UPDATE for one patch, or null when the patch has no keys.

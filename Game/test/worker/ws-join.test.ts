@@ -305,7 +305,11 @@ describe('GET /ws join on the real worker', () => {
     expect(mangoJoin.welcome.snapshot.players.some((player) => player.id === plum.facts.id)).toBe(true);
 
     const closed = waitForClose(plumJoin.socket);
-    const heard = nextMango(mangoJoin.socket);
+    const seen: SnapshotMessage[] = [];
+    const onMango = (data: unknown) => {
+      seen.push(JSON.parse(mangoText(data)) as SnapshotMessage);
+    };
+    mangoJoin.socket.on('message', onMango);
     const deleted = await worker.fetch(`http://town.example/api/avatars/${encodeURIComponent(plum.facts.id)}`, {
       method: 'DELETE',
       headers: { Cookie: `${ACCOUNT_COOKIE_NAME}=${plum.accountValue}` },
@@ -313,7 +317,16 @@ describe('GET /ws join on the real worker', () => {
     expect(deleted.status).toBe(200);
     expect(await deleted.json()).toEqual({ ok: true });
     await closed;
-    const snap = await heard;
+    const deadline = Date.now() + 8_000;
+    let snap = seen.find((row) => !row.snapshot.players.some((player) => player.id === plum.facts.id));
+    while (snap === undefined && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      snap = seen.find((row) => !row.snapshot.players.some((player) => player.id === plum.facts.id));
+    }
+    mangoJoin.socket.off('message', onMango);
+    if (snap === undefined) {
+      throw new Error('snapshot without the deleted fig did not arrive');
+    }
     expect(snap.snapshot.players.some((player) => player.id === plum.facts.id)).toBe(false);
     expect(plumJoin.socket.readyState).toBe(WebSocket.CLOSED);
     expect(mangoJoin.socket.readyState).toBe(WebSocket.OPEN);

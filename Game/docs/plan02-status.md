@@ -2,7 +2,7 @@
 
 Recovery file. If the session closes (out of memory, suspend, crash), read this first, then `docs/plan02.md` for the full plan. Update this file after every slice event: started, passed, failed.
 
-Last updated: 2026-11-10 06:05 UTC
+Last updated: 2026-11-10 06:40 UTC
 
 ## Where things stand
 
@@ -11,7 +11,7 @@ Last updated: 2026-11-10 06:05 UTC
 | Working branch | `update-02` (cut from `main` at `c30f690`) |
 | Old branch | `candidate-work` deleted on 2026-11-10 (it was fully merged, was at `ab9db1f`) |
 | Base commit for this update | `c30f690` "Add walk frames, ground map, overlays, approved mockups, and plan 02." |
-| Overall | 64% (slices 0 to 8 done, 9 of 14) |
+| Overall | 79% (slices 0 to 10 done, 11 of 14) |
 | Pushing / deploying | Not allowed. Push is disabled. No Cloudflare deploy in this plan. |
 
 ## Topology
@@ -35,9 +35,9 @@ Status values: `done`, `in progress`, `pending`, `waiting for user`, `blocked`.
 | 5 | Live Bag and Blacksmith panels, Close buttons, HUD | **done** | `f3e5b31` | Open panels follow every snapshot; Close button, Escape, and Bag toggle; HUD `Lv / XP / Coins` under the health bar. 319 tests pass. Checked in Chrome: bag open during a kill went `Experience 0/10` to `2/10`, coins `0` to `4` without reopening; Close and Escape work. Known cosmetic: the zoom slider overlaps the open Bag panel (fixed when the panels are rebuilt as centered panels in slices 11 and 12). Buying still closes the shop (to change in slice 11). |
 | 6 | Migration 0002 (accounts, wipe old data), password hashing, account routes; **merged with slice 7** (avatar routes, delete, play) | **done** | `51c46f1` | 336 tests pass. Checked against a running server: create/sign in/out, duplicate username (any case) 409, 2-avatar cap holds under 3 quick adds, name taken 409, other account's avatar 404 on play and delete, account cookie rejected as a character cookie, deleting a connected avatar closes its socket (4000), generic sign-in failure (266 ms either way), old `/api/login` 404. PBKDF2 10,000 iterations (about 17-37 ms locally). Known gap, fix in slice 8: coin seeds a deleted avatar left on the ground are never collected (only connected owners dig). |
 | 7 | Avatar routes: add, delete, play, 2 per account | **done (merged into slice 6)** | `51c46f1` | |
-| 8 | Sign-in, avatar list, add and delete screens (+ clear a deleted avatar's ground coins) | **done** | see git log | 344 tests pass. Checked in Chrome: wrong sign-in shows the generic message and clears the password box; create account; add Ayla (blank name refused); Man switches the preview; two slots filled and no Add button at 2; Delete needs a second click and reverts after 4 s; reload keeps you signed in and shows the avatars; Play enters the game with the zoom slider. Deleted avatar's ground coins are cleared. `docs/plan02-tools/investigate.mjs` still uses the old login (throwaway). |
-| 9 | New mockup section for the item row and drag, plus approval picture | pending | - | **Stops for your approval of the picture before slice 12.** |
-| 10 | Item bag data: `character_items`, buy-to-bag, equip, unequip | pending | - | |
+| 8 | Sign-in, avatar list, add and delete screens (+ clear a deleted avatar's ground coins) | **done** | `a782f85` | 344 tests pass. Checked in Chrome: wrong sign-in shows the generic message and clears the password box; create account; add Ayla (blank name refused); Man switches the preview; two slots filled and no Add button at 2; Delete needs a second click and reverts after 4 s; reload keeps you signed in and shows the avatars; Play enters the game with the zoom slider. Deleted avatar's ground coins are cleared. `docs/plan02-tools/investigate.mjs` still uses the old login (throwaway). |
+| 9 | New mockup sections 12-14 (Blacksmith with Owned, inventory with item row, drag state) plus approval pictures | **done, waiting for user approval** | see git log | Pictures: `docs/mockups/screenshots/approval-shop-owned.png`, `approval-inventory-items.png`, `approval-inventory-drag.png`. **Slice 12 does not start until the user approves them.** |
+| 10 | Item bag data: `character_items`, buy-to-bag, equip, unequip (+ minimal click-to-equip in the plain Bag panel) | **done** | see git log | 351 tests pass. Checked in Chrome: buying Short sword and Leather puts them in the bag, coins 100 to 66, Strike stays 4; shop rows read `(Owned)`; click-equip Short sword gives Strike 6; equip Leather gives max HP 70 to 82 with HP staying 40; clicking the worn slot lines unequips (max HP back to 70, Strike back to 4). |
 | 11 | Blacksmith panel from the mockup, with "Owned" | pending | - | |
 | 12 | Bag panel from the mockup, item row, drag and click to equip | pending | - | Needs slice 9 approved. |
 | 13 | Screenshots of the running game in Chrome | pending | - | `docs/mockups/screenshots/running-*.png` |

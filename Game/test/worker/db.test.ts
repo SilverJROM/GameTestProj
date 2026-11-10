@@ -60,6 +60,7 @@ describe('character store on local D1', () => {
     expect(pearFacts.maxHp).toBe(70);
     expect(pearFacts.sword).toBeNull();
     expect(pearFacts.armor).toBeNull();
+    expect(pearFacts.items).toEqual([]);
     expect(pearFacts.place).toBe('town');
     expect([pearFacts.x, pearFacts.y]).toEqual([townSpawn[0], townSpawn[1]]);
 
