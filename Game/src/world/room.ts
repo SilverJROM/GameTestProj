@@ -355,6 +355,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return;
     }
+    // Coins whose seven days are over cannot pay for anything, even if the once-a-minute sweep has not run yet.
+    await this.expireNow(fig);
     await this.refreshBag(fig);
     const purseBefore = fig.facts.coins;
     const quincePatch = buyQuince(fig, quinceId);
@@ -450,6 +452,14 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       items: fresh.items,
       elsewhere: fresh.elsewhere,
     };
+  }
+
+  // Remove this avatar's expired coins right now and take them off the live purse too.
+  private async expireNow(fig: FigWalk): Promise<void> {
+    const gone = await expireCoinLots(this.env.DB, fig.facts.id, Date.now());
+    if (gone > 0) {
+      fig.facts = { ...fig.facts, coins: Math.max(0, fig.facts.coins - gone) };
+    }
   }
 
   // Once a minute every connected avatar loses the coins whose seven days ran out, and sees when the next ones do.
@@ -802,6 +812,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (swing === undefined) {
       swing = newSwingClock();
       this.swingClocks.set(appleId, swing);
+    }
+    // The pot is half of the loser's coins that are still alive, so expired coins never change hands.
+    await this.expireNow(fig);
+    const rival = this.orchard.figs.get(rivalId);
+    if (rival !== undefined) {
+      await this.expireNow(rival);
     }
     const hit = strikeFig(fig, this.orchard.figs.get(rivalId), this.duelOrchard.pairs, swing, this.limeClock.nowMs());
     if (hit.mark !== null) this.noteHit(hit.mark);

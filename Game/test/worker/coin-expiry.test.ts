@@ -296,4 +296,24 @@ describe('coin expiry', () => {
     expect(lots.map((row) => row.amount).sort()).toEqual([3, 4]);
     expect(Date.now() - lots.find((row) => row.amount === 4)!.pickedAtMs).toBeLessThan(60_000);
   }, 60_000);
+
+  it('coins whose seven days just ended cannot pay for a purchase, even before the next sweep', async () => {
+    const fig = await withLots('Stale', [
+      { amount: 10, ageDays: 1 },
+      { amount: 30, ageDays: 7 - 2500 / DAY },
+    ]);
+    const joined = await join(fig.grape);
+    expect(joined.welcome.character.coins).toBe(40);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    // Leather costs 16: only 10 live coins are left, so the purchase is refused.
+    let snap = await ask(joined.socket, { type: 'buy', item: 'leather' });
+    for (let tries = 0; tries < 4 && snap.character.coins !== 10; tries += 1) {
+      snap = await ask(joined.socket, { type: 'ripen', steps: 1 });
+    }
+    expect(snap.character.items).not.toContain('leather');
+    expect(snap.character.coins).toBe(10);
+    const stored = await getById(kiwiDb, fig.facts.id);
+    expect(stored!.coins).toBe(10);
+    expect(stored!.items).not.toContain('leather');
+  }, 60_000);
 });
