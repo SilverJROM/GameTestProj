@@ -1,7 +1,7 @@
 // Character store over D1. Every value is bound as a parameter; no id or name is ever spliced into SQL.
 // Starting facts come from the rules module (level table, gear, region spawn), never from restated numbers.
 
-import { expiredLots, nextExpiry, planLots, type CoinLot } from '../rules/coins';
+import { COIN_LIFETIME_MS, lotExpired, nextExpiry, planLots, type CoinLot } from '../rules/coins';
 import { maxHealth, type Hero } from '../rules/logic';
 import { normalizeName } from '../rules/names';
 import { townSpawn } from '../rules/regions';
@@ -88,6 +88,9 @@ export interface CharacterFactsPatch {
   readonly hp?: number;
   readonly maxHp?: number;
   readonly coins?: number;
+  // A purse change as an amount (gain or spend), not a total. Relative writes never undo each other, so a pickup,
+  // a purchase, a duel and the once-a-minute expiry can overlap safely. When present it replaces `coins`.
+  readonly coinsDelta?: number;
   readonly sword?: string | null;
   readonly armor?: string | null;
   readonly place?: ZoneName;
@@ -122,6 +125,7 @@ const SAVABLE_COLUMNS: Readonly<Record<keyof CharacterFactsPatch, string>> = {
   hp: 'hp',
   maxHp: 'max_hp',
   coins: 'coins',
+  coinsDelta: 'coins',
   sword: 'sword',
   armor: 'armor',
   place: 'place',
@@ -198,9 +202,27 @@ export async function readCoinLots(db: CharacterDb, characterId: string): Promis
   return rows.map((row) => ({ id: row.id, amount: Number(row.amount), pickedAtMs: Number(row.picked_at) }));
 }
 
-// The statements that bring the lots to a new purse total: gains add a lot dated now, spending takes the oldest first.
-async function coinLotStatements(db: CharacterDb, characterId: string, target: number, nowMs: number): Promise<D1Statement[]> {
-  const plan = planLots(await readCoinLots(db, characterId), target, nowMs);
+function safeDelta(value: number): number {
+  return Number.isFinite(value) ? Math.trunc(value) : 0;
+}
+
+// The statements that keep the lots in step with a purse change. A change given as an amount (coinsDelta) adds one
+// lot dated now when it is a gain and spends the oldest LIVE lots first when it is a loss; coins whose seven days
+// are already over are never spent, the sweep removes them. A change given as a total (coins) brings the lots to
+// that total.
+async function coinLotStatements(db: CharacterDb, characterId: string, patch: CharacterFactsPatch, nowMs: number): Promise<D1Statement[]> {
+  if (patch.coinsDelta === undefined && patch.coins === undefined) {
+    return [];
+  }
+  const all = await readCoinLots(db, characterId);
+  let plan;
+  if (patch.coinsDelta !== undefined) {
+    const live = all.filter((lot) => !lotExpired(lot, nowMs));
+    const total = live.reduce((sum, lot) => sum + lot.amount, 0);
+    plan = planLots(live, Math.max(0, total + safeDelta(patch.coinsDelta)), nowMs);
+  } else {
+    plan = planLots(all, patch.coins!, nowMs);
+  }
   const statements: D1Statement[] = [];
   if (plan.add !== null) {
     statements.push(
@@ -220,17 +242,45 @@ async function coinLotStatements(db: CharacterDb, characterId: string, target: n
   return statements;
 }
 
+// The SET list of one patch. A purse change given as an amount is applied in SQL (`coins + delta`).
+function patchAssignments(patch: CharacterFactsPatch): { sql: string[]; values: unknown[] } {
+  const sql: string[] = [];
+  const values: unknown[] = [];
+  for (const key of Object.keys(SAVABLE_COLUMNS) as (keyof CharacterFactsPatch)[]) {
+    if (key === 'coinsDelta' || (key === 'coins' && patch.coinsDelta !== undefined)) {
+      continue;
+    }
+    const value = patch[key];
+    if (value !== undefined) {
+      sql.push(`${SAVABLE_COLUMNS[key]} = ?`);
+      values.push(value);
+    }
+  }
+  if (patch.coinsDelta !== undefined) {
+    sql.push('coins = MAX(0, coins + ?)');
+    values.push(safeDelta(patch.coinsDelta));
+  }
+  return { sql, values };
+}
+
 // Coins whose seven days are over vanish from the lots and from the purse. Returns how many went.
 export async function expireCoinLots(db: CharacterDb, characterId: string, nowMs: number): Promise<number> {
-  const dead = expiredLots(await readCoinLots(db, characterId), nowMs);
-  if (dead.amount <= 0) {
-    return 0;
-  }
-  await db.batch([
-    ...dead.ids.map((lotId) => db.prepare('DELETE FROM coin_lots WHERE id = ?').bind(lotId)),
-    db.prepare('UPDATE characters SET coins = MAX(0, coins - ?) WHERE id = ?').bind(dead.amount, characterId),
-  ]);
-  return dead.amount;
+  // One transaction measures, subtracts and deletes the expired lots, so two sweeps that overlap cannot both
+  // subtract the same coins. The first statement reports how many coins this batch really removed.
+  const cutoff = nowMs - COIN_LIFETIME_MS;
+  const out = (await db.batch([
+    db
+      .prepare('SELECT COALESCE(SUM(amount), 0) AS gone FROM coin_lots WHERE character_id = ? AND picked_at <= ?')
+      .bind(characterId, cutoff),
+    db
+      .prepare(
+        'UPDATE characters SET coins = MAX(0, coins - COALESCE((SELECT SUM(amount) FROM coin_lots WHERE character_id = ? AND picked_at <= ?), 0)) ' +
+          'WHERE id = ? AND EXISTS (SELECT 1 FROM coin_lots WHERE character_id = ? AND picked_at <= ?)',
+      )
+      .bind(characterId, cutoff, characterId, characterId, cutoff),
+    db.prepare('DELETE FROM coin_lots WHERE character_id = ? AND picked_at <= ?').bind(characterId, cutoff),
+  ])) as { results?: { gone?: number }[] }[];
+  return Number(out[0]?.results?.[0]?.gone ?? 0);
 }
 
 async function factsFromRow(db: CharacterDb, peachRow: CharacterRow): Promise<CharacterFacts> {
@@ -445,7 +495,7 @@ export async function getByNameKey(db: CharacterDb, nameKey: string): Promise<Ch
 
 // A new copy goes into the account bag, then the purse is paid. An account that already owns any copy of the
 // quince (worn by any avatar) buys nothing and pays nothing.
-export async function saveQuinceBuy(db: CharacterDb, id: string, coins: number, itemId: string): Promise<void> {
+export async function saveQuinceBuy(db: CharacterDb, id: string, price: number, itemId: string): Promise<void> {
   const copyId = crypto.randomUUID();
   const added = await db
     .prepare(
@@ -459,7 +509,8 @@ export async function saveQuinceBuy(db: CharacterDb, id: string, coins: number, 
     throw new Error('quince already owned by the account');
   }
   try {
-    await db.batch([...(await coinLotStatements(db, id, coins, Date.now())), db.prepare('UPDATE characters SET coins = ? WHERE id = ?').bind(coins, id)]);
+    const pay: CharacterFactsPatch = { coinsDelta: -price };
+    await db.batch([...(await coinLotStatements(db, id, pay, Date.now())), db.prepare('UPDATE characters SET coins = MAX(0, coins - ?) WHERE id = ?').bind(price, id)]);
   } catch (error) {
     // Paying failed after the copy went in: take the copy back out so the item is never free.
     await db.prepare('DELETE FROM account_items WHERE id = ?').bind(copyId).run();
@@ -520,20 +571,11 @@ export async function saveQuinceSlot(
 
 // Builds the UPDATE for one patch, or null when the patch has no keys.
 function prepareFactsUpdate(db: CharacterDb, id: string, patch: CharacterFactsPatch): D1Statement | null {
-  const pumpkinAssignments: string[] = [];
-  const grapeValues: unknown[] = [];
-  for (const key of Object.keys(SAVABLE_COLUMNS) as (keyof CharacterFactsPatch)[]) {
-    const value = patch[key];
-    if (value !== undefined) {
-      pumpkinAssignments.push(`${SAVABLE_COLUMNS[key]} = ?`);
-      grapeValues.push(value);
-    }
-  }
-  if (pumpkinAssignments.length === 0) {
+  const { sql, values } = patchAssignments(patch);
+  if (sql.length === 0) {
     return null;
   }
-  grapeValues.push(id);
-  return db.prepare(`UPDATE characters SET ${pumpkinAssignments.join(', ')} WHERE id = ?`).bind(...grapeValues);
+  return db.prepare(`UPDATE characters SET ${sql.join(', ')} WHERE id = ?`).bind(...values, id);
 }
 
 // Writes two characters' rows in one D1 batch, so one purse cannot commit without the other.
@@ -544,8 +586,8 @@ export async function saveFactsPair(
 ): Promise<void> {
   const nowMs = Date.now();
   const lots = [
-    ...(first.patch.coins === undefined ? [] : await coinLotStatements(db, first.id, first.patch.coins, nowMs)),
-    ...(second.patch.coins === undefined ? [] : await coinLotStatements(db, second.id, second.patch.coins, nowMs)),
+    ...(await coinLotStatements(db, first.id, first.patch, nowMs)),
+    ...(await coinLotStatements(db, second.id, second.patch, nowMs)),
   ];
   const leeks = [...lots, prepareFactsUpdate(db, first.id, first.patch), prepareFactsUpdate(db, second.id, second.patch)].filter(
     (statement): statement is D1Statement => statement !== null,
@@ -561,22 +603,11 @@ export async function saveFacts(
   id: string,
   patch: CharacterFactsPatch,
 ): Promise<CharacterFacts | null> {
-  const pumpkinAssignments: string[] = [];
-  const grapeValues: unknown[] = [];
-  for (const key of Object.keys(SAVABLE_COLUMNS) as (keyof CharacterFactsPatch)[]) {
-    const value = patch[key];
-    if (value !== undefined) {
-      pumpkinAssignments.push(`${SAVABLE_COLUMNS[key]} = ?`);
-      grapeValues.push(value);
-    }
-  }
-
-  if (pumpkinAssignments.length > 0) {
-    grapeValues.push(id);
-    const update = db.prepare(`UPDATE characters SET ${pumpkinAssignments.join(', ')} WHERE id = ?`).bind(...grapeValues);
-    if (patch.coins !== undefined) {
-      // The purse and its coin lots change together, so spending takes the oldest coins first.
-      await db.batch([...(await coinLotStatements(db, id, patch.coins, Date.now())), update]);
+  const update = prepareFactsUpdate(db, id, patch);
+  if (update !== null) {
+    if (patch.coins !== undefined || patch.coinsDelta !== undefined) {
+      // The purse and its coin lots change together.
+      await db.batch([...(await coinLotStatements(db, id, patch, Date.now())), update]);
     } else {
       await update.run();
     }

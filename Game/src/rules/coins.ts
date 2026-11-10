@@ -32,6 +32,9 @@ export interface LotPlan {
 // Losing coins (a purchase, a duel loss) spends the oldest lots first. A target above zero never goes negative.
 export function planLots(lots: readonly CoinLot[], target: number, nowMs: number): LotPlan {
   const total = lots.reduce((sum, lot) => sum + lot.amount, 0);
+  if (!Number.isFinite(target)) {
+    return { add: null, shrink: [], remove: [] };
+  }
   const goal = Math.max(0, Math.floor(target));
   if (goal === total) {
     return { add: null, shrink: [], remove: [] };
@@ -66,5 +69,7 @@ export function nextExpiry(lots: readonly CoinLot[], nowMs: number): { readonly 
   const alive = lots.filter((lot) => !lotExpired(lot, nowMs));
   if (alive.length === 0) return null;
   const first = alive.reduce((best, lot) => (lot.pickedAtMs < best.pickedAtMs ? lot : best));
-  return { amount: first.amount, atMs: lotExpiresAtMs(first) };
+  // Lots picked up at the very same moment run out together.
+  const amount = alive.filter((lot) => lot.pickedAtMs === first.pickedAtMs).reduce((sum, lot) => sum + lot.amount, 0);
+  return { amount, atMs: lotExpiresAtMs(first) };
 }

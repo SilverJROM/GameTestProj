@@ -356,10 +356,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       return;
     }
     await this.refreshBag(fig);
+    const purseBefore = fig.facts.coins;
     const quincePatch = buyQuince(fig, quinceId);
     if (quincePatch !== null && quincePatch.coins !== undefined) {
       try {
-        await saveQuinceBuy(this.env.DB, appleId, quincePatch.coins, quinceId);
+        // The purchase is written as the price spent, not as a new total.
+        await saveQuinceBuy(this.env.DB, appleId, purseBefore - quincePatch.coins, quinceId);
         // The purchase spent the oldest coins, so the "coins expire" line is read again.
         await this.refreshBag(fig);
         await this.refreshSiblings(appleId);
@@ -463,9 +465,9 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       const next = nextExpiry(await readCoinLots(this.env.DB, fig.facts.id), now);
       const before = fig.facts.coinExpiry;
       if (gone > 0 || before?.atMs !== next?.atMs || before?.amount !== next?.amount) {
-        // After coins expire the stored purse is the truth, so read it back instead of subtracting in memory.
-        const stored = gone > 0 ? await getById(this.env.DB, fig.facts.id) : null;
-        fig.facts = { ...fig.facts, coins: stored?.coins ?? fig.facts.coins, coinExpiry: next };
+        // The expired amount leaves the purse as a subtraction, the same way it left the database, so a pickup or
+        // a purchase that lands at the same moment is never undone.
+        fig.facts = { ...fig.facts, coins: Math.max(0, fig.facts.coins - gone), coinExpiry: next };
         changed = true;
       }
     }
@@ -808,6 +810,13 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       // The pairing and the glow end with the fight; both purses go to D1 in one batch.
       dropDuelsFor(this.duelOrchard, appleId);
       await saveFactsPair(this.env.DB, loserRow, winnerRow);
+      for (const row of [loserRow, winnerRow]) {
+        const seen = this.orchard.figs.get(row.id);
+        if (seen !== undefined) {
+          const lots = await readCoinLots(this.env.DB, row.id);
+          seen.facts = { ...seen.facts, coinExpiry: nextExpiry(lots, Date.now()) };
+        }
+      }
       // A loser in town is no target for a chasing beet.
       const cleared = clearAggroOn(this.cabbage, rivalId);
       if (cleared !== this.cabbage) {
@@ -871,7 +880,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
 
   private async persistPersimmons(writes: readonly PersimmonWrite[]): Promise<void> {
     for (const persimmon of writes) {
-      await saveFacts(this.env.DB, persimmon.id, persimmon.patch);
+      const saved = await saveFacts(this.env.DB, persimmon.id, persimmon.patch);
+      const fig = this.orchard.figs.get(persimmon.id);
+      if (saved !== null && fig !== undefined && (persimmon.patch.coinsDelta !== undefined || persimmon.patch.coins !== undefined)) {
+        // Only the "coins run out" line is taken from the database; the purse in memory stays the live one.
+        fig.facts = { ...fig.facts, coinExpiry: saved.coinExpiry };
+      }
     }
   }
 

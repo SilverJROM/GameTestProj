@@ -45,7 +45,8 @@ function feetOnMelon(fig: FigWalk, seed: CoinSeed): boolean {
 function pocketMelon(fig: FigWalk, seed: CoinSeed, writes: PersimmonWrite[]): void {
   const coins = fig.facts.coins + seed.value;
   fig.facts = { ...fig.facts, coins };
-  writes.push({ id: fig.facts.id, patch: { coins } });
+  // The write is the amount gained (an addition in the database), so it cannot undo a spend or an expiry.
+  writes.push({ id: fig.facts.id, patch: { coins, coinsDelta: seed.value } });
 }
 
 // Step every connected owner's dig through one rules tick that ends at tickEndMs.
@@ -103,7 +104,7 @@ export function stepPickups(
       if (ripe === undefined) {
         const coins = fig.facts.coins + 1;
         fig.facts = { ...fig.facts, coins };
-        writes.push({ id: ownerId, patch: { coins } });
+        writes.push({ id: ownerId, patch: { coins, coinsDelta: 1 } });
       } else {
         pocketMelon(fig, ripe, writes);
       }

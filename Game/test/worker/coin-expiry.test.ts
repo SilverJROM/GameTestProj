@@ -211,21 +211,65 @@ describe('coin expiry', () => {
   }, 60_000);
 
   it('coins that run out while the avatar stays connected vanish on the next sweep', async () => {
-    const fig = await withLots('Waiter', [{ amount: 6, ageDays: 1 }]);
+    // 4 of the 10 coins have about 2.5 seconds of their seven days left when the avatar joins.
+    const fig = await withLots('Waiter', [
+      { amount: 6, ageDays: 1 },
+      { amount: 4, ageDays: 7 - 2500 / DAY },
+    ]);
     const joined = await join(fig.grape);
-    expect(joined.welcome.character.coins).toBe(6);
-    // 4 more coins whose seven days are already over (written straight to the database).
-    await kiwiDb.prepare('UPDATE characters SET coins = 10 WHERE id = ?').bind(fig.facts.id).run();
-    await kiwiDb
-      .prepare('INSERT INTO coin_lots (id, character_id, amount, picked_at) VALUES (?, ?, ?, ?)')
-      .bind(crypto.randomUUID(), fig.facts.id, 4, Date.now() - 8 * DAY)
-      .run();
+    expect(joined.welcome.character.coins).toBe(10);
+    await new Promise((resolve) => setTimeout(resolve, 3200));
     let snap = await ask(joined.socket, { type: 'ripen', steps: 1 });
     for (let tries = 0; tries < 5 && snap.character.coins !== 6; tries += 1) {
       snap = await ask(joined.socket, { type: 'ripen', steps: 1 });
     }
     expect(snap.character.coins).toBe(6);
     expect((await getById(kiwiDb, fig.facts.id))!.coins).toBe(6);
+    expect((await readCoinLots(kiwiDb, fig.facts.id)).map((row) => row.amount)).toEqual([6]);
+  }, 60_000);
+
+  it('a purchase that overlaps the expiry sweep never brings expired coins back', async () => {
+    // 100 good coins and 30 that run out in about 2.5 seconds; the purchase and the sweep arrive together.
+    for (let round = 0; round < 3; round += 1) {
+      const fig = await withLots(`Overlap${round}`, [
+        { amount: 100, ageDays: 1 },
+        { amount: 30, ageDays: 7 - 2500 / DAY },
+      ]);
+      const joined = await join(fig.grape);
+      expect(joined.welcome.character.coins).toBe(130);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      joined.socket.send(JSON.stringify({ type: 'ripen', steps: 1 }));
+      joined.socket.send(JSON.stringify({ type: 'buy', item: 'leather' }));
+      let snap = await ask(joined.socket, { type: 'ripen', steps: 1 });
+      for (let tries = 0; tries < 8 && (snap.character.coins !== 84 || !snap.character.items.includes('leather')); tries += 1) {
+        snap = await ask(joined.socket, { type: 'ripen', steps: 1 });
+      }
+      expect(snap.character.coins).toBe(84);
+      const stored = await getById(kiwiDb, fig.facts.id);
+      expect(stored!.coins).toBe(84);
+      const lots = await readCoinLots(kiwiDb, fig.facts.id);
+      expect(lots.reduce((sum, row) => sum + row.amount, 0)).toBe(84);
+    }
+  }, 90_000);
+
+  it('a pickup that overlaps the sweep keeps both the new coins and the expiry', async () => {
+    const fig = await withLots('PickOverlap', [
+      { amount: 5, ageDays: 1 },
+      { amount: 3, ageDays: 7 - 2500 / DAY },
+    ]);
+    const joined = await join(fig.grape);
+    expect(joined.welcome.character.coins).toBe(8);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    // A pickup arrives as an amount added; the sweep removes the 3 expired coins. Both must show.
+    await saveFacts(kiwiDb, fig.facts.id, { coinsDelta: 4 });
+    let snap = await ask(joined.socket, { type: 'ripen', steps: 1 });
+    for (let tries = 0; tries < 5 && snap.character.coins !== 5; tries += 1) {
+      snap = await ask(joined.socket, { type: 'ripen', steps: 1 });
+    }
+    const stored = await getById(kiwiDb, fig.facts.id);
+    const lots = await readCoinLots(kiwiDb, fig.facts.id);
+    expect(stored!.coins).toBe(lots.reduce((sum, row) => sum + row.amount, 0));
+    expect(stored!.coins).toBe(9);
   }, 60_000);
 
   it('a duel transfer takes the loser oldest coins and gives the winner one new lot', async () => {

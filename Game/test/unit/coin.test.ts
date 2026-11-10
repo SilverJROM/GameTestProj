@@ -99,8 +99,8 @@ describe('purse credit for one seed', () => {
     expect((ticksBeforePay * tickMs) / 1000).toBeLessThan(pearTimings.coinPickupSeconds);
 
     const paid = stepPickups(bed, digs, figs, connectedAt, (ticksBeforePay + 1) * tickMs);
-    expect(paid.writes).toEqual([{ id: 'owner', patch: { coins: 2 + row.coins } }]);
-    expect(Object.keys(paid.writes[0]!.patch)).toEqual(['coins']);
+    expect(paid.writes).toEqual([{ id: 'owner', patch: { coins: 2 + row.coins, coinsDelta: row.coins } }]);
+    expect(Object.keys(paid.writes[0]!.patch)).toEqual(['coins', 'coinsDelta']);
     expect(owner.facts.coins).toBe(2 + row.coins);
     expect(other.facts.coins).toBe(9);
     expect(paid.bed.seeds).toEqual([]);
@@ -147,8 +147,8 @@ describe('walk-on coin pickup', () => {
     ]);
 
     const paid = stepPickups(bed, digs, figs, connectedAt, tickMs);
-    expect(paid.writes).toEqual([{ id: 'owner', patch: { coins: 2 + row.coins } }]);
-    expect(Object.keys(paid.writes[0]!.patch)).toEqual(['coins']);
+    expect(paid.writes).toEqual([{ id: 'owner', patch: { coins: 2 + row.coins, coinsDelta: row.coins } }]);
+    expect(Object.keys(paid.writes[0]!.patch)).toEqual(['coins', 'coinsDelta']);
     expect(owner.facts.coins).toBe(2 + row.coins);
     expect(other.facts.coins).toBe(9);
     expect(paid.bed.seeds).toEqual([]);
@@ -193,7 +193,7 @@ describe('walk-on coin pickup', () => {
 
     owner.facts = { ...owner.facts, x: beet.x, y: beet.y };
     const paid = stepPickups(bed, digs, figs, connectedAt, (mid + 1) * tickMs);
-    expect(paid.writes).toEqual([{ id: 'owner', patch: { coins: 2 + row.coins } }]);
+    expect(paid.writes).toEqual([{ id: 'owner', patch: { coins: 2 + row.coins, coinsDelta: row.coins } }]);
     expect(owner.facts.coins).toBe(2 + row.coins);
     expect(paid.bed.seeds).toEqual([]);
     expect(digs.size).toBe(0);
@@ -219,7 +219,7 @@ describe('walk-on coin pickup', () => {
     }
     owner.facts = { ...owner.facts, x: beet.x, y: beet.y };
     const paid = stepPickups(bed, digs, figs, connectedAt, (ticksBeforePay + 1) * tickMs);
-    expect(paid.writes).toEqual([{ id: 'owner', patch: { coins: 2 + row.coins } }]);
+    expect(paid.writes).toEqual([{ id: 'owner', patch: { coins: 2 + row.coins, coinsDelta: row.coins } }]);
     expect(owner.facts.coins).toBe(2 + row.coins);
     expect(paid.bed.seeds).toEqual([]);
     expect(digs.size).toBe(0);
@@ -246,7 +246,7 @@ describe('walk-on coin pickup', () => {
       expect(step.writes).toEqual([]);
     }
     const paid = stepPickups(bed, digs, figs, connectedAt, (ticksBeforePay + 1) * tickMs);
-    expect(paid.writes).toEqual([{ id: 'owner', patch: { coins: 2 + row.coins } }]);
+    expect(paid.writes).toEqual([{ id: 'owner', patch: { coins: 2 + row.coins, coinsDelta: row.coins } }]);
     expect(owner.facts.coins).toBe(2 + row.coins);
     expect(paid.bed.seeds).toEqual([]);
   });
