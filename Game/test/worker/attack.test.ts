@@ -451,4 +451,46 @@ describe('lemon room attack', () => {
       80,
     ]);
   }, 120_000);
+
+  it('sends one white monster hit of 4 and one red player hit of 5 to both sockets', async () => {
+    if (worker === undefined) {
+      throw new Error('lemon worker did not start');
+    }
+    const live = worker;
+    async function postFig(name: string): Promise<{ facts: CharacterFacts; grape: string }> {
+      const response = await live.fetch('http://town.example/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, gender: 'woman' }),
+      });
+      const text = await response.text();
+      expect(response.status, text).toBe(200);
+      return { facts: JSON.parse(text) as CharacterFacts, grape: grapeFromBeet(response.headers.getSetCookie()[0] ?? '') };
+    }
+    const wolfId = plantCabbage().beets.filter((beet) => beet.kind === 'wolf')[2]!.id;
+    const anna = await postFig('Anna');
+    const bob = await postFig('Bob');
+    await saveFacts(kiwiDb, bob.facts.id, { x: 300, y: 450, place: 'town' });
+    const bobJoin = await connectFig(`ws://127.0.0.1:${live.port}/ws`, bob.grape);
+    openSockets.push(bobJoin.socket);
+    const wolf = bobJoin.welcome.snapshot.monsters.find((beet) => beet.id === wolfId)!;
+    await saveFacts(kiwiDb, anna.facts.id, { x: wolf.x, y: wolf.y, place: 'green', level: 1, hp: 70, maxHp: 70, sword: null });
+    const annaJoin = await connectFig(`ws://127.0.0.1:${live.port}/ws`, anna.grape);
+    openSockets.push(annaJoin.socket);
+    expect(annaJoin.welcome.snapshot.hits ?? []).toEqual([]);
+
+    const struck = await broadcastMango(annaJoin.socket, bobJoin.socket, { type: 'attack', monsterId: wolf.id });
+    for (const snap of [struck.senderSnap, struck.otherSnap]) {
+      const hits = snap.snapshot.hits ?? [];
+      expect(hits).toHaveLength(1);
+      expect(hits[0]).toMatchObject({ targetKind: 'monster', targetId: wolf.id, amount: 4, x: wolf.x, y: wolf.y });
+    }
+
+    const bitten = await broadcastMango(annaJoin.socket, bobJoin.socket, { type: 'ripen', steps: 1 });
+    for (const snap of [bitten.senderSnap, bitten.otherSnap]) {
+      const hits = (snap.snapshot.hits ?? []).filter((hit) => hit.targetKind === 'player');
+      expect(hits).toHaveLength(1);
+      expect(hits[0]).toMatchObject({ targetKind: 'player', targetId: anna.facts.id, amount: wolfRow.attack });
+    }
+  }, 60_000);
 });

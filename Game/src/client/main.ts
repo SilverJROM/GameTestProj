@@ -3,12 +3,12 @@
 // so each sprout is the same path and the browser repeats the cookie. No sleep between sprouts.
 
 import type { Gender } from '../server/db';
-import type { ClientMessage } from '../protocol';
+import type { ClientMessage, HitMark } from '../protocol';
 import type { ZoneName } from '../rules/tables';
 import { mangoGearRows } from '../rules/tables';
 import { townSpawn } from '../rules/regions';
 import { removeMagenta } from './sprites';
-import { canvasToMap, viewBox, type PeachView } from './camera';
+import { canvasToMap, mapToCanvas, viewBox, type PeachView } from './camera';
 import { answerPlum, buyQuince, peelClick, type ClickBerry } from './input';
 import {
   CEMETERY_WALL_SRC,
@@ -37,6 +37,18 @@ export interface LemonLike {
   onmessage?: ((event: { data?: unknown }) => void) | null;
 }
 
+export interface DamageNumber {
+  readonly id: string;
+  readonly amount: number;
+  readonly color: string;
+  readonly x: number;
+  readonly y: number;
+}
+
+interface FloatHit extends HitMark {
+  readonly at: number;
+}
+
 export interface FigHooks {
   onSmith?: (open: boolean) => void;
   onOffer?: (offer: { fromId: string; fromName: string } | null) => void;
@@ -61,6 +73,8 @@ export interface FigBoard {
   draw(): GuavaStill[];
   // Screen-space bar and numbers from character.hp and character.maxHp.
   health(): HealthReadout;
+  // Numbers still on screen. White is monster damage, red is player damage. Each id is drawn once.
+  damageNumbers(nowMs: number): DamageNumber[];
   // Window onto the map around the local player, for the player's current zone.
   camera(): PeachView;
   readonly smithOpen: boolean;
@@ -83,6 +97,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   let selfPlace: ZoneName = options.selfPlace ?? 'town';
   let selfHp = 0;
   let selfMaxHp = 1;
+  const seenHits = new Set<string>();
+  let floats: FloatHit[] = [];
   const selfGender = options.selfGender;
   let quinceOpen = false;
   let askerHeld = '';
@@ -133,6 +149,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
         };
       }
       readFig(row.character);
+      noteHits(snap.hits);
       const selfRow = orchard.players.find((fig) => fig.id === selfId);
       if (selfRow !== undefined) selfPlace = selfRow.place;
       hooks.onSnapshot?.();
@@ -158,8 +175,45 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     return paintOrchard(reel, { ...orchard, players });
   }
 
+  function noteHits(value: unknown): void {
+    if (!Array.isArray(value)) return;
+    const now = Date.now();
+    for (const row of value) {
+      const hit = asRecord(row);
+      if (hit === null || typeof hit.id !== 'string' || seenHits.has(hit.id)) continue;
+      if (hit.targetKind !== 'monster' && hit.targetKind !== 'player') continue;
+      if (typeof hit.amount !== 'number' || typeof hit.x !== 'number' || typeof hit.y !== 'number') continue;
+      seenHits.add(hit.id);
+      floats.push({
+        id: hit.id,
+        targetKind: hit.targetKind,
+        targetId: typeof hit.targetId === 'string' ? hit.targetId : '',
+        amount: hit.amount,
+        x: hit.x,
+        y: hit.y,
+        at: now,
+      });
+    }
+  }
+
   function health(): HealthReadout {
     return healthReadout(selfHp, selfMaxHp);
+  }
+
+  function damageNumbers(nowMs: number): DamageNumber[] {
+    const view = camera();
+    floats = floats.filter((hit) => nowMs - hit.at < 1000);
+    return floats.map((hit) => {
+      const spot = mapToCanvas(view, hit.x, hit.y);
+      const rise = ((nowMs - hit.at) / 1000) * 36;
+      return {
+        id: hit.id,
+        amount: hit.amount,
+        color: hit.targetKind === 'monster' ? '#ffffff' : '#ff3030',
+        x: spot.x,
+        y: spot.y - rise,
+      };
+    });
   }
 
   function camera(): PeachView {
@@ -247,6 +301,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     ingest,
     draw,
     health,
+    damageNumbers,
     camera,
     get smithOpen() {
       return quinceOpen;
@@ -364,6 +419,12 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     const screen = ctx as BlitCtx & ScreenCtx;
     if (typeof screen.fillRect === 'function' && typeof screen.fillText === 'function') {
       paintHealth(screen, board.health());
+      const now = Date.now();
+      for (const num of board.damageNumbers(now)) {
+        screen.fillStyle = num.color;
+        screen.font = '800 44px Georgia, serif';
+        screen.fillText(String(num.amount), num.x, num.y);
+      }
     }
   }
 

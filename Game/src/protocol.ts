@@ -80,6 +80,16 @@ export interface CoinSnapshot {
   readonly y: number;
 }
 
+// One damage number for the tick it landed. The client floats it once and then drops it.
+export interface HitMark {
+  readonly id: string;
+  readonly targetKind: 'monster' | 'player';
+  readonly targetId: string;
+  readonly amount: number;
+  readonly x: number;
+  readonly y: number;
+}
+
 // A pickup in progress: the owner's coin spot and how much of the dig has passed.
 export interface PickupSnapshot {
   readonly ownerId: string;
@@ -95,6 +105,8 @@ export interface WorldSnapshot {
   readonly coins: readonly CoinSnapshot[];
   // One row per owner whose pet is digging right now; empty when no dig runs.
   readonly pickups: readonly PickupSnapshot[];
+  // Hits that landed on this tick. Welcome sends an empty list.
+  readonly hits?: readonly HitMark[];
 }
 
 // Sent once when a lemon socket is accepted.

@@ -148,6 +148,40 @@ describe('health readout', () => {
   });
 });
 
+describe('damage numbers', () => {
+  it('draws monster damage in white and player damage in red, once per id', () => {
+    const { board } = openBoard();
+    const players = [fig({ id: 'fig-self', x: 400, y: 400, place: 'green' })];
+    const hit = (id: string, targetKind: 'monster' | 'player', amount: number) => ({
+      id,
+      targetKind,
+      targetId: targetKind === 'monster' ? 'wolf-1' : 'fig-self',
+      amount,
+      x: 400,
+      y: 400,
+    });
+    board.ingest({
+      type: 'snapshot',
+      character: { id: 'fig-self', place: 'green', gender: 'woman', hp: 65, maxHp: 70 },
+      snapshot: { players, monsters: [], coins: [], pickups: [], hits: [hit('hit-1', 'monster', 4)] },
+    });
+    const now = Date.now();
+    const first = board.damageNumbers(now);
+    expect(first.map((row) => [row.amount, row.color])).toEqual([[4, '#ffffff']]);
+    board.ingest({
+      type: 'snapshot',
+      character: { id: 'fig-self', place: 'green', gender: 'woman', hp: 60, maxHp: 70 },
+      snapshot: { players, monsters: [], coins: [], pickups: [], hits: [hit('hit-1', 'monster', 4), hit('hit-2', 'player', 5)] },
+    });
+    const second = board.damageNumbers(now);
+    expect(second.map((row) => [row.id, row.amount, row.color])).toEqual([
+      ['hit-1', 4, '#ffffff'],
+      ['hit-2', 5, '#ff3030'],
+    ]);
+    expect(board.damageNumbers(now + 1000)).toEqual([]);
+  });
+});
+
 describe('world view', () => {
   it('sends exactly one mango for each click kind', () => {
     const { board, sockets } = openBoard();

@@ -9,7 +9,7 @@ import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
 import { maxHealth, purchase, type Hero } from '../rules/logic';
 import { firstSolidWallCrossing, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, skeletonRadiusPx, townSpawn, zoneAt } from '../rules/regions';
 import { kaleConstants, onionMonsterRows } from '../rules/tables';
-import type { ApricotFacing, CoinSnapshot, PickupSnapshot, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
+import type { ApricotFacing, CoinSnapshot, HitMark, PickupSnapshot, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
 
 export interface FigSpot {
   readonly x: number;
@@ -367,6 +367,7 @@ function orchardSnapshot(
   seeds: readonly CoinSnapshot[],
   pickups: readonly PickupSnapshot[],
   partners: ReadonlyMap<string, string>,
+  hits: readonly HitMark[] = [],
 ): WorldSnapshot {
   const players = orchard.map((fig) => toPlayer(fig, partners));
   return {
@@ -374,6 +375,7 @@ function orchardSnapshot(
     monsters: beets.map((beet) => toBeet(beet, players)),
     coins: seeds.map((seed) => ({ id: seed.id, ownerId: seed.ownerId, x: seed.x, y: seed.y })),
     pickups: pickups.map((dig) => ({ ...dig })),
+    hits: hits.map((hit) => ({ ...hit })),
   };
 }
 
@@ -401,10 +403,11 @@ export function bakeSnapshotMessage(
   seeds: readonly CoinSnapshot[] = [],
   pickups: readonly PickupSnapshot[] = [],
   partners: ReadonlyMap<string, string> = new Map<string, string>(),
+  hits: readonly HitMark[] = [],
 ): SnapshotMessage {
   return {
     type: 'snapshot',
     character: plantFig(fig.facts),
-    snapshot: orchardSnapshot(orchard, beets, seeds, pickups, partners),
+    snapshot: orchardSnapshot(orchard, beets, seeds, pickups, partners, hits),
   };
 }

@@ -95,12 +95,22 @@ export function trySwing(clock: SwingClock, nowMs: number, kind: SwingKind): boo
   return true;
 }
 
+export interface StrikeMark {
+  readonly targetKind: 'monster' | 'player';
+  readonly targetId: string;
+  readonly amount: number;
+  readonly x: number;
+  readonly y: number;
+}
+
 export interface BeetStrike {
   readonly bed: CabbageBed;
   // True when the swing landed (the clock was stamped).
   readonly struck: boolean;
   // Facts to write for the killer when the hit felled the beet.
   readonly patch: CharacterFactsPatch | null;
+  // Set when the swing landed, so the room can float the number.
+  readonly mark: StrikeMark | null;
 }
 
 export function heroOf(fig: FigWalk): Hero {
@@ -124,7 +134,7 @@ export function strikeBeet(
   swing: SwingClock,
   nowMs: number,
 ): BeetStrike {
-  const none: BeetStrike = { bed, struck: false, patch: null };
+  const none: BeetStrike = { bed, struck: false, patch: null, mark: null };
   const beet = bed.beets.find((candidate) => candidate.id === beetId);
   if (beet === undefined) {
     return none;
@@ -135,10 +145,12 @@ export function strikeBeet(
   if (!trySwing(swing, nowMs, 'monster')) {
     return none;
   }
-  const hit = hurtBeet(bed, beetId, strike(heroOf(fig)), fig.facts.id, nowMs);
+  const amount = strike(heroOf(fig));
+  const mark: StrikeMark = { targetKind: 'monster', targetId: beetId, amount, x: beet.x, y: beet.y };
+  const hit = hurtBeet(bed, beetId, amount, fig.facts.id, nowMs);
   if (!hit.felled) {
     // The first hit names the target; a later hitter does not steal it.
-    return { bed: aggroBeet(hit.bed, beetId, fig.facts.id), struck: true, patch: null };
+    return { bed: aggroBeet(hit.bed, beetId, fig.facts.id), struck: true, patch: null, mark };
   }
   const row = onionMonsterRows.find((candidate) => candidate.id === beet.kind);
   const grown = awardXp(heroOf(fig), row === undefined ? 0 : row.xp);
@@ -149,7 +161,7 @@ export function strikeBeet(
     maxHp: maxHealth(grown),
   };
   fig.facts = { ...fig.facts, level: grown.level, xp: grown.xp, hp: grown.health, maxHp: maxHealth(grown) };
-  return { bed: hit.bed, struck: true, patch };
+  return { bed: hit.bed, struck: true, patch, mark };
 }
 
 // The nearest living fig standing in the cemetery and within the skeleton radius of this beet.
@@ -180,6 +192,8 @@ export interface AggroStep {
   readonly writes: readonly PersimmonWrite[];
   // Ids of the beets whose bite landed this tick.
   readonly swung: readonly string[];
+  // Bites that landed this tick. The room turns each into a floated number.
+  readonly bites: readonly StrikeMark[];
   // True when aggro, a bite, or a chase step changed the bed. These are the changes that get stored.
   readonly changed: boolean;
   // True when a beet moved or turned on its vine with nothing else changing. Patrol never writes storage.
@@ -200,6 +214,7 @@ export function stepAggro(
 ): AggroStep {
   const writes: PersimmonWrite[] = [];
   const swung: string[] = [];
+  const bites: StrikeMark[] = [];
   const felledFigs = new Set<string>();
   let changed = false;
   let patrolled = false;
@@ -270,6 +285,13 @@ export function stepAggro(
     }
     changed = true;
     swung.push(beet.id);
+    bites.push({
+      targetKind: 'player',
+      targetId: fig.facts.id,
+      amount: row.attack,
+      x: fig.facts.x,
+      y: fig.facts.y,
+    });
     const left = fig.facts.hp - row.attack;
     if (left > 0) {
       fig.facts = { ...fig.facts, hp: left };
@@ -292,7 +314,7 @@ export function stepAggro(
       beet.targetId !== undefined && felledFigs.has(beet.targetId) ? dropTarget(beet) : beet,
     );
   }
-  return { bed: changed || patrolled ? { ...bed, beets } : bed, writes, swung, changed, patrolled };
+  return { bed: changed || patrolled ? { ...bed, beets } : bed, writes, swung, bites, changed, patrolled };
 }
 
 export interface FigStrike {
@@ -301,6 +323,7 @@ export interface FigStrike {
   // Writes for D1. A felled duelist gives two rows that must be saved in one batch.
   readonly writes: readonly PersimmonWrite[];
   readonly felled: boolean;
+  readonly mark: StrikeMark | null;
 }
 
 // One duel swing by the attacker at the target. Lands only between flagged partners of each other.
@@ -313,7 +336,7 @@ export function strikeFig(
   swing: SwingClock,
   nowMs: number,
 ): FigStrike {
-  const none: FigStrike = { struck: false, writes: [], felled: false };
+  const none: FigStrike = { struck: false, writes: [], felled: false, mark: null };
   if (target === undefined || attacker.facts.id === target.facts.id) {
     return none;
   }
@@ -326,10 +349,18 @@ export function strikeFig(
   if (!trySwing(swing, nowMs, 'duel')) {
     return none;
   }
-  const left = target.facts.hp - strike(heroOf(attacker));
+  const amount = strike(heroOf(attacker));
+  const mark: StrikeMark = {
+    targetKind: 'player',
+    targetId: target.facts.id,
+    amount,
+    x: target.facts.x,
+    y: target.facts.y,
+  };
+  const left = target.facts.hp - amount;
   if (left > 0) {
     target.facts = { ...target.facts, hp: left };
-    return { struck: true, writes: [{ id: target.facts.id, patch: { hp: left } }], felled: false };
+    return { struck: true, writes: [{ id: target.facts.id, patch: { hp: left } }], felled: false, mark };
   }
   const risen = deathResult({ ...heroOf(target), health: 0 });
   const pot = duelPayout(target.facts.coins);
@@ -344,6 +375,7 @@ export function strikeFig(
   return {
     struck: true,
     felled: true,
+    mark,
     // Loser first, winner second: saveFactsPair writes both in one batch.
     writes: [
       { id: target.facts.id, patch: { hp: risen.health, place: risen.place, x: townX, y: townY, coins: loserCoins } },

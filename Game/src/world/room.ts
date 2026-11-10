@@ -22,6 +22,7 @@ import {
   PAPAYA_CLOCK_HEADER,
   PAPAYA_CLOCK_RIPE,
   peelClientMessage,
+  type HitMark,
 } from '../protocol';
 import { kaleConstants } from '../rules/tables';
 import { getById, saveFacts, saveFactsPair, type CharacterDb } from '../server/db';
@@ -41,7 +42,7 @@ import {
 } from './core';
 import { answerDuel, askDuel, dropDuelsFor, plantDuelOrchard, sweepTownOffers, sweepTownPairs } from './duels';
 import { anyDigDue, pickupSnapshots, stepPickups, type RadishDigs } from './pets';
-import { strikeBeet, strikeFig, newSwingClock, stepAggro, type SwingClock } from './combat';
+import { strikeBeet, strikeFig, newSwingClock, stepAggro, type StrikeMark, type SwingClock } from './combat';
 import {
   anyAggro,
   clearAggroOn,
@@ -95,6 +96,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   private cabbage: CabbageBed = plantCabbage();
   // Beets whose bite landed in the latest ripen pass. Shown as the swung flag in the snapshot.
   private swungBeets = new Set<string>();
+  private pendingHits: HitMark[] = [];
+  private hitSeq = 0;
   // Running coin digs per owner, and when each owner's lemon opened. Both live only in memory.
   private readonly radishDigs: RadishDigs = new Map();
   private readonly lemonOpenedMs = new Map<string, number>();
@@ -341,6 +344,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   // `changed` is what gets stored; `walked` also counts idle patrol, which is shown but never stored on its own.
   private ripenWorld(): { writes: PersimmonWrite[]; changed: boolean; walked: boolean } {
     this.swungBeets = new Set<string>();
+    this.pendingHits = [];
     let changed = false;
     let walked = false;
     const writes = ripenDue(this.orchard, (tickEndMs) => {
@@ -354,6 +358,9 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       }
       for (const beetId of stepped.swung) {
         this.swungBeets.add(beetId);
+      }
+      for (const bite of stepped.bites) {
+        this.noteHit(bite);
       }
       const dug = stepPickups(this.cabbage, this.radishDigs, this.orchard.figs, this.lemonOpenedMs, tickEndMs);
       if (dug.changed) {
@@ -425,6 +432,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     await this.sproutCabbage();
     const struck = strikeBeet(fig, this.cabbage, beetId, swing, this.limeClock.nowMs());
     if (struck.struck) {
+      if (struck.mark !== null) this.noteHit(struck.mark);
       this.cabbage = struck.bed;
       await this.storeCabbage();
       // A fresh target needs the tick clock running so the beet can chase.
@@ -450,6 +458,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       this.swingClocks.set(appleId, swing);
     }
     const hit = strikeFig(fig, this.orchard.figs.get(rivalId), this.duelOrchard.pairs, swing, this.limeClock.nowMs());
+    if (hit.mark !== null) this.noteHit(hit.mark);
     if (hit.felled) {
       const [loserRow, winnerRow] = hit.writes as [PersimmonWrite, PersimmonWrite];
       // The pairing and the glow end with the fight; both purses go to D1 in one batch.
@@ -533,7 +542,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return null;
     }
-    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs), this.duelOrchard.pairs));
+    return JSON.stringify(bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs), this.duelOrchard.pairs, this.pendingHits));
   }
 
   private beetsInBloom() {
@@ -557,5 +566,13 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
         socket.send(mango);
       }
     }
+    // The list is for this tick only. The next snapshot starts empty.
+    this.pendingHits = [];
+  }
+
+  private noteHit(mark: StrikeMark): void {
+    this.hitSeq += 1;
+    const hit: HitMark = { id: `hit-${this.hitSeq}`, ...mark };
+    this.pendingHits.push(hit);
   }
 }
