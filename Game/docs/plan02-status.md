@@ -2,7 +2,7 @@
 
 Recovery file. If the session closes (out of memory, suspend, crash), read this first, then `docs/plan02.md` for the full plan. Update this file after every slice event: started, passed, failed.
 
-Last updated: 2026-11-10 09:52 UTC
+Last updated: 2026-11-10 10:00 UTC
 
 ## Where things stand
 
@@ -11,7 +11,7 @@ Last updated: 2026-11-10 09:52 UTC
 | Working branch | `update-02` (cut from `main` at `c30f690`) |
 | Old branch | `candidate-work` deleted on 2026-11-10 (it was fully merged, was at `ab9db1f`) |
 | Base commit for this update | `c30f690` "Add walk frames, ground map, overlays, approved mockups, and plan 02." |
-| Overall | 93% (slices 0 to 12 done; only slice 13, the running-game screenshots, is left) |
+| Overall | 100% (slices 0 to 13 done; waiting for the user's review and decision on the open questions below) |
 | Pushing / deploying | Not allowed. Push is disabled. No Cloudflare deploy in this plan. |
 
 ## Topology
@@ -40,7 +40,7 @@ Status values: `done`, `in progress`, `pending`, `waiting for user`, `blocked`.
 | 10 | Item bag data: `character_items`, buy-to-bag, equip, unequip (+ minimal click-to-equip in the plain Bag panel) | **done** | `0c3c1ce` | 351 tests pass. Checked in Chrome: buying Short sword and Leather puts them in the bag, coins 100 to 66, Strike stays 4; shop rows read `(Owned)`; click-equip Short sword gives Strike 6; equip Leather gives max HP 70 to 82 with HP staying 40; clicking the worn slot lines unequips (max HP back to 70, Strike back to 4). |
 | 11 | Blacksmith panel from the mockup, with "Owned"; panel stays open after buying; smaller thought bubble | **done** | `8e828be` | 353 tests pass. Checked in Chrome: centered 860 px panel; rows Buy / Need N coins / Owned as in the mockup; one Buy click leaves the panel open with coins 48 to 30 and Short sword Owned; Escape closes; bubble now 140x42. Cosmetic follow-up for slice 12: the bubble text touches the box edges, widen to about 156x42. |
 | 12 | Bag panel from the mockup, item row, drag and click to equip (+ widen the thought bubble to about 156x42) | **done** | see git log | 358 tests pass. Checked in Chrome: centered 860 px Inventory panel clear of the zoom slider; wrong-kind drop ignored; drag Short sword to Sword slot gives sword set; drag Leather to Armor gives max HP 82, HP stays 40; dragging each out unequips (max back to 70). Earlier commits for this slice are Grok WIP checkpoints. |
-| 13 | Screenshots of the running game in Chrome | pending | - | `docs/mockups/screenshots/running-*.png` |
+| 13 | Screenshots of the running game in Chrome | **done** | see git log | 14 pictures `docs/mockups/screenshots/running-*.png` retaken with `scripts/running-shots.mjs` (closes the modal panels; walks next to a wolf before clicking it, because a click on a far wolf only swings, as on main). |
 
 ## Decisions already made (details in `docs/plan02.md`)
 
@@ -71,3 +71,4 @@ Status values: `done`, `in progress`, `pending`, `waiting for user`, `blocked`.
 ## Notes
 
 - Grok's reports end with "QA Questions" and sometimes "Manager's Guidance/Suggestions" relayed from the evaluation check-in service. These are not part of the user's plan and are not acted on. Slice 11's report relayed two such suggestions (a shared account-wide item bag; coins that expire after seven days). They were deferred by Grok and not built. Ask the user before building anything from them.
+- Open for the user: (1) shared account-wide item bag and 7-day coin expiry were relayed again by Grok's slice 12 report; not built. (2) The blacksmith's thought bubble is drawn (clamped to the screen's left edge) even when the hero is in the green; this is old behaviour from main, not changed.
