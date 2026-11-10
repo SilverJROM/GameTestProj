@@ -13,6 +13,8 @@ export interface OwnedGear {
   readonly sword: string | null;
   readonly armor: string | null;
   readonly items: readonly string[];
+  // Quince ids another avatar of the account wears. They count as owned for buying, and cannot be worn here.
+  readonly elsewhere?: readonly string[];
 }
 
 export interface GearChange {
@@ -61,7 +63,7 @@ export function buyItem(gear: OwnedGear, itemId: string): GearChange {
   if (quince === null) {
     return refuse(gear);
   }
-  if (gear.items.includes(itemId)) {
+  if (gear.items.includes(itemId) || (gear.elsewhere ?? []).includes(itemId)) {
     return refuse(gear);
   }
   if (gear.coins < quince.price) {

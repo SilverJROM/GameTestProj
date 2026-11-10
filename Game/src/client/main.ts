@@ -186,6 +186,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   let selfSword: string | null = null;
   let selfArmor: string | null = null;
   let selfItems: string[] = [];
+  let selfElsewhere: { itemId: string; by: string }[] = [];
+  let selfCoinExpiry: { amount: number; atMs: number } | null = null;
   const seenHits = new Set<string>();
   let floats: FloatHit[] = [];
   const selfGender = options.selfGender;
@@ -228,6 +230,16 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     if (Array.isArray(fig.items)) {
       selfItems = fig.items.filter((id): id is string => typeof id === 'string');
     }
+    const expiry = fig.coinExpiry as { amount?: unknown; atMs?: unknown } | null | undefined;
+    selfCoinExpiry =
+      expiry !== null && expiry !== undefined && typeof expiry.amount === 'number' && typeof expiry.atMs === 'number'
+        ? { amount: expiry.amount, atMs: expiry.atMs }
+        : null;
+    selfElsewhere = Array.isArray(fig.elsewhere)
+      ? (fig.elsewhere as { itemId?: unknown; by?: unknown }[]).filter(
+          (row): row is { itemId: string; by: string } => typeof row?.itemId === 'string' && typeof row?.by === 'string',
+        )
+      : [];
   }
 
   function ingest(raw: unknown): void {
@@ -487,6 +499,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       xp: selfXp,
       place: selfPlace,
       items: selfItems,
+      elsewhere: selfElsewhere,
+      coinExpiry: selfCoinExpiry,
       gender: genderMap.get(selfId) ?? selfGender,
     };
   }
@@ -498,7 +512,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
 
   function shop(): ShopSheet | null {
     if (!quinceOpen) return null;
-    return shopSheet(selfCoins, selfItems);
+    return shopSheet(selfCoins, [...selfItems, ...selfElsewhere.map((row) => row.itemId)]);
   }
 
   function equipOwned(itemId: string): void {
@@ -1273,10 +1287,11 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     picture.src = src;
   }
 
-  function syncGrape(node: LooseEl, tile: { id: string; name: string; bonus: string; worn: boolean; slot: 'sword' | 'armor' }): void {
-    const nextClass = tile.worn ? 'grape worn' : 'grape';
+  function syncGrape(node: LooseEl, tile: { id: string; name: string; bonus: string; worn: boolean; slot: 'sword' | 'armor'; by?: string }): void {
+    const other = tile.by !== undefined;
+    const nextClass = other ? 'grape worn other' : tile.worn ? 'grape worn' : 'grape';
     if (node.className !== nextClass) node.className = nextClass;
-    if (node.draggable !== true) node.draggable = true;
+    if (node.draggable !== !other) node.draggable = !other;
     if (node.dataset !== undefined) {
       node.dataset.item = tile.id;
       node.dataset.slot = tile.slot;
@@ -1286,20 +1301,24 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     leafText(name, tile.name);
     leafText(bonus, tile.bonus);
     const seal = figChildren(node).find((child) => child.className === 'seal') ?? null;
-    if (tile.worn && seal === null) {
+    const sealText = other ? `Worn by ${tile.by}` : 'Equipped';
+    if ((tile.worn || other) && seal === null) {
       const mark = doc.createElement('span');
       mark.className = 'seal';
-      mark.textContent = 'Equipped';
+      mark.textContent = sealText;
       node.appendChild?.(mark);
-    } else if (!tile.worn && seal !== null) {
+    } else if (!(tile.worn || other) && seal !== null) {
       node.removeChild?.(seal);
+    } else if (seal !== null) {
+      leafText(seal, sealText);
     }
   }
 
-  function makeGrape(tile: { id: string; name: string; bonus: string; worn: boolean; slot: 'sword' | 'armor' }): LooseEl {
+  function makeGrape(tile: { id: string; name: string; bonus: string; worn: boolean; slot: 'sword' | 'armor'; by?: string }): LooseEl {
     const node = doc.createElement('div');
-    node.className = tile.worn ? 'grape worn' : 'grape';
-    node.draggable = true;
+    const other = tile.by !== undefined;
+    node.className = other ? 'grape worn other' : tile.worn ? 'grape worn' : 'grape';
+    node.draggable = !other;
     if (node.dataset !== undefined) {
       node.dataset.item = tile.id;
       node.dataset.slot = tile.slot;
@@ -1312,12 +1331,14 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     bonus.textContent = tile.bonus;
     node.appendChild?.(name);
     node.appendChild?.(bonus);
-    if (tile.worn) {
+    if (tile.worn || other) {
       const mark = doc.createElement('span');
       mark.className = 'seal';
-      mark.textContent = 'Equipped';
+      mark.textContent = other ? `Worn by ${tile.by}` : 'Equipped';
       node.appendChild?.(mark);
     }
+    // A copy another avatar wears can be seen but not used: no drag, no click.
+    if (other) return node;
     const arm = () => {
       oliveDragMoved = false;
       if (!oliveDragLive) oliveCarryStash = null;
@@ -1349,6 +1370,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     const sheet = board.inventory();
     if (sheet === null) return;
     oliveText('olive-coins', `Coins: ${sheet.coins}`);
+    oliveText('olive-expiry', sheet.expiry);
     oliveText('olive-level', String(sheet.level));
     oliveText('olive-health', sheet.health);
     oliveText('olive-strike', String(sheet.strike));
@@ -1374,11 +1396,11 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     if (oliveDragLive && oliveCarryStash !== null) showDragFace(oliveCarryStash);
   }
 
-  function paintOliveItems(tiles: readonly { id: string; name: string; bonus: string; worn: boolean; slot: 'sword' | 'armor' }[]): void {
+  function paintOliveItems(tiles: readonly { id: string; name: string; bonus: string; worn: boolean; slot: 'sword' | 'armor'; by?: string }[]): void {
     const host = doc.getElementById('olive-items');
     if (host === null || host === undefined) return;
     keepClass(host, 'plum-row');
-    const next = tiles.map((tile) => tile.id).join(',');
+    const next = tiles.map((tile) => `${tile.id}${tile.by === undefined ? '' : ':' + tile.by}`).join(',');
     if (next !== oliveSig) {
       oliveSig = next;
       host.textContent = '';

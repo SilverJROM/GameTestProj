@@ -1,6 +1,7 @@
 // Character store over D1. Every value is bound as a parameter; no id or name is ever spliced into SQL.
 // Starting facts come from the rules module (level table, gear, region spawn), never from restated numbers.
 
+import { COIN_LIFETIME_MS, lotExpired, nextExpiry, planLots, type CoinLot } from '../rules/coins';
 import { maxHealth, type Hero } from '../rules/logic';
 import { normalizeName } from '../rules/names';
 import { townSpawn } from '../rules/regions';
@@ -67,8 +68,13 @@ export interface CharacterFacts {
   readonly coins: number;
   readonly sword: string | null;
   readonly armor: string | null;
-  // Quince ids this fig owns, worn or not. Equipped ids also stay in this list.
+  // Quince copies this fig can see in the shared account bag: unworn ones, and the ones it wears itself.
+  // Equipped ids also stay in this list. A copy another avatar of the account wears is in `elsewhere`.
   readonly items: string[];
+  // Copies worn by the account's other avatars: the quince id and that avatar's name.
+  readonly elsewhere?: readonly { readonly itemId: string; readonly by: string }[];
+  // The oldest coins still alive and when they run out (milliseconds since 1970), or null with no coins.
+  readonly coinExpiry?: { readonly amount: number; readonly atMs: number } | null;
   readonly place: ZoneName;
   readonly x: number;
   readonly y: number;
@@ -82,6 +88,9 @@ export interface CharacterFactsPatch {
   readonly hp?: number;
   readonly maxHp?: number;
   readonly coins?: number;
+  // A purse change as an amount (gain or spend), not a total. Relative writes never undo each other, so a pickup,
+  // a purchase, a duel and the once-a-minute expiry can overlap safely. When present it replaces `coins`.
+  readonly coinsDelta?: number;
   readonly sword?: string | null;
   readonly armor?: string | null;
   readonly place?: ZoneName;
@@ -116,6 +125,7 @@ const SAVABLE_COLUMNS: Readonly<Record<keyof CharacterFactsPatch, string>> = {
   hp: 'hp',
   maxHp: 'max_hp',
   coins: 'coins',
+  coinsDelta: 'coins',
   sword: 'sword',
   armor: 'armor',
   place: 'place',
@@ -123,7 +133,7 @@ const SAVABLE_COLUMNS: Readonly<Record<keyof CharacterFactsPatch, string>> = {
   y: 'y',
 };
 
-function rowToFacts(peachRow: CharacterRow, items: string[]): CharacterFacts {
+function rowToFacts(peachRow: CharacterRow, bag: Bag, coinExpiry: { amount: number; atMs: number } | null): CharacterFacts {
   return {
     id: peachRow.id,
     name: peachRow.name,
@@ -136,24 +146,146 @@ function rowToFacts(peachRow: CharacterRow, items: string[]): CharacterFacts {
     coins: peachRow.coins,
     sword: peachRow.sword,
     armor: peachRow.armor,
-    items,
+    items: bag.items,
+    elsewhere: bag.elsewhere,
+    coinExpiry,
     place: peachRow.place,
     x: peachRow.x,
     y: peachRow.y,
   };
 }
 
-// Owned quince ids, in a stable order, so a reconnect matches the bag the page already showed.
-async function listQuinceIds(db: CharacterDb, characterId: string): Promise<string[]> {
+interface Bag {
+  readonly items: string[];
+  readonly elsewhere: { itemId: string; by: string }[];
+}
+
+// The account's shared bag as one avatar sees it, in a stable order so a reconnect matches what the page showed.
+// Unworn copies and copies this avatar wears are `items`; copies another avatar wears are `elsewhere`.
+export async function listBag(db: CharacterDb, characterId: string): Promise<Bag> {
   const statement = db
-    .prepare('SELECT item_id FROM character_items WHERE character_id = ? ORDER BY item_id')
+    .prepare(
+      'SELECT a.item_id AS item_id, a.worn_by AS worn_by, c.name AS worn_name FROM account_items a ' +
+        'LEFT JOIN characters c ON c.id = a.worn_by ' +
+        'WHERE a.account_id = (SELECT account_id FROM characters WHERE id = ?) ORDER BY a.item_id, a.id',
+    )
     .bind(characterId);
-  const rows = await readAll<{ item_id: string }>(statement);
-  return rows.map((row) => row.item_id);
+  const rows = await readAll<{ item_id: string; worn_by: string | null; worn_name: string | null }>(statement);
+  const bag: Bag = { items: [], elsewhere: [] };
+  for (const row of rows) {
+    if (row.worn_by === null || row.worn_by === characterId) {
+      bag.items.push(row.item_id);
+    } else {
+      bag.elsewhere.push({ itemId: row.item_id, by: row.worn_name ?? 'another avatar' });
+    }
+  }
+  return bag;
+}
+
+// The other avatars of the same account, so a bag change can refresh the ones that are connected.
+export async function listSiblingIds(db: CharacterDb, characterId: string): Promise<string[]> {
+  const statement = db
+    .prepare(
+      'SELECT id FROM characters WHERE account_id = (SELECT account_id FROM characters WHERE id = ?) AND id != ?',
+    )
+    .bind(characterId, characterId);
+  const rows = await readAll<{ id: string }>(statement);
+  return rows.map((row) => row.id);
+}
+
+// Every coin lot of one avatar, oldest first.
+export async function readCoinLots(db: CharacterDb, characterId: string): Promise<CoinLot[]> {
+  const statement = db
+    .prepare('SELECT id, amount, picked_at FROM coin_lots WHERE character_id = ? ORDER BY picked_at, id')
+    .bind(characterId);
+  const rows = await readAll<{ id: string; amount: number; picked_at: number }>(statement);
+  return rows.map((row) => ({ id: row.id, amount: Number(row.amount), pickedAtMs: Number(row.picked_at) }));
+}
+
+function safeDelta(value: number): number {
+  return Number.isFinite(value) ? Math.trunc(value) : 0;
+}
+
+// The statements that keep the lots in step with a purse change. A change given as an amount (coinsDelta) adds one
+// lot dated now when it is a gain and spends the oldest LIVE lots first when it is a loss; coins whose seven days
+// are already over are never spent, the sweep removes them. A change given as a total (coins) brings the lots to
+// that total.
+async function coinLotStatements(db: CharacterDb, characterId: string, patch: CharacterFactsPatch, nowMs: number): Promise<D1Statement[]> {
+  if (patch.coinsDelta === undefined && patch.coins === undefined) {
+    return [];
+  }
+  const all = await readCoinLots(db, characterId);
+  let plan;
+  if (patch.coinsDelta !== undefined) {
+    const live = all.filter((lot) => !lotExpired(lot, nowMs));
+    const total = live.reduce((sum, lot) => sum + lot.amount, 0);
+    plan = planLots(live, Math.max(0, total + safeDelta(patch.coinsDelta)), nowMs);
+  } else {
+    plan = planLots(all, patch.coins!, nowMs);
+  }
+  const statements: D1Statement[] = [];
+  if (plan.add !== null) {
+    statements.push(
+      db
+        .prepare(
+          'INSERT INTO coin_lots (id, character_id, amount, picked_at) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM characters WHERE id = ?)',
+        )
+        .bind(crypto.randomUUID(), characterId, plan.add.amount, plan.add.pickedAtMs, characterId),
+    );
+  }
+  for (const row of plan.shrink) {
+    statements.push(db.prepare('UPDATE coin_lots SET amount = ? WHERE id = ?').bind(row.amount, row.id));
+  }
+  for (const lotId of plan.remove) {
+    statements.push(db.prepare('DELETE FROM coin_lots WHERE id = ?').bind(lotId));
+  }
+  return statements;
+}
+
+// The SET list of one patch. A purse change given as an amount is applied in SQL (`coins + delta`).
+function patchAssignments(patch: CharacterFactsPatch): { sql: string[]; values: unknown[] } {
+  const sql: string[] = [];
+  const values: unknown[] = [];
+  for (const key of Object.keys(SAVABLE_COLUMNS) as (keyof CharacterFactsPatch)[]) {
+    if (key === 'coinsDelta' || (key === 'coins' && patch.coinsDelta !== undefined)) {
+      continue;
+    }
+    const value = patch[key];
+    if (value !== undefined) {
+      sql.push(`${SAVABLE_COLUMNS[key]} = ?`);
+      values.push(value);
+    }
+  }
+  if (patch.coinsDelta !== undefined) {
+    sql.push('coins = MAX(0, coins + ?)');
+    values.push(safeDelta(patch.coinsDelta));
+  }
+  return { sql, values };
+}
+
+// Coins whose seven days are over vanish from the lots and from the purse. Returns how many went.
+export async function expireCoinLots(db: CharacterDb, characterId: string, nowMs: number): Promise<number> {
+  // One transaction measures, subtracts and deletes the expired lots, so two sweeps that overlap cannot both
+  // subtract the same coins. The first statement reports how many coins this batch really removed.
+  const cutoff = nowMs - COIN_LIFETIME_MS;
+  const out = (await db.batch([
+    db
+      .prepare('SELECT COALESCE(SUM(amount), 0) AS gone FROM coin_lots WHERE character_id = ? AND picked_at <= ?')
+      .bind(characterId, cutoff),
+    db
+      .prepare(
+        'UPDATE characters SET coins = MAX(0, coins - COALESCE((SELECT SUM(amount) FROM coin_lots WHERE character_id = ? AND picked_at <= ?), 0)) ' +
+          'WHERE id = ? AND EXISTS (SELECT 1 FROM coin_lots WHERE character_id = ? AND picked_at <= ?)',
+      )
+      .bind(characterId, cutoff, characterId, characterId, cutoff),
+    db.prepare('DELETE FROM coin_lots WHERE character_id = ? AND picked_at <= ?').bind(characterId, cutoff),
+  ])) as { results?: { gone?: number }[] }[];
+  return Number(out[0]?.results?.[0]?.gone ?? 0);
 }
 
 async function factsFromRow(db: CharacterDb, peachRow: CharacterRow): Promise<CharacterFacts> {
-  return rowToFacts(peachRow, await listQuinceIds(db, peachRow.id));
+  const lots = await readCoinLots(db, peachRow.id);
+  return rowToFacts(peachRow, await listBag(db, peachRow.id), nextExpiry(lots, Date.now()));
 }
 
 // Starting character: level 1, full health, no coins or XP, no gear, in town at the first town spawn point.
@@ -361,18 +493,36 @@ export async function getByNameKey(db: CharacterDb, nameKey: string): Promise<Ch
   return row === null ? null : factsFromRow(db, row);
 }
 
-// Coins and the new bag row commit together. A duplicate quince rolls the purse back with the insert.
-export async function saveQuinceBuy(db: CharacterDb, id: string, coins: number, itemId: string): Promise<void> {
-  await db.batch([
-    db.prepare('UPDATE characters SET coins = ? WHERE id = ?').bind(coins, id),
-    db.prepare('INSERT INTO character_items (character_id, item_id) VALUES (?, ?)').bind(id, itemId),
-  ]);
+// A new copy goes into the account bag, then the purse is paid. An account that already owns any copy of the
+// quince (worn by any avatar) buys nothing and pays nothing.
+export async function saveQuinceBuy(db: CharacterDb, id: string, price: number, itemId: string): Promise<void> {
+  const copyId = crypto.randomUUID();
+  const added = await db
+    .prepare(
+      'INSERT INTO account_items (id, account_id, item_id, worn_by) ' +
+        'SELECT ?, c.account_id, ?, NULL FROM characters c WHERE c.id = ? ' +
+        'AND NOT EXISTS (SELECT 1 FROM account_items a WHERE a.account_id = c.account_id AND a.item_id = ?)',
+    )
+    .bind(copyId, itemId, id, itemId)
+    .run();
+  if ((added.meta?.changes ?? 0) < 1) {
+    throw new Error('quince already owned by the account');
+  }
+  try {
+    const pay: CharacterFactsPatch = { coinsDelta: -price };
+    await db.batch([...(await coinLotStatements(db, id, pay, Date.now())), db.prepare('UPDATE characters SET coins = MAX(0, coins - ?) WHERE id = ?').bind(price, id)]);
+  } catch (error) {
+    // Paying failed after the copy went in: take the copy back out so the item is never free.
+    await db.prepare('DELETE FROM account_items WHERE id = ?').bind(copyId).run();
+    throw error;
+  }
 }
 
 const QUINCE_SLOT_COLUMN = { sword: 'sword', armor: 'armor' } as const;
 
-// One statement writes the worn slot plus hp and maxHp.
-// A quince the fig does not own cannot be written into the slot. Clearing a slot needs no bag row.
+// Wear or stow one copy in the shared bag, then write the worn slot plus hp and maxHp.
+// Wearing needs a copy that is unworn (or already this avatar's); a copy another avatar wears cannot be taken.
+// The copy that was in the slot goes back to the bag. Clearing a slot frees the copy it held.
 export async function saveQuinceSlot(
   db: CharacterDb,
   id: string,
@@ -382,38 +532,50 @@ export async function saveQuinceSlot(
   maxHp: number,
 ): Promise<boolean> {
   const column = QUINCE_SLOT_COLUMN[slot];
-  if (itemId === null) {
-    const cleared = await db
-      .prepare(`UPDATE characters SET ${column} = NULL, hp = ?, max_hp = ? WHERE id = ?`)
-      .bind(hp, maxHp, id)
-      .run();
-    return (cleared.meta?.changes ?? 0) > 0;
+  const before = await db.prepare(`SELECT ${column} AS worn FROM characters WHERE id = ?`).bind(id).first<{ worn: string | null }>();
+  if (before === null) {
+    return false;
   }
-  const worn = await db
-    .prepare(
-      `UPDATE characters SET ${column} = ?, hp = ?, max_hp = ? WHERE id = ? AND EXISTS (SELECT 1 FROM character_items WHERE character_id = ? AND item_id = ?)`,
-    )
-    .bind(itemId, hp, maxHp, id, id, itemId)
+  if (itemId !== null) {
+    const copy = await db
+      .prepare(
+        'SELECT a.id AS id FROM account_items a WHERE a.account_id = (SELECT account_id FROM characters WHERE id = ?) ' +
+          'AND a.item_id = ? AND a.worn_by IS NULL LIMIT 1',
+      )
+      .bind(id, itemId)
+      .first<{ id: string }>();
+    if (copy === null) {
+      return false;
+    }
+    const claimed = await db
+      .prepare('UPDATE account_items SET worn_by = ? WHERE id = ? AND worn_by IS NULL')
+      .bind(id, copy.id)
+      .run();
+    if ((claimed.meta?.changes ?? 0) < 1) {
+      return false;
+    }
+  }
+  if (before.worn !== null && before.worn !== itemId) {
+    // Free the copy this avatar wore in that slot. One avatar wears at most one copy of an item.
+    await db
+      .prepare('UPDATE account_items SET worn_by = NULL WHERE worn_by = ? AND item_id = ?')
+      .bind(id, before.worn)
+      .run();
+  }
+  const written = await db
+    .prepare(`UPDATE characters SET ${column} = ?, hp = ?, max_hp = ? WHERE id = ?`)
+    .bind(itemId, hp, maxHp, id)
     .run();
-  return (worn.meta?.changes ?? 0) > 0;
+  return (written.meta?.changes ?? 0) > 0;
 }
 
 // Builds the UPDATE for one patch, or null when the patch has no keys.
 function prepareFactsUpdate(db: CharacterDb, id: string, patch: CharacterFactsPatch): D1Statement | null {
-  const pumpkinAssignments: string[] = [];
-  const grapeValues: unknown[] = [];
-  for (const key of Object.keys(SAVABLE_COLUMNS) as (keyof CharacterFactsPatch)[]) {
-    const value = patch[key];
-    if (value !== undefined) {
-      pumpkinAssignments.push(`${SAVABLE_COLUMNS[key]} = ?`);
-      grapeValues.push(value);
-    }
-  }
-  if (pumpkinAssignments.length === 0) {
+  const { sql, values } = patchAssignments(patch);
+  if (sql.length === 0) {
     return null;
   }
-  grapeValues.push(id);
-  return db.prepare(`UPDATE characters SET ${pumpkinAssignments.join(', ')} WHERE id = ?`).bind(...grapeValues);
+  return db.prepare(`UPDATE characters SET ${sql.join(', ')} WHERE id = ?`).bind(...values, id);
 }
 
 // Writes two characters' rows in one D1 batch, so one purse cannot commit without the other.
@@ -422,7 +584,12 @@ export async function saveFactsPair(
   first: { readonly id: string; readonly patch: CharacterFactsPatch },
   second: { readonly id: string; readonly patch: CharacterFactsPatch },
 ): Promise<void> {
-  const leeks = [prepareFactsUpdate(db, first.id, first.patch), prepareFactsUpdate(db, second.id, second.patch)].filter(
+  const nowMs = Date.now();
+  const lots = [
+    ...(await coinLotStatements(db, first.id, first.patch, nowMs)),
+    ...(await coinLotStatements(db, second.id, second.patch, nowMs)),
+  ];
+  const leeks = [...lots, prepareFactsUpdate(db, first.id, first.patch), prepareFactsUpdate(db, second.id, second.patch)].filter(
     (statement): statement is D1Statement => statement !== null,
   );
   if (leeks.length > 0) {
@@ -436,22 +603,14 @@ export async function saveFacts(
   id: string,
   patch: CharacterFactsPatch,
 ): Promise<CharacterFacts | null> {
-  const pumpkinAssignments: string[] = [];
-  const grapeValues: unknown[] = [];
-  for (const key of Object.keys(SAVABLE_COLUMNS) as (keyof CharacterFactsPatch)[]) {
-    const value = patch[key];
-    if (value !== undefined) {
-      pumpkinAssignments.push(`${SAVABLE_COLUMNS[key]} = ?`);
-      grapeValues.push(value);
+  const update = prepareFactsUpdate(db, id, patch);
+  if (update !== null) {
+    if (patch.coins !== undefined || patch.coinsDelta !== undefined) {
+      // The purse and its coin lots change together.
+      await db.batch([...(await coinLotStatements(db, id, patch, Date.now())), update]);
+    } else {
+      await update.run();
     }
-  }
-
-  if (pumpkinAssignments.length > 0) {
-    grapeValues.push(id);
-    await db
-      .prepare(`UPDATE characters SET ${pumpkinAssignments.join(', ')} WHERE id = ?`)
-      .bind(...grapeValues)
-      .run();
   }
   return getById(db, id);
 }

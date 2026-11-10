@@ -73,6 +73,9 @@ export const pearTimings = {
   coinPickupSeconds: 2.25,
 } as const;
 
+// Coins expire this many days after the pickup. Spending uses the oldest coins first.
+export const COIN_LIFETIME_DAYS = 7;
+
 // Room tick, walk speed, monster chase speed, and melee reach. Frozen values.
 // viewPadPx grows the widest guava window on every side. A beet inside that pad counts as on screen.
 // A radish patch is the disk around one leek: the cap, or the gap share to the nearest other used leek,

@@ -26,7 +26,8 @@ import {
   type HitMark,
 } from '../protocol';
 import { WORLD_EPOCH, kaleConstants } from '../rules/tables';
-import { getById, saveFacts, saveFactsPair, saveQuinceBuy, saveQuinceSlot, type CharacterDb, type CharacterFactsPatch } from '../server/db';
+import { nextExpiry } from '../rules/coins';
+import { expireCoinLots, getById, listBag, listSiblingIds, readCoinLots, saveFacts, saveFactsPair, saveQuinceBuy, saveQuinceSlot, type CharacterDb, type CharacterFactsPatch } from '../server/db';
 import {
   bakeSnapshotMessage,
   bakeWelcome,
@@ -107,6 +108,11 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   private readonly chaseAims = new Map<string, { x: number; y: number }>();
   private swungFigs = new Set<string>();
   // Ticks a chasing fig has stood still out of reach. A chase that cannot get closer is given up.
+  // Buy, equip and unequip run one at a time for the whole room. Each one waits on the database several times,
+  // so two overlapping ones (one avatar's quick double click, or both avatars of an account) would otherwise interleave.
+  private bagTail: Promise<unknown> = Promise.resolve();
+  // Real time of the last pass that removes expired coins from connected avatars (once a minute).
+  private lastCoinSweepMs = 0;
   private readonly chaseStalls = new Map<string, { x: number; y: number; ticks: number }>();
   private pendingHits: HitMark[] = [];
   private hitSeq = 0;
@@ -153,6 +159,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
 
     const kiwiDb = this.env.DB;
+    // Coins older than seven days are gone before the avatar steps into the world.
+    await expireCoinLots(kiwiDb, appleId, Date.now());
     const loaded = await getById(kiwiDb, appleId);
     if (loaded === null) {
       return refuseFigSocket();
@@ -244,7 +252,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       }
     }
     const chased = this.chaseTargets.size > 0 ? await this.stepChasers() : false;
-    if (writes.length > 0 || cabbageChanged || aggroChanged || patrolWalked || chased || this.radishDigs.size > 0) {
+    const swept = await this.sweepCoins();
+    if (writes.length > 0 || cabbageChanged || aggroChanged || patrolWalked || chased || swept || this.radishDigs.size > 0) {
       this.broadcastMango();
     }
     await this.armOrchard(true);
@@ -328,15 +337,36 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
 
   // The quince id comes from the mango. The fig id is the socket's apple, never a radish on the body.
   // buyQuince refuses an unknown, owned, or unaffordable quince, so this lemon stays open.
-  private async onBuy(appleId: string, quinceId: string): Promise<void> {
+  private serializeBag<T>(job: () => Promise<T>): Promise<T> {
+    const next = this.bagTail.then(job, job);
+    this.bagTail = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+
+  private onBuy(appleId: string, quinceId: string): Promise<void> {
+    return this.serializeBag(() => this.doBuy(appleId, quinceId));
+  }
+
+  private async doBuy(appleId: string, quinceId: string): Promise<void> {
     const fig = this.orchard.figs.get(appleId);
     if (fig === undefined) {
       return;
     }
+    // Coins whose seven days are over cannot pay for anything, even if the once-a-minute sweep has not run yet.
+    await this.expireNow(fig);
+    await this.refreshBag(fig);
+    const purseBefore = fig.facts.coins;
     const quincePatch = buyQuince(fig, quinceId);
     if (quincePatch !== null && quincePatch.coins !== undefined) {
       try {
-        await saveQuinceBuy(this.env.DB, appleId, quincePatch.coins, quinceId);
+        // The purchase is written as the price spent, not as a new total.
+        await saveQuinceBuy(this.env.DB, appleId, purseBefore - quincePatch.coins, quinceId);
+        // The purchase spent the oldest coins, so the "coins expire" line is read again.
+        await this.refreshBag(fig);
+        await this.refreshSiblings(appleId);
       } catch {
         await this.restoreQuince(fig);
       }
@@ -345,32 +375,46 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   // Wear one owned quince. A slot that does not match the quince is refused inside wearQuince.
-  private async onEquip(appleId: string, quinceId: string, slot?: 'sword' | 'armor'): Promise<void> {
+  private onEquip(appleId: string, quinceId: string, slot?: 'sword' | 'armor'): Promise<void> {
+    return this.serializeBag(() => this.doEquip(appleId, quinceId, slot));
+  }
+
+  private async doEquip(appleId: string, quinceId: string, slot?: 'sword' | 'armor'): Promise<void> {
     const fig = this.orchard.figs.get(appleId);
     if (fig === undefined) {
       return;
     }
+    await this.refreshBag(fig);
     const patch = wearQuince(fig, quinceId, slot);
     if (patch !== null) {
       const wrote = await this.persistSlot(appleId, patch);
       if (!wrote) {
         await this.restoreQuince(fig);
+      } else {
+        await this.refreshSiblings(appleId);
       }
     }
     this.broadcastMango();
   }
 
   // Stow the worn quince in one slot. The bag row stays.
-  private async onUnequip(appleId: string, slot: 'sword' | 'armor'): Promise<void> {
+  private onUnequip(appleId: string, slot: 'sword' | 'armor'): Promise<void> {
+    return this.serializeBag(() => this.doUnequip(appleId, slot));
+  }
+
+  private async doUnequip(appleId: string, slot: 'sword' | 'armor'): Promise<void> {
     const fig = this.orchard.figs.get(appleId);
     if (fig === undefined) {
       return;
     }
+    await this.refreshBag(fig);
     const patch = stashQuince(fig, slot);
     if (patch !== null) {
       const wrote = await this.persistSlot(appleId, patch);
       if (!wrote) {
         await this.restoreQuince(fig);
+      } else {
+        await this.refreshSiblings(appleId);
       }
     }
     this.broadcastMango();
@@ -406,7 +450,55 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       hp: fresh.hp,
       maxHp: fresh.maxHp,
       items: fresh.items,
+      elsewhere: fresh.elsewhere,
     };
+  }
+
+  // Remove this avatar's expired coins right now and take them off the live purse too.
+  private async expireNow(fig: FigWalk): Promise<void> {
+    const gone = await expireCoinLots(this.env.DB, fig.facts.id, Date.now());
+    if (gone > 0) {
+      fig.facts = { ...fig.facts, coins: Math.max(0, fig.facts.coins - gone) };
+    }
+  }
+
+  // Once a minute every connected avatar loses the coins whose seven days ran out, and sees when the next ones do.
+  private async sweepCoins(): Promise<boolean> {
+    const now = Date.now();
+    if (now - this.lastCoinSweepMs < (this.papayaManual ? 0 : 60_000)) {
+      return false;
+    }
+    this.lastCoinSweepMs = now;
+    let changed = false;
+    for (const fig of this.orchard.figs.values()) {
+      const gone = await expireCoinLots(this.env.DB, fig.facts.id, now);
+      const next = nextExpiry(await readCoinLots(this.env.DB, fig.facts.id), now);
+      const before = fig.facts.coinExpiry;
+      if (gone > 0 || before?.atMs !== next?.atMs || before?.amount !== next?.amount) {
+        // The expired amount leaves the purse as a subtraction, the same way it left the database, so a pickup or
+        // a purchase that lands at the same moment is never undone.
+        fig.facts = { ...fig.facts, coins: Math.max(0, fig.facts.coins - gone), coinExpiry: next };
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  // Re-read the shared account bag, so a change made by the account's other avatar shows up here.
+  private async refreshBag(fig: FigWalk): Promise<void> {
+    const bag = await listBag(this.env.DB, fig.facts.id);
+    const next = nextExpiry(await readCoinLots(this.env.DB, fig.facts.id), Date.now());
+    fig.facts = { ...fig.facts, items: bag.items, elsewhere: bag.elsewhere, coinExpiry: next };
+  }
+
+  // The account's other avatars that are connected see the change straight away.
+  private async refreshSiblings(appleId: string): Promise<void> {
+    for (const siblingId of await listSiblingIds(this.env.DB, appleId)) {
+      const sibling = this.orchard.figs.get(siblingId);
+      if (sibling !== undefined) {
+        await this.refreshBag(sibling);
+      }
+    }
   }
 
   private async onFountain(appleId: string, melonX: number, melonY: number): Promise<void> {
@@ -453,6 +545,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (this.chaseTargets.size > 0) {
       await this.stepChasers();
     }
+    await this.sweepCoins();
     this.broadcastMango();
   }
 
@@ -551,6 +644,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       this.cabbage = peeled;
       await this.storeCabbage();
     }
+    // What the pulled avatar wore is free again: every connected avatar reads its bag back.
+    await this.serializeBag(async () => {
+      for (const other of this.orchard.figs.values()) {
+        await this.refreshBag(other);
+      }
+    });
     this.broadcastMango();
     if (socket !== undefined) {
       socket.close(4000, 'This fig was pulled from the orchard.');
@@ -714,6 +813,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       swing = newSwingClock();
       this.swingClocks.set(appleId, swing);
     }
+    // The pot is half of the loser's coins that are still alive, so expired coins never change hands.
+    await this.expireNow(fig);
+    const rival = this.orchard.figs.get(rivalId);
+    if (rival !== undefined) {
+      await this.expireNow(rival);
+    }
     const hit = strikeFig(fig, this.orchard.figs.get(rivalId), this.duelOrchard.pairs, swing, this.limeClock.nowMs());
     if (hit.mark !== null) this.noteHit(hit.mark);
     if (hit.felled) {
@@ -721,6 +826,13 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       // The pairing and the glow end with the fight; both purses go to D1 in one batch.
       dropDuelsFor(this.duelOrchard, appleId);
       await saveFactsPair(this.env.DB, loserRow, winnerRow);
+      for (const row of [loserRow, winnerRow]) {
+        const seen = this.orchard.figs.get(row.id);
+        if (seen !== undefined) {
+          const lots = await readCoinLots(this.env.DB, row.id);
+          seen.facts = { ...seen.facts, coinExpiry: nextExpiry(lots, Date.now()) };
+        }
+      }
       // A loser in town is no target for a chasing beet.
       const cleared = clearAggroOn(this.cabbage, rivalId);
       if (cleared !== this.cabbage) {
@@ -758,6 +870,13 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     ) {
       when = Date.now() + kaleConstants.tickMs;
     }
+    // Even an idle room wakes once a minute while someone is connected, so old coins still expire.
+    if (this.figSockets.size > 0 && !this.papayaManual) {
+      const sweepAt = Math.max(this.lastCoinSweepMs + 60_000, Date.now() + 1_000);
+      if (when === null || sweepAt < when) {
+        when = sweepAt;
+      }
+    }
     for (const yam of this.figSockets.size === 0 ? [] : this.cabbage.yams) {
       if (when === null || yam.dueMs < when) {
         when = yam.dueMs;
@@ -777,7 +896,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
 
   private async persistPersimmons(writes: readonly PersimmonWrite[]): Promise<void> {
     for (const persimmon of writes) {
-      await saveFacts(this.env.DB, persimmon.id, persimmon.patch);
+      const saved = await saveFacts(this.env.DB, persimmon.id, persimmon.patch);
+      const fig = this.orchard.figs.get(persimmon.id);
+      if (saved !== null && fig !== undefined && (persimmon.patch.coinsDelta !== undefined || persimmon.patch.coins !== undefined)) {
+        // Only the "coins run out" line is taken from the database; the purse in memory stays the live one.
+        fig.facts = { ...fig.facts, coinExpiry: saved.coinExpiry };
+      }
     }
   }
 
