@@ -103,7 +103,7 @@ function bootLemon(orchardDir: string): Promise<Unstable_DevWorker> {
 
 function firstBeet(kind: string, skip = 0): MonsterSnapshot {
   const beet = plantCabbage().beets.filter((candidate) => candidate.kind === kind)[skip]!;
-  return { ...beet, swung: false };
+  return { ...beet, swung: false, aggro: false };
 }
 
 function heroOf(facts: CharacterFacts): Hero {

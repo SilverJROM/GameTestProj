@@ -112,7 +112,7 @@ function bootLemon(orchardDir: string): Promise<Unstable_DevWorker> {
 
 function nthBeet(kind: string, skip = 0): MonsterSnapshot {
   const beet = plantCabbage().beets.filter((candidate) => candidate.kind === kind)[skip]!;
-  return { ...beet, swung: false };
+  return { ...beet, swung: false, aggro: false };
 }
 
 function heroOf(facts: Pick<CharacterFacts, 'level' | 'xp' | 'hp' | 'coins' | 'sword' | 'armor' | 'place'>): Hero {
@@ -199,10 +199,28 @@ describe('G4 hunt flow', () => {
     // The flow needs Basil's hit to leave the wolf standing so Fern can finish it.
     expect(basilStrike).toBeLessThan(wolfRow.hp);
 
-    // Before any hit, the wolf stands and nobody is bitten.
+    // Before any hit, the unhit wolf may patrol off its spawn, but nobody is bitten.
     let heard = await fromFern({ type: 'ripen', steps: biteTicks * 2 });
     expect(beetIn(heard.senderSnap, wolf.id)!.swung).toBe(false);
     expect(heard.otherSnap.character.hp).toBe(basilStart.hp);
+
+    // Walk both figs onto the wolf's current patch, one tick at a time, until both stand in reach. The strike follows at once.
+    const inReach = (snap: SnapshotMessage, at: MonsterSnapshot) =>
+      Math.hypot(at.x - snap.character.x, at.y - snap.character.y) <= kaleConstants.meleeReachPx / 2;
+    for (let step = 0; step < 300; step += 1) {
+      const wolfNow = beetIn(heard.senderSnap, wolf.id)!;
+      if (inReach(heard.senderSnap, wolfNow) && inReach(heard.otherSnap, wolfNow)) {
+        break;
+      }
+      await fromFern({ type: 'move', x: wolfNow.x, y: wolfNow.y });
+      await fromBasil({ type: 'move', x: wolfNow.x, y: wolfNow.y });
+      heard = await fromFern({ type: 'ripen', steps: 1 });
+      expect(beetIn(heard.senderSnap, wolf.id)!.swung).toBe(false);
+      expect(heard.otherSnap.character.hp).toBe(basilStart.hp);
+    }
+    const wolfReady = beetIn(heard.senderSnap, wolf.id)!;
+    expect(inReach(heard.senderSnap, wolfReady)).toBe(true);
+    expect(inReach(heard.otherSnap, wolfReady)).toBe(true);
 
     heard = await fromBasil({ type: 'attack', monsterId: wolf.id });
     expect(beetIn(heard.senderSnap, wolf.id)!.hp).toBe(wolfRow.hp - basilStrike);
@@ -301,32 +319,53 @@ describe('G4 hunt flow', () => {
     const radish = await joinFig('Radish', { ...strong, ...radishGrey, place: 'grey' });
     const fromPlum = (payload: unknown) => broadcastMango(plum.socket, radish.socket, payload);
 
-    // Outside the radius, and in the grey inside the radius: the skeleton stands.
-    let heard = await fromPlum({ type: 'ripen', steps: biteTicks * 5 });
+    // Outside the radius, and in the grey inside the radius: the skeleton may patrol but never bites or chases.
+    let heard = await fromPlum({ type: 'ripen', steps: 1 });
     let standing = beetIn(heard.senderSnap, skeleton.id)!;
-    expect([standing.x, standing.y]).toEqual([skeleton.x, skeleton.y]);
-    expect(standing.swung).toBe(false);
-    expect(heard.senderSnap.character.hp).toBe(strong.hp);
-    expect(heard.otherSnap.character.hp).toBe(strong.hp);
+    for (let chunk = 0; chunk < 5; chunk += 1) {
+      heard = await fromPlum({ type: 'ripen', steps: biteTicks });
+      standing = beetIn(heard.senderSnap, skeleton.id)!;
+      expect(standing.swung, `chunk ${chunk}`).toBe(false);
+      expect(heard.senderSnap.character.hp).toBe(strong.hp);
+      expect(heard.otherSnap.character.hp).toBe(strong.hp);
+      const reach = kaleConstants.meleeReachPx;
+      expect(Math.hypot(standing.x - plumOutside.x, standing.y - plumOutside.y)).toBeGreaterThan(reach);
+      expect(Math.hypot(standing.x - radishGrey.x, standing.y - radishGrey.y)).toBeGreaterThan(reach);
+    }
 
-    // Plum steps just inside the radius while still in the cemetery: the skeleton closes in and swings.
-    await fromPlum({ type: 'move', ...plumInside });
-    heard = await fromPlum({ type: 'ripen', steps: 1 });
+    // Plum follows the patrolling skeleton, staying in the cemetery, until she stands inside its radius.
+    let reachedIn = false;
+    for (let step = 0; step < 400 && !reachedIn; step += 1) {
+      standing = beetIn(heard.senderSnap, skeleton.id)!;
+      const here = heard.senderSnap.character;
+      if (Math.hypot(standing.x - here.x, standing.y - here.y) <= skeletonRadiusPx) {
+        reachedIn = true;
+        break;
+      }
+      await fromPlum({ type: 'move', x: standing.x + skeletonRadiusPx - 1, y: standing.y });
+      heard = await fromPlum({ type: 'ripen', steps: 1 });
+    }
+    expect(reachedIn).toBe(true);
+    expect(heard.senderSnap.character.place).toBe('cemetery');
+    // Other cemetery skeletons may have bitten on the way: measure from here.
+    const hpAtRadius = heard.senderSnap.character.hp;
+
+    // Inside the radius and in the cemetery: the skeleton closes in and swings.
     for (let tick = 0; tick < biteTicks * 10 && !beetIn(heard.senderSnap, skeleton.id)!.swung; tick += 1) {
       heard = await fromPlum({ type: 'ripen', steps: 1 });
     }
     standing = beetIn(heard.senderSnap, skeleton.id)!;
     expect(standing.swung).toBe(true);
-    expect([standing.x, standing.y]).not.toEqual([skeleton.x, skeleton.y]);
     expect(Math.hypot(standing.x - heard.senderSnap.character.x, standing.y - heard.senderSnap.character.y)).toBeLessThanOrEqual(
       kaleConstants.meleeReachPx,
     );
-    expect(heard.senderSnap.character.hp).toBe(strong.hp - skeletonRow.attack);
+    expect(heard.senderSnap.character.hp).toBeLessThanOrEqual(hpAtRadius - skeletonRow.attack);
+    const hpAtFirstSwing = heard.senderSnap.character.hp;
 
     // The next swing lands one monster swing interval later, and the grey fig is never touched.
     heard = await fromPlum({ type: 'ripen', steps: biteTicks });
     expect(beetIn(heard.senderSnap, skeleton.id)!.swung).toBe(true);
-    expect(heard.senderSnap.character.hp).toBe(strong.hp - skeletonRow.attack * 2);
+    expect(heard.senderSnap.character.hp).toBeLessThanOrEqual(hpAtFirstSwing - skeletonRow.attack);
     expect(heard.otherSnap.character.hp).toBe(strong.hp);
     expect((await rowIn(radish.id)).hp).toBe(strong.hp);
 
@@ -352,7 +391,19 @@ describe('G4 hunt flow', () => {
     const sorrel = await joinFig('Sorrel', { place: 'town', x: townSpawn[0], y: townSpawn[1] + 20 });
     const fromRowan = (payload: unknown) => broadcastMango(rowan.socket, sorrel.socket, payload);
 
-    let heard = await fromRowan({ type: 'attack', monsterId: wolf.id });
+    // The wolf may have patrolled off its spawn in earlier cases: walk Rowan onto it, then strike at once.
+    let heard = await fromRowan({ type: 'ripen', steps: 0 });
+    for (let step = 0; step < 300; step += 1) {
+      const wolfNow = beetIn(heard.senderSnap, wolf.id)!;
+      const here = heard.senderSnap.character;
+      if (Math.hypot(wolfNow.x - here.x, wolfNow.y - here.y) <= kaleConstants.meleeReachPx / 2) {
+        break;
+      }
+      await fromRowan({ type: 'move', x: wolfNow.x, y: wolfNow.y });
+      heard = await fromRowan({ type: 'ripen', steps: 1 });
+      expect(heard.senderSnap.character.hp).toBe(wolfRow.attack);
+    }
+    heard = await fromRowan({ type: 'attack', monsterId: wolf.id });
     expect(beetIn(heard.senderSnap, wolf.id)!.hp).toBeLessThan(wolfRow.hp);
     expect(heard.senderSnap.character.hp).toBe(wolfRow.attack);
 

@@ -64,6 +64,10 @@ export interface MonsterSnapshot {
   readonly x: number;
   readonly y: number;
   readonly hp: number;
+  // True while this beet is on a fig. A wolf or a bear gets there from a hit.
+  // A skeleton gets there with no hit when a fig is within the cemetery wake radius.
+  // A fig standing in town does not set it.
+  readonly aggro: boolean;
   // True for the tick this beet's bite landed, so a client can pick the bite or swipe still.
   readonly swung: boolean;
 }

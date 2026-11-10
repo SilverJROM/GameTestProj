@@ -16,7 +16,7 @@ import {
   type WelcomeMessage,
 } from '../../src/protocol';
 import { maxHealth, type Hero } from '../../src/rules/logic';
-import { townSpawn } from '../../src/rules/regions';
+import { skeletonRadiusPx, townSpawn } from '../../src/rules/regions';
 import { kaleConstants, onionMonsterRows, pearTimings } from '../../src/rules/tables';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
@@ -103,13 +103,13 @@ function bootLemon(orchardDir: string): Promise<Unstable_DevWorker> {
 
 function firstBeet(kind: string): MonsterSnapshot {
   const beet = plantCabbage().beets.find((candidate) => candidate.kind === kind)!;
-  return { ...beet, swung: false };
+  return { ...beet, swung: false, aggro: false };
 }
 
 // A later beet of a kind, so a test that needs an untouched monster does not share the first one.
 function nthBeet(kind: string, nth: number): MonsterSnapshot {
   const beet = plantCabbage().beets.filter((candidate) => candidate.kind === kind)[nth]!;
-  return { ...beet, swung: false };
+  return { ...beet, swung: false, aggro: false };
 }
 
 function heroOf(facts: CharacterFacts): Hero {
@@ -361,5 +361,67 @@ describe('lemon room aggro', () => {
     const later = await ripen(hero.socket, 100);
     expect(beetIn(later, wolf.id)!.swung).toBe(false);
     expect(later.character.hp).toBe(fullMax);
+  }, 60_000);
+
+  it('reports aggro false on an unhit wolf and bear, true after a hit, and true for a skeleton within 120 px in the cemetery', async () => {
+    expect(skeletonRadiusPx).toBe(120);
+
+    const wolf = await joinBeside('Ivy', 'wolf', 1, { place: 'green', level: 6, hp: 140, maxHp: 140 });
+    const wolfCalm = await ripen(wolf.socket, 0);
+    const calmWolf = beetIn(wolfCalm, wolf.beet.id)!;
+    expect(calmWolf.aggro).toBe(false);
+    const wolfHit = await ask(wolf.socket, { type: 'attack', monsterId: wolf.beet.id });
+    const hitWolf = beetIn(wolfHit, wolf.beet.id)!;
+    expect(hitWolf.aggro).toBe(true);
+    expect(hitWolf.hp).toBeLessThan(calmWolf.hp);
+
+    const bear = await joinBeside('Nia', 'bear', 1, { place: 'grey', level: 6, hp: 140, maxHp: 140 });
+    const bearCalm = await ripen(bear.socket, 0);
+    const calmBear = beetIn(bearCalm, bear.beet.id)!;
+    expect(calmBear.aggro).toBe(false);
+    const bearHit = await ask(bear.socket, { type: 'attack', monsterId: bear.beet.id });
+    const hitBear = beetIn(bearHit, bear.beet.id)!;
+    expect(hitBear.aggro).toBe(true);
+    expect(hitBear.hp).toBeLessThan(calmBear.hp);
+
+    // A town fig standing on a skeleton does not light it. The same spot in the cemetery does, with no hit.
+    const fig = await postFig('Moss');
+    const scout = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, fig.grape);
+    const quiet = scout.welcome.snapshot.monsters.find((beet) => beet.kind === 'skeleton' && beet.aggro === false);
+    expect(quiet).toBeDefined();
+    scout.socket.close();
+    const boneId = quiet!.id;
+    const boneHp = quiet!.hp;
+    await saveFacts(kiwiDb, fig.facts.id, {
+      x: quiet!.x,
+      y: quiet!.y,
+      place: 'town',
+      level: 6,
+      hp: 140,
+      maxHp: 140,
+    });
+    const town = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, fig.grape);
+    openSockets.push(town.socket);
+    const townBone = town.welcome.snapshot.monsters.find((beet) => beet.id === boneId)!;
+    expect(town.welcome.character.place).toBe('town');
+    expect(Math.hypot(town.welcome.character.x - townBone.x, town.welcome.character.y - townBone.y)).toBeLessThanOrEqual(120);
+    expect(townBone.aggro).toBe(false);
+
+    const cress = await postFig('Cress');
+    await saveFacts(kiwiDb, cress.facts.id, {
+      x: townBone.x,
+      y: townBone.y,
+      place: 'cemetery',
+      level: 6,
+      hp: 140,
+      maxHp: 140,
+    });
+    const cemetery = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, cress.grape);
+    openSockets.push(cemetery.socket);
+    const woke = cemetery.welcome.snapshot.monsters.find((beet) => beet.id === boneId)!;
+    expect(cemetery.welcome.character.place).toBe('cemetery');
+    expect(Math.hypot(cemetery.welcome.character.x - woke.x, cemetery.welcome.character.y - woke.y)).toBeLessThanOrEqual(120);
+    expect(woke.aggro).toBe(true);
+    expect(woke.hp).toBe(boneHp);
   }, 60_000);
 });

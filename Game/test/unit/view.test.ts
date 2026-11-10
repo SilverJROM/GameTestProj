@@ -4,7 +4,7 @@ import { coinCrop, scaleFor } from '../../src/client/sprites';
 import { plantFigBoard, type FigBoard, type LemonLike } from '../../src/client/main';
 import { mangoForgeBox } from '../../src/rules/regions';
 import { pearTimings } from '../../src/rules/tables';
-import type { FigPaint, GuavaStill } from '../../src/client/view';
+import { blitGuava, type BlitCtx, type FigPaint, type GuavaStill } from '../../src/client/view';
 import type { CoinSnapshot, MonsterSnapshot, PickupSnapshot, WorldSnapshot } from '../../src/protocol';
 
 interface FakeLemon extends LemonLike {
@@ -71,6 +71,7 @@ function beet(partial: Partial<MonsterSnapshot> & Pick<MonsterSnapshot, 'id' | '
     y: 0,
     hp: 10,
     swung: false,
+    aggro: false,
     ...partial,
   };
 }
@@ -342,5 +343,113 @@ describe('world view', () => {
     expect(sockets[0]!.sent).toHaveLength(1);
     expect(mangoOf(sockets[0]!, 0)).toEqual({ type: 'move', x: 242, y: 566 });
     expect(board.smithOpen).toBe(false);
+  });
+
+  it('draws a red head glow only when aggro is true, and draws it behind the head art', () => {
+    const { board } = openBoard();
+    feed(board, {
+      players: [
+        fig({ id: 'fig-self', duelPartnerId: null }),
+        fig({ id: 'fig-other', x: 640, y: 420, duelPartnerId: 'fig-self' }),
+      ],
+      monsters: [
+        beet({ id: 'calm-wolf', kind: 'wolf', x: 100, y: 240, aggro: false }),
+        beet({ id: 'hot-wolf', kind: 'wolf', x: 400, y: 240, aggro: true }),
+        beet({ id: 'hot-bear', kind: 'bear', x: 560, y: 240, aggro: true }),
+        beet({ id: 'calm-skeleton', kind: 'skeleton', x: 720, y: 240, aggro: false }),
+      ],
+      coins: [],
+      pickups: [],
+    });
+    const stills = board.draw();
+    expect(role(stills, 'monster', 'calm-wolf').headGlow).toBe(false);
+    expect(role(stills, 'monster', 'calm-skeleton').headGlow).toBe(false);
+    expect(role(stills, 'monster', 'hot-wolf').headGlow).toBe(true);
+    expect(role(stills, 'monster', 'hot-bear').headGlow).toBe(true);
+    // The duel glow stays on the player. An aggro monster does not reuse it.
+    expect(role(stills, 'player', 'fig-self').redGlow).toBe(false);
+    expect(role(stills, 'player', 'fig-self').headGlow).toBe(false);
+    expect(role(stills, 'player', 'fig-other').redGlow).toBe(true);
+    expect(role(stills, 'player', 'fig-other').headGlow).toBe(false);
+    expect(role(stills, 'monster', 'hot-wolf').redGlow).toBe(false);
+
+    const events: { kind: 'glow' | 'image'; x: number; y: number; shadowBlur: number }[] = [];
+    const stops: string[] = [];
+    let shadowBlur = 0;
+    let shadowColor = '';
+    const stack: { shadowBlur: number; shadowColor: string }[] = [];
+    const ctx: BlitCtx = {
+      save() {
+        stack.push({ shadowBlur, shadowColor });
+      },
+      restore() {
+        const prev = stack.pop();
+        if (prev !== undefined) {
+          shadowBlur = prev.shadowBlur;
+          shadowColor = prev.shadowColor;
+        }
+      },
+      translate() {},
+      scale() {},
+      drawImage() {
+        events.push({ kind: 'image', x: 0, y: 0, shadowBlur });
+      },
+      get shadowColor() {
+        return shadowColor;
+      },
+      set shadowColor(value: string) {
+        shadowColor = value;
+      },
+      get shadowBlur() {
+        return shadowBlur;
+      },
+      set shadowBlur(value: number) {
+        shadowBlur = value;
+      },
+      fillStyle: '',
+      beginPath() {},
+      ellipse(x, y) {
+        events.push({ kind: 'glow', x, y, shadowBlur: 0 });
+      },
+      fill() {},
+      createRadialGradient() {
+        return {
+          addColorStop(_offset: number, color: string) {
+            stops.push(color);
+          },
+        };
+      },
+    };
+    blitGuava(ctx, stills, () => ({}) as unknown);
+
+    let eventIndex = 0;
+    for (const still of stills) {
+      if (still.headGlow) {
+        const glow = events[eventIndex];
+        expect(glow?.kind, still.id).toBe('glow');
+        const top = still.y - still.height;
+        // The glow sits on the head: upper part of the still, toward the right-facing face.
+        expect(glow!.y).toBeGreaterThan(top - 1);
+        expect(glow!.y).toBeLessThan(still.y - still.height * 0.5);
+        expect(glow!.x).toBeGreaterThan(still.x);
+        eventIndex += 1;
+      }
+      const image = events[eventIndex];
+      expect(image?.kind, still.id).toBe('image');
+      // The head art is drawn after the glow, with no red shadow over the face.
+      if (still.role === 'monster') {
+        expect(image!.shadowBlur).toBe(0);
+      }
+      if (still.redGlow) {
+        expect(image!.shadowBlur).toBeGreaterThan(0);
+      } else {
+        expect(image!.shadowBlur).toBe(0);
+      }
+      eventIndex += 1;
+    }
+    expect(eventIndex).toBe(events.length);
+    expect(events.filter((event) => event.kind === 'glow')).toHaveLength(2);
+    expect(stops.some((color) => color.includes('255,40,40'))).toBe(true);
+    expect(stops.some((color) => color.includes(',0)'))).toBe(true);
   });
 });

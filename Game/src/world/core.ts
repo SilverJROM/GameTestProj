@@ -7,8 +7,8 @@
 
 import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
 import { maxHealth, purchase, type Hero } from '../rules/logic';
-import { firstSolidWallCrossing, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, townSpawn, zoneAt } from '../rules/regions';
-import { kaleConstants } from '../rules/tables';
+import { firstSolidWallCrossing, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, skeletonRadiusPx, townSpawn, zoneAt } from '../rules/regions';
+import { kaleConstants, onionMonsterRows } from '../rules/tables';
 import type { ApricotFacing, CoinSnapshot, PickupSnapshot, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
 
 export interface FigSpot {
@@ -314,10 +314,40 @@ function toPlayer(fig: FigWalk, partners: ReadonlyMap<string, string>): WorldSna
   };
 }
 
-// A beet as the room hands it over; swung is true only for the tick its bite landed.
-export type BeetLike = Omit<MonsterSnapshot, 'swung'> & { readonly swung?: boolean };
+// A beet as the room hands it over. swung is true only for the tick its bite landed.
+// targetId is the fig this beet is on, when combat has named one. The snapshot's aggro flag is derived here.
+export type BeetLike = Omit<MonsterSnapshot, 'swung' | 'aggro'> & {
+  readonly swung?: boolean;
+  readonly targetId?: string;
+};
 
-function toBeet(beet: BeetLike): MonsterSnapshot {
+function beetHasTarget(beet: BeetLike): boolean {
+  return typeof beet.targetId === 'string' && beet.targetId.length > 0;
+}
+
+// A proximity beet (a skeleton) is on a fig as soon as that fig stands in the beet's zone
+// inside the wake radius. Town, green, and grey do not count. A stored target also counts,
+// so a chase that has already left the radius stays lit until the target is dropped.
+function beetHasAggro(beet: BeetLike, players: WorldSnapshot['players']): boolean {
+  if (beetHasTarget(beet)) {
+    return true;
+  }
+  const row = onionMonsterRows.find((candidate) => candidate.id === beet.kind);
+  if (row === undefined || row.aggro !== 'proximity' || beet.zone !== row.zone) {
+    return false;
+  }
+  for (const player of players) {
+    if (player.place !== beet.zone) {
+      continue;
+    }
+    if (Math.hypot(player.x - beet.x, player.y - beet.y) <= skeletonRadiusPx) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function toBeet(beet: BeetLike, players: WorldSnapshot['players']): MonsterSnapshot {
   return {
     id: beet.id,
     kind: beet.kind,
@@ -325,6 +355,7 @@ function toBeet(beet: BeetLike): MonsterSnapshot {
     x: beet.x,
     y: beet.y,
     hp: beet.hp,
+    aggro: beetHasAggro(beet, players),
     swung: beet.swung === true,
   };
 }
@@ -337,9 +368,10 @@ function orchardSnapshot(
   pickups: readonly PickupSnapshot[],
   partners: ReadonlyMap<string, string>,
 ): WorldSnapshot {
+  const players = orchard.map((fig) => toPlayer(fig, partners));
   return {
-    players: orchard.map((fig) => toPlayer(fig, partners)),
-    monsters: beets.map((beet) => toBeet(beet)),
+    players,
+    monsters: beets.map((beet) => toBeet(beet, players)),
     coins: seeds.map((seed) => ({ id: seed.id, ownerId: seed.ownerId, x: seed.x, y: seed.y })),
     pickups: pickups.map((dig) => ({ ...dig })),
   };

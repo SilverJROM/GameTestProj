@@ -43,7 +43,10 @@ export interface GuavaStill {
   readonly width: number;
   readonly height: number;
   readonly facing: ApricotFacing;
+  // Duel glow on a player. Separate from the aggro glow behind a monster's head.
   readonly redGlow: boolean;
+  // Red glow drawn behind this still's head. The head art is painted on top of it.
+  readonly headGlow: boolean;
   readonly crop: CropRect | null;
   readonly box: Box | null;
   readonly kind: SpriteKind | 'forge';
@@ -197,6 +200,7 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
       height: forgeHeight,
       facing: 'right',
       redGlow: false,
+      headGlow: false,
       crop: null,
       box: mangoForgeBox,
       kind: 'forge',
@@ -219,6 +223,7 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
         height: coinSize.height,
         facing: 'right',
         redGlow: false,
+        headGlow: false,
         crop,
         box: null,
         kind: 'axolotl',
@@ -247,6 +252,7 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
         height: size.height,
         facing: 'right',
         redGlow: false,
+        headGlow: beet.aggro === true,
         crop: null,
         box: null,
         kind,
@@ -269,6 +275,7 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
       height: smithSize.height,
       facing: 'right',
       redGlow: false,
+      headGlow: false,
       crop: null,
       box: mangoForgeBox,
       kind: 'blacksmith',
@@ -293,6 +300,7 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
         height: size.height,
         facing: fig.facing,
         redGlow,
+        headGlow: false,
         crop: null,
         box: null,
         kind: 'player',
@@ -327,6 +335,7 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
         height: size.height,
         facing: fig.facing,
         redGlow: false,
+        headGlow: false,
         crop: null,
         box: null,
         kind: 'axolotl',
@@ -337,6 +346,10 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
   return stills;
 }
 
+interface RadialFill {
+  addColorStop(offset: number, color: string): void;
+}
+
 export interface BlitCtx {
   save(): void;
   restore(): void;
@@ -345,15 +358,63 @@ export interface BlitCtx {
   drawImage(image: unknown, ...args: number[]): void;
   shadowColor: string;
   shadowBlur: number;
+  fillStyle: string | RadialFill;
+  beginPath(): void;
+  ellipse(x: number, y: number, radiusX: number, radiusY: number, rotation: number, startAngle: number, endAngle: number): void;
+  fill(): void;
+  createRadialGradient(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number): RadialFill;
 }
 
-// Paints a still list. Feet sit on x,y. A left-facing fig is mirrored. A duelist gets a red glow.
+// Approved aggro mockup: a 150×110 glow on a head 72% across the still and 20% down from the top.
+const HEAD_ACROSS = 0.72;
+const HEAD_DOWN = 0.2;
+const GLOW_WIDTH_OF_HEIGHT = 1;
+const GLOW_HEIGHT_OF_HEIGHT = 110 / 150;
+
+// Head center in map pixels. Feet are still.x, still.y. A left-facing still mirrors the head.
+function headCenter(still: GuavaStill): { x: number; y: number; rx: number; ry: number } {
+  const across = still.facing === 'left' ? 1 - HEAD_ACROSS : HEAD_ACROSS;
+  const left = still.x - still.width / 2;
+  const top = still.y - still.height;
+  const glowW = still.height * GLOW_WIDTH_OF_HEIGHT;
+  const glowH = still.height * GLOW_HEIGHT_OF_HEIGHT;
+  return {
+    x: left + still.width * across,
+    y: top + still.height * HEAD_DOWN,
+    rx: glowW / 2,
+    ry: glowH / 2,
+  };
+}
+
+// Red ellipse behind the head. The caller paints the head art afterwards, so the face stays readable.
+function paintHeadGlow(ctx: BlitCtx, still: GuavaStill): void {
+  const head = headCenter(still);
+  if (head.rx <= 0 || head.ry <= 0) {
+    return;
+  }
+  const gradient = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, Math.max(head.rx, head.ry));
+  gradient.addColorStop(0, 'rgba(255,40,40,0.95)');
+  gradient.addColorStop(0.42, 'rgba(210,12,12,0.55)');
+  gradient.addColorStop(0.72, 'rgba(140,0,0,0)');
+  ctx.save();
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.ellipse(head.x, head.y, head.rx, head.ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// Paints a still list. Feet sit on x,y. A left-facing fig is mirrored.
+// A duelist gets a red shadow on the whole sprite. An aggro beet gets a separate red glow behind its head.
 export function blitGuava(
   ctx: BlitCtx,
   stills: readonly GuavaStill[],
   picture: (src: string) => unknown,
 ): void {
   for (const still of stills) {
+    if (still.headGlow) {
+      paintHeadGlow(ctx, still);
+    }
     const image = picture(still.src);
     if (image == null) continue;
     const crop = still.crop;
