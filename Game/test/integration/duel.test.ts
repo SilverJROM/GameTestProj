@@ -17,8 +17,16 @@ import {
   type WelcomeMessage,
 } from '../../src/protocol';
 import { duelPayout, maxHealth, strike, type Hero } from '../../src/rules/logic';
-import { townSpawn } from '../../src/rules/regions';
+import {
+  firstSolidWallCrossing,
+  inRing,
+  limeTownGate,
+  pearTownWalls,
+  townSpawn,
+  type Point,
+} from '../../src/rules/regions';
 import { kaleConstants, papayaLevelRows, pearTimings } from '../../src/rules/tables';
+import { berryStepPx } from '../../src/world/core';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import { plantCabbage } from '../../src/world/monsters';
@@ -26,9 +34,50 @@ import { plantCabbage } from '../../src/world/monsters';
 const guavaSecret = 'duel-flow-session-secret';
 // Ticks per player swing gap, rounded up to whole room ticks.
 const swingTicks = Math.ceil((pearTimings.playerAttackGapSeconds * 1000) / kaleConstants.tickMs);
-// Enough ticks to walk across the whole map at the rules walk speed.
-const walkTicks = Math.ceil((2_000 / kaleConstants.walkSpeedPxPerSec) * (1000 / kaleConstants.tickMs));
 const wolfSpot = plantCabbage().beets.find((beet) => beet.kind === 'wolf')!;
+
+// Ticks one clear leg needs at the rules walk speed. The last step snaps onto the target.
+function papayaSteps(from: Point, to: Point): number {
+  const dist = Math.hypot(to[0] - from[0], to[1] - from[1]);
+  if (dist === 0) {
+    return 1;
+  }
+  return Math.ceil(dist / berryStepPx(kaleConstants.tickMs) - 1e-9);
+}
+
+// A straight segment that crosses a solid wall is replaced by a stop on the road
+// south of the lime gate, then the original target. Open gates are not solid.
+function limeGateLegs(from: Point, to: Point): Point[] {
+  if (firstSolidWallCrossing(from, to) === null) {
+    return [to];
+  }
+  const [limeA, limeB] = limeTownGate;
+  const dx = limeB[0] - limeA[0];
+  const dy = limeB[1] - limeA[1];
+  const len = Math.hypot(dx, dy);
+  let nx = dy / len;
+  let ny = -dx / len;
+  if (ny < 0) {
+    nx = -nx;
+    ny = -ny;
+  }
+  const midX = (limeA[0] + limeB[0]) / 2;
+  const midY = (limeA[1] + limeB[1]) / 2;
+  for (let guavaDist = 4; guavaDist <= 240; guavaDist += 2) {
+    const limeSpot: Point = [midX + nx * guavaDist, midY + ny * guavaDist];
+    if (inRing(pearTownWalls, limeSpot[0], limeSpot[1])) {
+      continue;
+    }
+    if (firstSolidWallCrossing(from, limeSpot) !== null) {
+      continue;
+    }
+    if (firstSolidWallCrossing(limeSpot, to) !== null) {
+      continue;
+    }
+    return [limeSpot, to];
+  }
+  throw new Error('no open road through the town gate');
+}
 const levelThree = papayaLevelRows.find((row) => row.level === 3)!;
 
 function migrationStatements(sqlText: string): string[] {
@@ -192,9 +241,18 @@ describe('G5 duel flow', () => {
   const factsOf = async (id: string) => (await getById(kiwiDb, id))!;
 
   // Walk a fig to a point on the ripen clock and return the snapshot once it stands there.
+  // A straight line into the town wall stops on the wall, so a blocked line leaves through the gate.
   async function walkTo(fig: PlumFig, x: number, y: number): Promise<SnapshotMessage> {
-    await ask(fig, { type: 'move', x, y });
-    return ripen(fig, walkTicks);
+    const start = await ask(fig, { type: 'ping' });
+    let here: Point = [start.character.x, start.character.y];
+    const legs = limeGateLegs(here, [x, y]);
+    let snap = start;
+    for (const next of legs) {
+      await ask(fig, { type: 'move', x: next[0], y: next[1] });
+      snap = await ripen(fig, papayaSteps(here, next));
+      here = [snap.character.x, snap.character.y];
+    }
+    return snap;
   }
 
   // Both sockets see nobody glowing.
