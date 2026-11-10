@@ -91,5 +91,7 @@ export function coinCrop(): CropRect {
 }
 
 // Ground coin still: assets/items/coin.png, a square disc on a magenta field. No crop.
+// 24 px is 40 percent smaller than the old 40 px disc. The blit centres the picture
+// on x and seats the bottom on y, so the disc stays on the seed when this number changes.
 export const COIN_SRC = '/items/coin.png';
-export const COIN_DRAW_PX = 40;
+export const COIN_DRAW_PX = 24;

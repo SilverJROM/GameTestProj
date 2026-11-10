@@ -24,6 +24,8 @@ const rowOf = (kind: string) => onionMonsterRows.find((row) => row.id === kind)!
 const wolfRow = rowOf('wolf');
 // The dig starts at the first tick's start, so N ticks elapse N * tickMs. Pay on the tick that reaches the duration.
 const ticksBeforePay = Math.ceil((pearTimings.coinPickupSeconds * 1000) / kaleConstants.tickMs) - 1;
+// Melee still lands. The feet stay outside the coin pickup, so the pet digs.
+const oliveStand = kaleConstants.coinPickupPx + 12;
 const swingTicks = Math.ceil((pearTimings.playerAttackGapSeconds * 1000) / kaleConstants.tickMs);
 
 
@@ -175,8 +177,10 @@ describe('axolotl coin pickup', () => {
 
   it('pays the whole seed value after the pickup duration, not before, and the beside player gains nothing', async () => {
     const wolf = wolves()[0]!;
-    const owner = await joinFig('Leek', { ...strong, x: wolf.x, y: wolf.y });
+    const owner = await joinFig('Leek', { ...strong, x: wolf.x + oliveStand, y: wolf.y });
     const beside = await joinFig('Turnip', { ...strong, x: wolf.x, y: wolf.y, coins: 3 });
+    expect(Math.hypot(oliveStand, 0)).toBeGreaterThan(kaleConstants.coinPickupPx);
+    expect(oliveStand).toBeLessThanOrEqual(kaleConstants.meleeReachPx);
     const dropped = await fellWolf(owner.socket, wolf.id);
     const owned = seedsOf(dropped, owner.id);
     expect(owned).toHaveLength(1);
@@ -214,7 +218,7 @@ describe('axolotl coin pickup', () => {
 
   it('keeps the coin on the ground when the owner leaves, and restarts the timer on return', async () => {
     const wolf = wolves()[1]!;
-    const owner = await joinFig('Beet', { ...strong, x: wolf.x, y: wolf.y });
+    const owner = await joinFig('Beet', { ...strong, x: wolf.x + oliveStand, y: wolf.y });
     const waiter = await joinFig('Kale', { ...strong, x: wolf.x + 400, y: wolf.y });
     const dropped = await fellWolf(owner.socket, wolf.id);
     expect(seedsOf(dropped, owner.id)).toHaveLength(1);
@@ -260,13 +264,78 @@ describe('axolotl coin pickup', () => {
     expect(await coinsOf(waiter.id)).toBe(0);
   }, 120_000);
 
+  it('credits the owner at once when they stand on the coin, and the fig beside it gains nothing', async () => {
+    const scout = await joinFig('Mango', { ...strong, x: 400, y: 400 });
+    const wolf = scout.welcome.snapshot.monsters.find((row) => row.kind === 'wolf');
+    expect(wolf).toBeDefined();
+    const owner = await joinFig('Papaya', { ...strong, x: wolf!.x + 10, y: wolf!.y });
+    const beside = await joinFig('Guava', { ...strong, x: wolf!.x, y: wolf!.y, coins: 3 });
+    expect(Math.hypot(10, 0)).toBeLessThanOrEqual(kaleConstants.coinPickupPx);
+
+    const dropped = await fellWolf(owner.socket, wolf!.id);
+    expect(seedsOf(dropped, owner.id)).toHaveLength(1);
+    expect(dropped.character.coins).toBe(0);
+    expect(dropped.snapshot.pickups).toEqual([]);
+
+    const snap = await ripen(owner.socket, 1);
+    expect(snap.character.coins).toBe(wolfRow.coins);
+    expect(await coinsOf(owner.id)).toBe(wolfRow.coins);
+    expect(seedsOf(snap, owner.id)).toHaveLength(0);
+    expect(snap.snapshot.pickups).toEqual([]);
+    expect(await coinsOf(beside.id)).toBe(3);
+
+    const again = await ripen(owner.socket, ticksBeforePay + 2);
+    expect(again.character.coins).toBe(wolfRow.coins);
+    expect(await coinsOf(owner.id)).toBe(wolfRow.coins);
+    expect(await coinsOf(beside.id)).toBe(3);
+    expect(again.snapshot.pickups).toEqual([]);
+  }, 120_000);
+
+  it('credits the owner once when they walk onto the coin during the pet dig', async () => {
+    const scout = await joinFig('Lime', { ...strong, x: 420, y: 420 });
+    const wolf = scout.welcome.snapshot.monsters.find((row) => row.kind === 'wolf');
+    expect(wolf).toBeDefined();
+    const owner = await joinFig('Fig', { ...strong, x: wolf!.x + oliveStand, y: wolf!.y });
+    await fellWolf(owner.socket, wolf!.id);
+
+    let snap = await ripen(owner.socket, 8);
+    expect(snap.character.coins).toBe(0);
+    expect(seedsOf(snap, owner.id)).toHaveLength(1);
+    expect(snap.snapshot.pickups).toHaveLength(1);
+    expect(snap.snapshot.pickups[0]!.ownerId).toBe(owner.id);
+    expect(snap.snapshot.pickups[0]!.elapsedSeconds).toBeLessThan(pearTimings.coinPickupSeconds);
+
+    const seed = seedsOf(snap, owner.id)[0]!;
+    snap = await ask(owner.socket, { type: 'move', x: seed.x, y: seed.y });
+    expect(snap.character.coins).toBe(0);
+
+    let paid = false;
+    for (let step = 0; step < 6; step += 1) {
+      snap = await ripen(owner.socket, 1);
+      if (snap.character.coins === wolfRow.coins) {
+        paid = true;
+        expect(8 + step + 1).toBeLessThan(ticksBeforePay + 1);
+        break;
+      }
+    }
+    expect(paid).toBe(true);
+    expect(seedsOf(snap, owner.id)).toHaveLength(0);
+    expect(snap.snapshot.pickups).toEqual([]);
+    expect(await coinsOf(owner.id)).toBe(wolfRow.coins);
+
+    snap = await ripen(owner.socket, ticksBeforePay);
+    expect(snap.character.coins).toBe(wolfRow.coins);
+    expect(await coinsOf(owner.id)).toBe(wolfRow.coins);
+    expect(snap.snapshot.pickups).toEqual([]);
+  }, 120_000);
+
   it('peels a deleted fig\'s coin seeds off the cabbage and leaves the other fig\'s seed', async () => {
     const scout = await joinFig('Celery', { ...strong, x: 400, y: 400 });
     const live = scout.welcome.snapshot.monsters.filter((row) => row.kind === 'wolf');
     expect(live.length).toBeGreaterThanOrEqual(2);
     const watcherWolf = live[0]!;
     const ownerWolf = live[1]!;
-    const watcher = await joinFig('Cress', { ...strong, x: watcherWolf.x, y: watcherWolf.y });
+    const watcher = await joinFig('Cress', { ...strong, x: watcherWolf.x + oliveStand, y: watcherWolf.y });
     const owner = await joinFig('Chard', { ...strong, x: ownerWolf.x, y: ownerWolf.y });
 
     await fellWolf(watcher.socket, watcherWolf.id);

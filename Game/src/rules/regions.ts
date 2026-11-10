@@ -66,16 +66,17 @@ export const pearTownWalls: Ring = [
   [110, 575], [80, 545], [62, 520], [45, 500], [30, 470], [22, 440], [23, 420], [24, 400], [30, 378],
 ];
 
-// Lime gate: the open south road on the pear edge (444, 574) -> (400, 598).
-// Not solid. The road passes through around (425, 584).
+// Lime gate: the open south road, the whole pear edge (444, 574) -> (400, 598).
+// Not solid. The dirt road between the towers passes through around (422, 586).
 export const limeTownGate: readonly [Point, Point] = [
   [444, 574],
-  [410, 593],
+  [400, 598],
 ];
 
-// Kiwi post: the rest of that pear edge, from the lime gate to (400, 598). Still solid.
+// Kiwi post: the old solid stub on the left of that road. The lime gate covers
+// the whole edge now, so the post has no length and is not a wall.
 export const kiwiTownPost: readonly [Point, Point] = [
-  [410, 593],
+  [400, 598],
   [400, 598],
 ];
 
@@ -190,33 +191,31 @@ function peachChainEdges(chain: readonly Point[]): readonly (readonly [Point, Po
   return edges;
 }
 
-// Pear edges stay solid, except the south road, which is replaced by the kiwi post.
+function sameFigPoint(a: Point, b: Point): boolean {
+  return a[0] === b[0] && a[1] === b[1];
+}
+
+function isOpenLimeGate(a: Point, b: Point): boolean {
+  const [g0, g1] = limeTownGate;
+  return (sameFigPoint(a, g0) && sameFigPoint(b, g1)) || (sameFigPoint(a, g1) && sameFigPoint(b, g0));
+}
+
+// Pear edges stay solid, except the whole south road (the lime gate).
 // Berry chains are solid. Lime and berry gates are left out on purpose.
 function guavaSolidSegments(): readonly (readonly [Point, Point])[] {
   const edges: (readonly [Point, Point])[] = [];
   const count = pearTownWalls.length;
-  const gateStart = limeTownGate[0];
-  const postEnd = kiwiTownPost[1];
   for (let i = 0; i < count; i++) {
     const a = pearTownWalls[i]!;
     const b = pearTownWalls[(i + 1) % count]!;
-    const forward = a[0] === gateStart[0] && a[1] === gateStart[1] && b[0] === postEnd[0] && b[1] === postEnd[1];
-    const backward = b[0] === gateStart[0] && b[1] === gateStart[1] && a[0] === postEnd[0] && a[1] === postEnd[1];
-    if (forward) {
-      edges.push(kiwiTownPost);
-      continue;
-    }
-    if (backward) {
-      edges.push([kiwiTownPost[1], kiwiTownPost[0]]);
-      continue;
-    }
+    if (isOpenLimeGate(a, b)) continue;
     edges.push([a, b]);
   }
   for (const chain of berryCemeteryWalls) edges.push(...peachChainEdges(chain));
   return edges;
 }
 
-const guavaWalls = guavaSolidSegments();
+export const guavaSolidWalls: readonly (readonly [Point, Point])[] = guavaSolidSegments();
 
 // Hit of segment `from` -> `to` against one solid wall, or null.
 // A single shared point that is only a wall endpoint counts when its parameter
@@ -276,16 +275,54 @@ function dateWallHit(
   return { t: tt, point: [ax + tt * rx, ay + tt * ry] };
 }
 
-// First solid-wall crossing of the segment from `from` to `to`, or null when
-// the segment crosses none. An open gate is not solid.
-export function firstSolidWallCrossing(from: Point, to: Point): Point | null {
+// First solid wall the segment hits, with that wall's two ends, or null.
+// An open gate is not solid. Ties keep the earlier wall in guavaSolidWalls.
+export interface GuavaWallHit {
+  readonly point: Point;
+  readonly wallA: Point;
+  readonly wallB: Point;
+}
+
+export function firstSolidWallHit(from: Point, to: Point): GuavaWallHit | null {
   let bestT = Number.POSITIVE_INFINITY;
-  let best: Point | null = null;
-  for (const [wallA, wallB] of guavaWalls) {
+  let best: GuavaWallHit | null = null;
+  for (const [wallA, wallB] of guavaSolidWalls) {
     const hit = dateWallHit(from, to, wallA, wallB);
     if (hit && hit.t < bestT) {
       bestT = hit.t;
-      best = hit.point;
+      best = { point: hit.point, wallA, wallB };
+    }
+  }
+  return best;
+}
+
+// First solid-wall crossing of the segment from `from` to `to`, or null when
+// the segment crosses none. An open gate is not solid.
+export function firstSolidWallCrossing(from: Point, to: Point): Point | null {
+  return firstSolidWallHit(from, to)?.point ?? null;
+}
+
+function segmentMid(edge: readonly [Point, Point]): Point {
+  return [(edge[0][0] + edge[1][0]) / 2, (edge[0][1] + edge[1][1]) / 2];
+}
+
+// Gate midpoint for a guava that sits across a solid wall.
+// Picks the open gate (lime town, then berry cemetery) whose two legs
+// fig -> midpoint -> guava are both clear and whose total length is shortest.
+// Null when the straight line is already clear, or when no gate qualifies.
+export function papayaGateBend(from: Point, to: Point): Point | null {
+  if (firstSolidWallCrossing(from, to) === null) return null;
+  let best: Point | null = null;
+  let bestLen = Number.POSITIVE_INFINITY;
+  for (const gate of [limeTownGate, berryCemeteryGate]) {
+    const mid = segmentMid(gate);
+    if (zoneAt(mid[0], mid[1]) === null) continue;
+    if (firstSolidWallCrossing(from, mid) !== null) continue;
+    if (firstSolidWallCrossing(mid, to) !== null) continue;
+    const len = Math.hypot(mid[0] - from[0], mid[1] - from[1]) + Math.hypot(to[0] - mid[0], to[1] - mid[1]);
+    if (len < bestLen) {
+      bestLen = len;
+      best = mid;
     }
   }
   return best;

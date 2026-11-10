@@ -48,6 +48,7 @@ An accepted instruction-echo report immediately returns `no_guidance` with a rec
 | `next_work` | Intended next work, at most 4,000 characters |
 | `decisions`, `validation`, `limitations` | Optional arrays, up to 12 nonempty entries of 2,000 characters each |
 | `work_reference` | Optional reported source/deployment reference, at most 2,048 characters; never fetched |
+| `manager_direction_updates` | Optional array of up to 20 reported human dispositions, with unique `message_id` values; see Manager’s Direction below |
 
 ### Acceptance milestone
 
@@ -105,3 +106,18 @@ The service stores reports and returns guidance only. It provides no assignment,
 ### Optional QA Questions
 
 Successful `guidance` and `no_guidance` responses may also include `qa_questions: {"title":"QA Questions","questions":["What pointed you to that cause?"]}`. There is at most one question; the section is omitted when none is needed. Display it separately and faithfully. Let the human answer naturally, without answering for them or blocking work. Include any answer in the next ordinary report. `no_guidance` means no manager guidance; it can still contain a QA question. Report inputs, receipts, retries and saved responses are unchanged. An older locally cached strict output schema will reject this additive field: refresh MCP tool discovery and use the updated reference schema. Existing reports must not be resent under new IDs for a question.
+
+
+### Optional Manager's Direction
+
+Successful `guidance` and `no_guidance` responses may carry a separate `manager_direction` with the fixed title **Manager's Direction**, a UUID `message_id`, exact evaluator `message` (1–2,000 characters), `requires_response` boolean, `priority` (`regular` or `mandatory`), and `mode` (`additive` or `replace`). Display the exact message to the human, independently of model-generated guidance. Do not rewrite it, silently answer it, or have a subagent decide a matter of human judgment. Informational regular messages (`requires_response: false`) need no response. Mandatory messages always request a human response; display that priority clearly, but do not infer automatic compliance or forbid a reasoned deferral/rejection. Replacement mode suppresses only the generated Manager’s Guidance/Suggestions for this check-in; the exact manual message and any QA Questions remain independently visible. Additive mode allows both sections. A direction does not block progress or establish an assessment phase or grade.
+
+One queued message is assigned to the next accepted new milestone report for this run. Instruction-echo reports, invalid requests and retries of older check-ins do not consume it. A saved terminal response is immutable: its retry can contain the original full direction again, but this is the same inclusion, not a new message. Preserve the message ID and receipt and avoid presenting a replay twice to the human.
+
+Later successful responses can carry `manager_direction_reminders`, an array of brief reminders with `message_id`, original `check_in_sequence`, `priority`, and `message`. Preserve mandatory priority in the reminder label. These remind the human about directions awaiting their reported response; new guidance may continue alongside them. Do not restate the full original message as a new requirement.
+
+In a later ordinary milestone, report an actual human disposition with `manager_direction_updates: [{"message_id":"<the received UUID>","status":"addressed","reason":"<the human’s concise explanation>","source":"human"}]`. Allowed statuses are `addressed`, `deferred`, and `rejected`; `reason` must be nonblank and at most 2,000 characters. One update per message ID is allowed in a report, at most 20 total. These fields are forbidden on instruction-echo reports. Only refer to a direction already included for this run. Do not infer a human response, impersonate the human, or use an agent's own decision as the source. A reported disposition stops automatic unanswered reminders; a later ordinary report may carry a subsequent human update. No special check-in or extra document is required.
+
+If generated guidance fails, a successful manual response can carry `guidance_unavailable: {"code":"generation_failed"}` or `{"code":"budget_exhausted"}`. Present the manual direction/reminders and retain the generation limitation; this is not a failed manual delivery or a reason to submit a duplicate report. Pending/error responses do not carry manual components.
+
+Refresh MCP tool discovery when using an older cached strict output schema. The discovery description includes the human-presentation rule; updating the maintained starter does not itself change an existing candidate checkout. An inclusion receipt proves only that the direction was included in a saved response returned by the service, not that the human saw or read it. A network loss may leave receipt at the client uncertain until exact replay.

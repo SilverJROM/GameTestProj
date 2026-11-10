@@ -1,6 +1,6 @@
 # Assessment reporting workflow
 
-**Version: 2026-11-08.test.1**
+**Version: 2026-11-10.direction.1**
 
 This workflow governs the agent's reporting duties during the test. It does not assign project work or prescribe how the human plans, develops, validates or submits the project. Use the [protocol](protocol.md), [reporting interface](mcp-interface.md) and [tool schema](check-in-tool.json) together.
 
@@ -62,6 +62,14 @@ Share relevant returned guidance and changes to reporting state with the agents 
 Send the saved request through the authenticated `check_in` tool. Save the exact response and any receipt alongside the request. A receipt confirms stored reporting data; it does not verify the work, approve a milestone or grade the human.
 
 Display returned **Manager's Guidance/Suggestions** faithfully and separately from your own wording. If a separate **QA Questions** section is present, show its question faithfully as informal dialog with the developer, separately from Manager’s Guidance and your own explanation. Do not answer on the developer’s behalf, supply a suggested answer, or treat it as a new task or approval gate. A short human answer can be included in the next ordinary milestone report; no special report or extra documentation is required. Do not repeat an unanswered question. Preserve any subsequent human response as context for the next applicable milestone report. Do not invent manager replies, assume acceptance of guidance, or fabricate a milestone to obtain another response.
+
+A separate **Manager's Direction** is a message from the evaluator, not model-generated guidance. Present its `message` exactly, without rewriting, softening, expanding, or answering it for the human. If it asks for human judgment, put that question to the developer; a subagent's answer or an agent's choice is not the developer's decision. A direction with `requires_response: false` is informational and does not require a disposition. Display the supplied `priority` as regular or mandatory. Mandatory means a human response is requested (`requires_response: true`); it does not remove the developer’s ability to explain a deferral or rejection, authorize grading, or block phases. The `mode` is additive or replace: replacement suppresses only generated Manager’s Guidance/Suggestions on this same check-in, not QA Questions or other outstanding directions. Do not block unrelated progress, impose a phase gate, or fabricate a milestone to collect a response.
+
+Retain the message ID and originating check-in receipt with the saved response. Show a direction once when first received; an exact retry of that same check-in returns the same direction and must not be presented as a new request. Show any later `manager_direction_reminders` briefly and separately from new Manager's Guidance/Suggestions. Reminders refer to outstanding directions without repeating the full message.
+
+When the human actually reports that a direction is addressed, deferred, or rejected, include an optional `manager_direction_updates` entry in the next ordinary milestone: its `message_id`, the corresponding `status`, a concise faithful `reason`, and `source: "human"`. Do not report a human disposition from silence, an agent's completion claim, or a subagent's recommendation. Keep credentials and unrelated detail out of the reason. These are reported decisions, not proof that the work was verified. A reported disposition stops automatic unanswered reminders; a later human update may report a different disposition. Preserve history and do not rewrite an already-saved request to add a response.
+
+Manual directions and their reminders can still arrive when AI guidance generation fails. A successful response with `guidance_unavailable` remains usable: present its manual components, retain the receipt and generation limitation, and do not retry it as a new milestone merely to obtain generated guidance.
 
 For `pending`, wait the returned delay and replay the same UUID/payload. For timeouts or retryable errors, use bounded backoff and the same saved request. Make at most two immediate retries, then retain the pending operation and report the delivery issue through the available support route. Apply the interface's error-specific rules; do not create a new request ID to evade a terminal response or obtain different guidance.
 

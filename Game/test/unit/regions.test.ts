@@ -8,6 +8,7 @@ import {
   berryCemeteryWalls,
   carrotTownSpawns,
   firstSolidWallCrossing,
+  guavaSolidWalls,
   hitFountain,
   hitForge,
   inRing,
@@ -227,23 +228,124 @@ function plumCemeterySide(): Point[] {
   return ring;
 }
 
+function edgeKey(a: Point, b: Point): string {
+  return `${a[0]},${a[1]}->${b[0]},${b[1]}`;
+}
+
 describe('solid walls', () => {
   it('keeps the town gate open and the rest of the pear edge solid', () => {
-    expect(limeTownGate).toEqual([[444, 574], [410, 593]]);
-    expect(kiwiTownPost).toEqual([[410, 593], [400, 598]]);
+    expect(limeTownGate).toEqual([[444, 574], [400, 598]]);
+    expect(kiwiTownPost).toEqual([[400, 598], [400, 598]]);
     const gateAt = pearTownWalls.findIndex((p) => p[0] === 444 && p[1] === 574);
     expect(pearTownWalls[gateAt + 1]).toEqual([400, 598]);
+    expect(pearTownWalls[gateAt + 2]).toEqual([350, 628]);
+    const gateEdge = edgeKey(limeTownGate[0], limeTownGate[1]);
+    const solidKeys = guavaSolidWalls.map(([a, b]) => edgeKey(a, b));
+    expect(solidKeys).not.toContain(gateEdge);
+    expect(solidKeys).toContain(edgeKey([400, 598], [350, 628]));
   });
 
   it('blocks a segment across the town wall away from the gate', () => {
     // Vertical pear edge (600, 404) -> (600, 446), far from the south road.
     const blocked = firstSolidWallCrossing([580, 420], [620, 420]);
     expect(blocked).toEqual([600, 420]);
-    // The kiwi post, (410, 593) -> (400, 598), stays solid.
-    const post = firstSolidWallCrossing([405, 580], [405, 610]);
-    expect(post).not.toBeNull();
-    expect(post![0]).toBeCloseTo(405, 5);
-    expect(post![1]).toBeCloseTo(595.5, 5);
+    // The old kiwi post sat on this line. That span is the open gate now.
+    expect(firstSolidWallCrossing([405, 580], [405, 610])).toBeNull();
+    // The next pear edge, (400, 598) -> (350, 628), stays solid.
+    const jambA: Point = [400, 598];
+    const jambB: Point = [350, 628];
+    const mid: Point = [(jambA[0] + jambB[0]) / 2, (jambA[1] + jambB[1]) / 2];
+    const dx = jambB[0] - jambA[0];
+    const dy = jambB[1] - jambA[1];
+    const len = Math.hypot(dx, dy);
+    const nx = -dy / len;
+    const ny = dx / len;
+    const from: Point = [mid[0] - nx * 8, mid[1] - ny * 8];
+    const to: Point = [mid[0] + nx * 8, mid[1] + ny * 8];
+    const jamb = firstSolidWallCrossing(from, to);
+    expect(jamb).not.toBeNull();
+    expect(jamb![0]).toBeCloseTo(mid[0], 3);
+    expect(jamb![1]).toBeCloseTo(mid[1], 3);
+    expect(firstSolidWallCrossing(to, from)).not.toBeNull();
+  });
+
+  it('opens each gate along its whole length from both sides at eight angles', () => {
+    const angles = [-28, -20, -12, -4, 4, 12, 20, 28];
+    const gates = [limeTownGate, berryCemeteryGate];
+    const failures: string[] = [];
+    for (const gate of gates) {
+      const [g0, g1] = gate;
+      const gx = g1[0] - g0[0];
+      const gy = g1[1] - g0[1];
+      const glen = Math.hypot(gx, gy);
+      const tx = gx / glen;
+      const ty = gy / glen;
+      const nx = -ty;
+      const ny = tx;
+      for (const t of [0.12, 0.28, 0.44, 0.6, 0.76, 0.9]) {
+        const px = g0[0] + gx * t;
+        const py = g0[1] + gy * t;
+        for (const side of [-1, 1]) {
+          for (const deg of angles) {
+            const rad = (deg * Math.PI) / 180;
+            const dx = nx * Math.cos(rad) - ny * Math.sin(rad);
+            const dy = nx * Math.sin(rad) + ny * Math.cos(rad);
+            const reach = 16;
+            const from: Point = [px - dx * side * reach, py - dy * side * reach];
+            const to: Point = [px + dx * side * reach, py + dy * side * reach];
+            if (!holdsPoint(from, to, [px, py])) {
+              failures.push(`missed gate point t=${t} deg=${deg} side=${side}`);
+              continue;
+            }
+            let x = from[0];
+            let y = from[1];
+            const dist = Math.hypot(to[0] - x, to[1] - y);
+            let blocked = false;
+            for (let moved = 0; moved < dist - 1e-9; ) {
+              const remain = dist - moved;
+              const chunk = Math.min(12, remain);
+              const k = chunk / remain;
+              const nxStep = x + (to[0] - x) * k;
+              const nyStep = y + (to[1] - y) * k;
+              if (firstSolidWallCrossing([x, y], [nxStep, nyStep]) !== null) {
+                blocked = true;
+                break;
+              }
+              x = nxStep;
+              y = nyStep;
+              moved += chunk;
+            }
+            if (blocked) {
+              failures.push(`gate ${g0[0]},${g0[1]} t=${t} deg=${deg} side=${side}`);
+            }
+          }
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it('blocks every other solid edge from both sides', () => {
+    const failures: string[] = [];
+    for (const [a, b] of guavaSolidWalls) {
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const len = Math.hypot(dx, dy);
+      if (!(len > 0)) {
+        failures.push(`zero ${edgeKey(a, b)}`);
+        continue;
+      }
+      const mx = (a[0] + b[0]) / 2;
+      const my = (a[1] + b[1]) / 2;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const reach = 4;
+      const from: Point = [mx - nx * reach, my - ny * reach];
+      const to: Point = [mx + nx * reach, my + ny * reach];
+      if (firstSolidWallCrossing(from, to) === null) failures.push(`open ${edgeKey(a, b)} forward`);
+      if (firstSolidWallCrossing(to, from) === null) failures.push(`open ${edgeKey(a, b)} back`);
+    }
+    expect(failures).toEqual([]);
   });
 
   it('does not block a segment through (425, 584)', () => {

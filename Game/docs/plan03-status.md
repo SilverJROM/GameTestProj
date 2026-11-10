@@ -2,25 +2,25 @@
 
 Recovery file. If the session closes, read this first, then `docs/plan03.md`. Times in UTC. Same topology and rules as `docs/plan02-status.md` (Grok implements, Claude reviews and commits, user-approved plan only).
 
-Last updated: 2026-11-10 12:50 UTC
+Last updated: 2026-11-10 16:40 UTC
 
 | Item | Value |
 | --- | --- |
 | Base | `main` at `cde3469` |
-| Working branch | `update-03` (not cut yet) |
-| Overall | 0%. Plan written, **waiting for the user's approval** before any code |
+| Working branch | `update-03` (cut from `main`) |
+| Overall | 75% (slices 0-8 done; 9-11 left: shared bag, coin expiry, final) |
 
 | Slice | What | Status | Commit |
 | --- | --- | --- | --- |
-| 0 | Branch and gate/walk measurement | pending | - |
-| 1 | Gate routing and wall sliding | pending | - |
-| 2 | Smooth walking (interpolation) | pending | - |
-| 3 | Everything on screen patrols | pending | - |
-| 4 | Own patrol patch, no overlap | pending | - |
-| 5 | Sprite click area | pending | - |
-| 6 | Click to chase and fight | pending | - |
-| 7 | Coin 24 px, walk-on pickup | pending | - |
-| 8 | Checkpoint: full suite, screenshots, merge slices 0-7 to main | pending | - |
+| 0 | Branch and measurement (evidence in `docs/plan03-evidence.md`) | **done** | see git log |
+| 1 | Gate routing and wall sliding | **done** | see git log |
+| 2 | Smooth walking (interpolation) | **done** | see git log |
+| 3 | Everything on screen patrols (merged with 4) | **done** | see git log |
+| 4 | Own patrol patch, no overlap (merged into 3) | **done** | see git log |
+| 5 | Sprite click area | **done** | `d71390c` |
+| 6 | Click to chase and fight (L3, Claude implements, Opus validates) | **done, Opus PASS** | `e1e077d` + `488ff98` |
+| 7 | Coin 24 px, walk-on pickup | **done** | see git log |
+| 8 | Checkpoint: full suite (422 pass), screenshots retaken, slices 0-7 merged to `main` locally | **done** | see git log |
 | 9 | Shared account bag (L3) | pending | - |
 | 10 | Coin expiry (L3) | pending | - |
 | 11 | Final suite, regression, merge | pending | - |

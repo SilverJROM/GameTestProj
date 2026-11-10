@@ -2,13 +2,14 @@
 // A stored pear x,y is the join spot. A reload stays there and is never slid onto a zone spawn.
 // A brand-new row has no stored pair yet, so it uses townSpawn from the regions module.
 // The walk ripens on an injected lime clock, so a caller can sprout ticks without a wall-clock nap.
-// Each ripe tick uses the rules tick and the rules walk speed. There is no wall collision.
+// Each ripe tick uses the rules tick and the rules walk speed.
+// A solid wall slides a diagonal step and stops a head-on one. An open gate is a lime hop.
 // This module has no sockets and does not touch the database. The room stores the persimmon patch.
 
 import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
 import { buyItem, equipItem, unequipItem, type OwnedGear } from '../rules/items';
 import { maxHealth, type Hero } from '../rules/logic';
-import { firstSolidWallCrossing, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, skeletonRadiusPx, townSpawn, zoneAt } from '../rules/regions';
+import { firstSolidWallCrossing, firstSolidWallHit, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, papayaGateBend, skeletonRadiusPx, townSpawn, zoneAt, type GuavaWallHit } from '../rules/regions';
 import { kaleConstants, onionMonsterRows, type GearSlot } from '../rules/tables';
 import type { ApricotFacing, CoinSnapshot, HitMark, PickupSnapshot, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
 
@@ -46,6 +47,8 @@ export interface FigWalk {
   guavaY: number;
   guavaArmed: boolean;
   apricotFacing: ApricotFacing;
+  // Gate hops before the guava. A new move clears this queue.
+  limeStops: FigSpot[];
 }
 
 export interface PapayaOrchard {
@@ -98,6 +101,7 @@ export function sproutFig(figFacts: CharacterFacts): FigWalk {
     guavaY: planted.y,
     guavaArmed: false,
     apricotFacing: sproutApricot,
+    limeStops: [],
   };
 }
 
@@ -110,7 +114,9 @@ export function clampGuava(x: number, y: number): FigSpot {
 }
 
 export function figMoving(fig: FigWalk): boolean {
-  return fig.guavaArmed && (fig.facts.x !== fig.guavaX || fig.facts.y !== fig.guavaY);
+  if (!fig.guavaArmed) return false;
+  if (fig.limeStops.length > 0) return true;
+  return fig.facts.x !== fig.guavaX || fig.facts.y !== fig.guavaY;
 }
 
 function turnApricot(fig: FigWalk, guavaX: number): void {
@@ -127,10 +133,15 @@ export function orderGuava(fig: FigWalk, rawX: number, rawY: number): void {
     return;
   }
   const guava = clampGuava(rawX, rawY);
+  fig.limeStops = [];
   fig.guavaX = guava.x;
   fig.guavaY = guava.y;
-  turnApricot(fig, guava.x);
-  fig.guavaArmed = fig.facts.x !== guava.x || fig.facts.y !== guava.y;
+  const bend = papayaGateBend([fig.facts.x, fig.facts.y], [guava.x, guava.y]);
+  if (bend !== null) {
+    fig.limeStops.push({ x: bend[0], y: bend[1] });
+  }
+  turnApricot(fig, fig.limeStops[0]?.x ?? guava.x);
+  fig.guavaArmed = fig.limeStops.length > 0 || fig.facts.x !== guava.x || fig.facts.y !== guava.y;
 }
 
 // Sip the melon well. The click must land inside melonFountainBox.
@@ -238,6 +249,8 @@ export function stashQuince(fig: FigWalk, slot: GearSlot): CharacterFactsPatch |
 }
 
 const WALL_STOP_GAP_PX = 0.5;
+// A tangential leftover under this, on one tick, is a head-on stop.
+const PEACH_SLIDE_MIN_PX = 2;
 
 function applyPear(fig: FigWalk, nextX: number, nextY: number): CharacterFactsPatch | null {
   const previous = fig.facts;
@@ -262,41 +275,102 @@ function applyPear(fig: FigWalk, nextX: number, nextY: number): CharacterFactsPa
   return patch;
 }
 
-// One step toward the armed guava. elapsedMs is the injected slice, usually one rules tick.
+function pearStopPoint(fromX: number, fromY: number, hit: GuavaWallHit): FigSpot {
+  const hitDx = hit.point[0] - fromX;
+  const hitDy = hit.point[1] - fromY;
+  const hitDist = Math.hypot(hitDx, hitDy);
+  const back = Math.min(WALL_STOP_GAP_PX, hitDist);
+  const keep = hitDist > 0 ? (hitDist - back) / hitDist : 0;
+  return { x: fromX + hitDx * keep, y: fromY + hitDy * keep };
+}
+
+// Leftover past the wall, projected onto the wall, with the stop gap kept.
+// Null: the projection is a head-on tap, or the slide would cross a solid wall
+// or leave the picture. The caller then stops as before.
+function peachSlide(fromX: number, fromY: number, nextX: number, nextY: number, hit: GuavaWallHit): FigSpot | null {
+  const wallDx = hit.wallB[0] - hit.wallA[0];
+  const wallDy = hit.wallB[1] - hit.wallA[1];
+  const wallLen = Math.hypot(wallDx, wallDy);
+  if (!(wallLen > 0)) return null;
+  const ux = wallDx / wallLen;
+  const uy = wallDy / wallLen;
+  const proj = (nextX - hit.point[0]) * ux + (nextY - hit.point[1]) * uy;
+  if (Math.abs(proj) < PEACH_SLIDE_MIN_PX) return null;
+  const stopped = pearStopPoint(fromX, fromY, hit);
+  const slideX = stopped.x + ux * proj;
+  const slideY = stopped.y + uy * proj;
+  if (zoneAt(slideX, slideY) === null) return null;
+  if (firstSolidWallCrossing([fromX, fromY], [slideX, slideY]) !== null) return null;
+  return { x: slideX, y: slideY };
+}
+
+function ripeHop(fig: FigWalk): FigSpot {
+  const lime = fig.limeStops[0];
+  if (lime !== undefined) return lime;
+  return { x: fig.guavaX, y: fig.guavaY };
+}
+
+// One step toward the armed guava, or toward the lime hop in front of it.
+// elapsedMs is the injected slice, usually one rules tick.
 export function ripenFig(fig: FigWalk, elapsedMs: number): CharacterFactsPatch | null {
   if (!figMoving(fig)) {
     fig.guavaArmed = false;
     return null;
   }
-  const berryStep = berryStepPx(elapsedMs);
-  if (!(berryStep > 0)) {
+  let budget = berryStepPx(elapsedMs);
+  if (!(budget > 0)) {
     return null;
   }
-  const dx = fig.guavaX - fig.facts.x;
-  const dy = fig.guavaY - fig.facts.y;
-  const dist = Math.hypot(dx, dy);
-  let nextX = fig.guavaX;
-  let nextY = fig.guavaY;
-  if (dist > berryStep) {
-    const scale = berryStep / dist;
-    nextX = fig.facts.x + dx * scale;
-    nextY = fig.facts.y + dy * scale;
-  } else {
+  let cursorX = fig.facts.x;
+  let cursorY = fig.facts.y;
+  // A tick may finish a lime hop and still have step left for the guava.
+  for (let plum = 0; plum < 4 && fig.guavaArmed && budget > 1e-9; plum += 1) {
+    const hop = ripeHop(fig);
+    const dx = hop.x - cursorX;
+    const dy = hop.y - cursorY;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= 1e-9) {
+      if (fig.limeStops.length > 0) {
+        fig.limeStops.shift();
+        turnApricot(fig, ripeHop(fig).x);
+        continue;
+      }
+      fig.guavaArmed = false;
+      break;
+    }
+    const step = Math.min(budget, dist);
+    const scale = step / dist;
+    const nextX = cursorX + dx * scale;
+    const nextY = cursorY + dy * scale;
+    const arriving = dist <= budget;
+    const hit = firstSolidWallHit([cursorX, cursorY], [nextX, nextY]);
+    if (hit !== null) {
+      const slid = peachSlide(cursorX, cursorY, nextX, nextY, hit);
+      if (slid !== null) {
+        cursorX = slid.x;
+        cursorY = slid.y;
+      } else {
+        const stopped = pearStopPoint(cursorX, cursorY, hit);
+        cursorX = stopped.x;
+        cursorY = stopped.y;
+        fig.guavaArmed = false;
+        fig.limeStops = [];
+      }
+      break;
+    }
+    budget -= step;
+    cursorX = nextX;
+    cursorY = nextY;
+    if (!arriving) break;
+    if (fig.limeStops.length > 0) {
+      fig.limeStops.shift();
+      turnApricot(fig, ripeHop(fig).x);
+      continue;
+    }
     fig.guavaArmed = false;
+    break;
   }
-  // A solid wall stops the step just short of the hit; open gates are not solid.
-  const crossing = firstSolidWallCrossing([fig.facts.x, fig.facts.y], [nextX, nextY]);
-  if (crossing !== null) {
-    const hitDx = crossing[0] - fig.facts.x;
-    const hitDy = crossing[1] - fig.facts.y;
-    const hitDist = Math.hypot(hitDx, hitDy);
-    const back = Math.min(WALL_STOP_GAP_PX, hitDist);
-    const keep = hitDist > 0 ? (hitDist - back) / hitDist : 0;
-    nextX = fig.facts.x + hitDx * keep;
-    nextY = fig.facts.y + hitDy * keep;
-    fig.guavaArmed = false;
-  }
-  return applyPear(fig, nextX, nextY);
+  return applyPear(fig, cursorX, cursorY);
 }
 
 // Apply every whole rules tick that has fallen due on the lime clock.

@@ -314,7 +314,7 @@ describe('duel fight', () => {
     // A message naming both runs the monster path only: the wolf is far, so nothing lands on the partner.
     const partnerNow = (await factsOf(target.id)).hp;
     await ripenMs(asker, gapMs);
-    await ask(asker, { type: 'attack', monsterId: 'no-such-wolf', playerId: target.id });
+    await ask(asker, { type: 'attack', once: true, monsterId: 'no-such-wolf', playerId: target.id });
     expect((await factsOf(target.id)).hp).toBe(partnerNow);
   }, 60_000);
 
@@ -356,12 +356,12 @@ describe('duel fight', () => {
       await ask(asker, { type: 'attack', playerId: target.id });
       const targetOnce = await hpBelow(asker, target.id, targetStart);
       await ripenMs(asker, insideGapMs);
-      const blocked = await ask(asker, { type: 'attack', monsterId: wolf.id });
+      const blocked = await ask(asker, { type: 'attack', once: true, monsterId: wolf.id });
       wolfInReach(blocked, wolf.id);
       expect(wolfHpOf(blocked, wolf.id)).toBe(startHp);
       // The next whole tick crosses the rules gap, so the same swing lands.
       await ripenMs(asker, tickMs);
-      await ask(asker, { type: 'attack', monsterId: wolf.id });
+      await ask(asker, { type: 'attack', once: true, monsterId: wolf.id });
       await wolfBelow(asker, wolf.id, startHp);
       // The monster swing stamped the clock: a duel swing a full gap later lands.
       await ripenMs(asker, gapMs);
@@ -374,7 +374,7 @@ describe('duel fight', () => {
       const { asker, target } = await pairUp('ClockC', 'ClockD', { x: wolf.x, y: wolf.y, hp: 40, maxHp: 40 }, { hp: 40, maxHp: 40 });
       await ripenOntoBeet(asker, wolf.id);
       const startHp = wolfHpOf(await ask(asker, { type: 'ping' }), wolf.id);
-      await ask(asker, { type: 'attack', monsterId: wolf.id });
+      await ask(asker, { type: 'attack', once: true, monsterId: wolf.id });
       const wolfOnce = await wolfBelow(asker, wolf.id, startHp);
       const targetStart = (await factsOf(target.id)).hp;
       await ripenMs(asker, insideGapMs);
@@ -386,11 +386,11 @@ describe('duel fight', () => {
       const targetOnce = await hpBelow(asker, target.id, targetStart);
       // The duel swing stamped the clock: a monster swing still inside the gap is blocked, and the next tick lands.
       await ripenMs(asker, insideGapMs);
-      const blocked = await ask(asker, { type: 'attack', monsterId: wolf.id });
+      const blocked = await ask(asker, { type: 'attack', once: true, monsterId: wolf.id });
       wolfInReach(blocked, wolf.id);
       expect(wolfHpOf(blocked, wolf.id)).toBe(wolfOnce);
       await ripenMs(asker, tickMs);
-      await ask(asker, { type: 'attack', monsterId: wolf.id });
+      await ask(asker, { type: 'attack', once: true, monsterId: wolf.id });
       await wolfBelow(asker, wolf.id, wolfOnce);
     }, 60_000);
   });

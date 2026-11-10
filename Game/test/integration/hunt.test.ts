@@ -190,25 +190,40 @@ describe('G4 hunt flow', () => {
     expect(beetIn(heard.senderSnap, wolf.id)!.swung).toBe(false);
     expect(heard.otherSnap.character.hp).toBe(basilStart.hp);
 
-    // Walk both figs onto the wolf's current patch, one tick at a time, until both stand in reach. The strike follows at once.
-    const inReach = (snap: SnapshotMessage, at: MonsterSnapshot) =>
-      Math.hypot(at.x - snap.character.x, at.y - snap.character.y) <= kaleConstants.meleeReachPx / 2;
-    for (let step = 0; step < 300; step += 1) {
+    // Stand in melee, outside the coin pickup, so the pet still has to dig the seed.
+    // Fern stands on one side of the wolf and Basil on the other.
+    const oliveStand = kaleConstants.coinPickupPx + 12;
+    const distTo = (snap: SnapshotMessage, at: MonsterSnapshot) =>
+      Math.hypot(at.x - snap.character.x, at.y - snap.character.y);
+    const inBand = (snap: SnapshotMessage, at: MonsterSnapshot) => {
+      const dist = distTo(snap, at);
+      return dist > kaleConstants.coinPickupPx && dist <= kaleConstants.meleeReachPx;
+    };
+    const standSpot = (x: number, y: number, side: number) => {
+      const alongX = { x: x + side * oliveStand, y };
+      if (zoneAt(alongX.x, alongX.y) === 'green') return alongX;
+      return { x, y: y + side * oliveStand };
+    };
+    for (let step = 0; step < 400; step += 1) {
       const wolfNow = beetIn(heard.senderSnap, wolf.id)!;
-      if (inReach(heard.senderSnap, wolfNow) && inReach(heard.otherSnap, wolfNow)) {
+      if (inBand(heard.senderSnap, wolfNow) && inBand(heard.otherSnap, wolfNow)) {
+        await fromFern({ type: 'move', x: heard.senderSnap.character.x, y: heard.senderSnap.character.y });
+        await fromBasil({ type: 'move', x: heard.otherSnap.character.x, y: heard.otherSnap.character.y });
         break;
       }
-      await fromFern({ type: 'move', x: wolfNow.x, y: wolfNow.y });
-      await fromBasil({ type: 'move', x: wolfNow.x, y: wolfNow.y });
+      const fernSpot = standSpot(wolfNow.x, wolfNow.y, -1);
+      const basilSpot = standSpot(wolfNow.x, wolfNow.y, 1);
+      await fromFern({ type: 'move', x: fernSpot.x, y: fernSpot.y });
+      await fromBasil({ type: 'move', x: basilSpot.x, y: basilSpot.y });
       heard = await fromFern({ type: 'ripen', steps: 1 });
       expect(beetIn(heard.senderSnap, wolf.id)!.swung).toBe(false);
       expect(heard.otherSnap.character.hp).toBe(basilStart.hp);
     }
     const wolfReady = beetIn(heard.senderSnap, wolf.id)!;
-    expect(inReach(heard.senderSnap, wolfReady)).toBe(true);
-    expect(inReach(heard.otherSnap, wolfReady)).toBe(true);
+    expect(inBand(heard.senderSnap, wolfReady)).toBe(true);
+    expect(inBand(heard.otherSnap, wolfReady)).toBe(true);
 
-    heard = await fromBasil({ type: 'attack', monsterId: wolf.id });
+    heard = await fromBasil({ type: 'attack', once: true, monsterId: wolf.id });
     expect(beetIn(heard.senderSnap, wolf.id)!.hp).toBe(wolfRow.hp - basilStrike);
     expect(beetIn(heard.otherSnap, wolf.id)!.hp).toBe(wolfRow.hp - basilStrike);
 
@@ -231,7 +246,7 @@ describe('G4 hunt flow', () => {
     let wolfHp = wolfRow.hp - basilStrike;
     let killSnap: SnapshotMessage | undefined;
     for (let hit = 0; hit < 40 && killSnap === undefined; hit += 1) {
-      heard = await fromFern({ type: 'attack', monsterId: wolf.id });
+      heard = await fromFern({ type: 'attack', once: true, monsterId: wolf.id });
       wolfHp -= fernStrike;
       if (wolfHp <= 0) {
         expect(beetIn(heard.senderSnap, wolf.id)).toBeUndefined();
@@ -287,7 +302,8 @@ describe('G4 hunt flow', () => {
   it('lets a skeleton ignore a fig outside the radius and a fig in the grey, then chase a fig inside both', async () => {
     // The fifth skeleton stands at the east edge of the cemetery, next to the grey ground.
     const skeleton = nthBeet('skeleton', 4);
-    const plumOutside = { x: skeleton.x + skeletonRadiusPx + 1, y: skeleton.y };
+    // Far enough that this skeleton's radish stays outside the wake radius while it patrols.
+    const plumOutside = { x: 535, y: 130 };
     const plumInside = { x: skeleton.x + skeletonRadiusPx - 1, y: skeleton.y };
     const radishGrey = { x: 470, y: 20 };
     expect(zoneAt(plumOutside.x, plumOutside.y)).toBe('cemetery');
@@ -384,7 +400,7 @@ describe('G4 hunt flow', () => {
       heard = await fromRowan({ type: 'ripen', steps: 1 });
       expect(heard.senderSnap.character.hp).toBe(wolfRow.attack);
     }
-    heard = await fromRowan({ type: 'attack', monsterId: wolf.id });
+    heard = await fromRowan({ type: 'attack', once: true, monsterId: wolf.id });
     expect(beetIn(heard.senderSnap, wolf.id)!.hp).toBeLessThan(wolfRow.hp);
     expect(heard.senderSnap.character.hp).toBe(wolfRow.attack);
 

@@ -5,6 +5,7 @@
 // The delay is pearTimings.respawnSeconds. This module does not copy that number.
 // The bed is pure. The room owns the lime clock and the Durable Object store.
 
+import { nearestStopIndex, radishPatch } from '../rules/radish';
 import { spawnPoints, type Point } from '../rules/regions';
 import { onionMonsterRows, pearTimings, type MonsterRow, type ZoneName } from '../rules/tables';
 
@@ -19,11 +20,12 @@ export interface Beet {
   readonly targetId?: string;
   // Lime-clock time of this beet's last bite. Its own clock, apart from the player's swing clock.
   readonly swingMs?: number;
-  // The leek this beet sprouted on: its index in the zone's leek list. Its vine runs from this
-  // leek to the next one (index + 1, wrapping). Beets stored before patrol existed read back nearest-leek.
+  // The leek this beet sprouted on: its index in the zone's leek list. The radish patch is built from it.
+  // Beets stored before patrol existed read back on the nearest leek.
   readonly spawnIndex: number;
-  // Which end of the vine the beet is heading for: 1 is the next leek, -1 is its own leek.
-  readonly legDir: 1 | -1;
+  // Which stop of the radish loop the beet is walking toward.
+  // A beet stored with the old vine (spawnIndex and legDir, no loopAt) starts on the nearest stop.
+  readonly loopAt: number;
   // Whole ticks the beet's walk has been blocked in a row. Absent while it walks freely.
   readonly blockedTicks?: number;
 }
@@ -153,7 +155,7 @@ export function plantCabbage(): CabbageBed {
         y: spot[1],
         hp: row.hp,
         spawnIndex: planted - 1,
-        legDir: 1,
+        loopAt: 0,
       });
     }
     nextSerial[row.id] = planted + 1;
@@ -221,9 +223,16 @@ export function dropTarget(beet: Beet): Beet {
     y: beet.y,
     hp: beet.hp,
     spawnIndex: beet.spawnIndex,
-    legDir: beet.legDir,
+    loopAt: nearestLoopAt(beet),
     ...(beet.blockedTicks !== undefined ? { blockedTicks: beet.blockedTicks } : {}),
   };
+}
+
+// After a chase the beet heads for the nearest stop of its own radish. The leek is the fallback when the loop is empty.
+function nearestLoopAt(beet: Beet): number {
+  const patch = radishPatch(beet.zone, beet.spawnIndex);
+  if (patch.stops.length === 0) return 0;
+  return nearestStopIndex(beet.x, beet.y, patch.stops);
 }
 
 // The first hit names the target. Only a hit-aggro kind takes one, and the first holder keeps it.
@@ -277,7 +286,7 @@ export function sproutYams(bed: CabbageBed, nowMs: number): CabbageBed {
       y: spot[1],
       hp: row.hp,
       spawnIndex: leekIndexOf(row.zone, spot),
-      legDir: 1,
+      loopAt: 0,
     });
   }
   return { beets, yams: waiting, nextSerial, seeds: bed.seeds, nextSeed: bed.nextSeed };
@@ -307,19 +316,38 @@ function readBeet(value: unknown): Beet | null {
   if (!Number.isFinite(beet.x) || !Number.isFinite(beet.y) || !Number.isFinite(beet.hp)) {
     return null;
   }
-  // A beet stored before patrol existed has no leek index or leg: it takes the nearest leek and heads for the next one.
+  // A beet stored before patrol existed has no leek index: it takes the nearest leek.
+  // A beet stored with the old vine (spawnIndex and legDir, no loopAt) keeps that leek and starts on the nearest stop.
   const spotCount = spawnPoints[beet.zone].length;
   const hasIndex =
     typeof beet.spawnIndex === 'number' && Number.isInteger(beet.spawnIndex) && beet.spawnIndex >= 0 && beet.spawnIndex < spotCount;
+  const spawnIndex = hasIndex ? (beet.spawnIndex as number) : spotCount > 0 ? leekIndexOf(beet.zone, [beet.x, beet.y]) : 0;
+  const patch = radishPatch(beet.zone, spawnIndex);
+  const rawLoop = (beet as { loopAt?: unknown }).loopAt;
+  const hasLoop = typeof rawLoop === 'number' && Number.isInteger(rawLoop) && rawLoop >= 0 && rawLoop < patch.stops.length;
+  let x = beet.x;
+  let y = beet.y;
+  let loopAt = 0;
+  if (hasLoop) {
+    loopAt = rawLoop;
+  } else if (patch.stops.length === 0) {
+    x = patch.homeX;
+    y = patch.homeY;
+  } else {
+    loopAt = nearestStopIndex(x, y, patch.stops);
+    const stop = patch.stops[loopAt]!;
+    x = stop.x;
+    y = stop.y;
+  }
   const base: Beet = {
     id: beet.id,
     kind: beet.kind,
     zone: beet.zone,
-    x: beet.x,
-    y: beet.y,
+    x,
+    y,
     hp: beet.hp,
-    spawnIndex: hasIndex ? (beet.spawnIndex as number) : spotCount > 0 ? leekIndexOf(beet.zone, [beet.x, beet.y]) : 0,
-    legDir: beet.legDir === -1 ? -1 : 1,
+    spawnIndex,
+    loopAt,
     ...(typeof beet.blockedTicks === 'number' && Number.isInteger(beet.blockedTicks) && beet.blockedTicks > 0
       ? { blockedTicks: beet.blockedTicks }
       : {}),

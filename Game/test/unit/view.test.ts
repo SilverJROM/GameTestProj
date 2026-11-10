@@ -6,6 +6,7 @@ import { plantFigBoard, type FigBoard, type LemonLike } from '../../src/client/m
 import { mangoForgeBox } from '../../src/rules/regions';
 import { mangoGearRows, onionMonsterRows, pearTimings } from '../../src/rules/tables';
 import {
+  BEET_PAD_PX,
   CEMETERY_WALL_SRC,
   HEALTH_BAR_H,
   HEALTH_X,
@@ -15,6 +16,7 @@ import {
   LIME_BUBBLE_W,
   SMITH_X,
   SMITH_Y,
+  beetSpriteRect,
   bagTiles,
   figStandSrc,
   kiwiSliderBox,
@@ -281,6 +283,26 @@ describe('damage numbers', () => {
     expect(melonRisen.x).toBe(melon!.x);
     expect(board.damageNumbers(now + 1000).some((row) => row.id === 'melon:coin-mine')).toBe(false);
   });
+
+  it('floats +N in gold when a walk-on pickup removes the owner coin', () => {
+    const { board } = openBoard();
+    const wolfCoins = onionMonsterRows.find((row) => row.id === 'wolf')!.coins;
+    const players = [fig({ id: 'fig-self', x: 400, y: 400, place: 'green' })];
+    const mine = { id: 'coin-walk', ownerId: 'fig-self', x: 410, y: 400, value: wolfCoins };
+    const snap = (coins: typeof mine[]) => ({
+      type: 'snapshot',
+      character: { id: 'fig-self', place: 'green', gender: 'woman', hp: 70, maxHp: 70, coins: 0 },
+      snapshot: { players, monsters: [], coins, pickups: [] },
+    });
+    board.ingest(snap([mine]));
+    const before = Date.now();
+    expect(board.damageNumbers(before)).toEqual([]);
+    board.ingest(snap([]));
+    const floated = board.damageNumbers(Date.now());
+    expect(floated).toEqual([
+      expect.objectContaining({ id: 'melon:coin-walk', amount: wolfCoins, color: '#e0b15a', text: `+${wolfCoins}` }),
+    ]);
+  });
 });
 
 describe('world view', () => {
@@ -329,6 +351,14 @@ describe('world view', () => {
     board.click({ x: 320, y: 500, button: 0 });
     expect(lemon.sent).toHaveLength(7);
     expect(mangoOf(lemon, 6)).toEqual({ type: 'move', x: 320, y: 500 });
+
+    const melon = beetSpriteRect(900, 360, 'wolf');
+    const headY = 360 - melon.pictureHeight + 1;
+    expect(360 - headY).toBeGreaterThan(scaleFor('wolf') / 2);
+    board.click({ x: 900, y: headY, button: 0 });
+    expect(mangoOf(lemon, 7)).toEqual({ type: 'attack', monsterId: 'beet-wolf' });
+    board.click({ x: 900, y: melon.y - 1, button: 0 });
+    expect(mangoOf(lemon, 8)).toEqual({ type: 'move', x: 900, y: melon.y - 1 });
   });
 
   it('plays attack-1 then attack-2 after the local fig swings', () => {
@@ -433,8 +463,9 @@ describe('world view', () => {
     expect(ground.src).toBe('/items/coin.png');
     expect(ground.x).toBe(coin.x);
     expect(ground.y).toBe(coin.y);
-    expect(ground.width).toBe(COIN_DRAW_PX);
-    expect(ground.height).toBe(COIN_DRAW_PX);
+    expect(COIN_DRAW_PX).toBe(24);
+    expect(ground.width).toBe(24);
+    expect(ground.height).toBe(24);
     expect(board.draw().filter((still) => still.role === 'coin')).toHaveLength(1);
 
     // The dig row is gone, so the pet stands on the owner again, even after the owner walks off.
@@ -498,6 +529,13 @@ describe('world view', () => {
     expect(role(moving, 'monster', 'wolf').height).toBe(scaleFor('wolf'));
     expect(role(moving, 'monster', 'bear').height).toBe(scaleFor('bear'));
     expect(role(moving, 'monster', 'skeleton').height).toBe(scaleFor('skeleton'));
+    for (const id of ['wolf', 'bear', 'skeleton'] as const) {
+      const still = role(moving, 'monster', id);
+      const box = beetSpriteRect(still.x, still.y, still.kind, still.src);
+      expect(still.width).toBe(box.pictureWidth);
+      expect(still.height).toBe(box.pictureHeight);
+      expect(still.y - still.height).toBe(box.y + BEET_PAD_PX);
+    }
 
     const { board: swingBoard } = openBoard();
     feed(swingBoard, {

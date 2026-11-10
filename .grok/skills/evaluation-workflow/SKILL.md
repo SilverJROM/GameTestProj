@@ -13,6 +13,7 @@ description: Present developer-test options, record participation consent and re
    > This assessment may include deliberately introduced complications whose mechanisms remain undisclosed until debriefing. You may pause or stop at any time. Please state your name and your consent to continue.
 
    Wait for the human's name and explicit consent; record both with the selection. Acceptance is the first milestone: immediately check in with a summary of the current protocol, following the reporting workflow.
-5. When you determine that a milestone under the developer's instructions has been met, send a check-in following the [check-in requirements](references/mcp-interface.md) and [tool schema](references/check-in-tool.json).
+5. Present any returned **Manager's Direction** exactly to the human; do not silently answer requests for human judgment or delegate that decision to a subagent. Handle reported human responses through the reporting workflow.
+6. When you determine that a milestone under the developer's instructions has been met, send a check-in following the [check-in requirements](references/mcp-interface.md) and [tool schema](references/check-in-tool.json).
 
 After consent and the acceptance milestone, if the developer selected C and `tools/select-project-c.sh` is present in the common starter, run it from that checkout before starting implementation. A or B stays in the starter. If the switch refuses, preserve local work and report the reason. A checkout that already contains Sophia’s World needs no switch.

@@ -206,8 +206,8 @@ describe('lemon room aggro', () => {
     expect(snap.character.hp).toBe(80);
 
     // Fern hits first, Basil second. The wolf keeps Fern.
-    await duo(fern.socket, { type: 'attack', monsterId: wolf.id });
-    await duo(basil.socket, { type: 'attack', monsterId: wolf.id });
+    await duo(fern.socket, { type: 'attack', once: true, monsterId: wolf.id });
+    await duo(basil.socket, { type: 'attack', once: true, monsterId: wolf.id });
 
     snap = await duo(fern.socket, { type: 'ripen', steps: 1 });
     expect(beetIn(snap, wolf.id)!.swung).toBe(true);
@@ -246,11 +246,22 @@ describe('lemon room aggro', () => {
     const bear = firstBeet('bear');
     const gap = kaleConstants.meleeReachPx * 3;
     const hero = await joinFig('Hazel', { x: bear.x + gap, y: bear.y, place: 'grey', level: 6, hp: 140, maxHp: 140 });
-    // Out of reach, so the swing needs a walk first; stand in reach to hit, then step back.
-    await ask(hero.socket, { type: 'move', x: bear.x + kaleConstants.meleeReachPx, y: bear.y });
-    await ripen(hero.socket, 20);
-    await ask(hero.socket, { type: 'attack', monsterId: bear.id });
-    await ask(hero.socket, { type: 'move', x: bear.x + gap, y: bear.y });
+    // The bear patrols its radish, so the swing has to land on wherever it stands now, then the fig steps back.
+    let snap = await ripen(hero.socket, 0);
+    for (let step = 0; step < 80; step += 1) {
+      const live = beetIn(snap, bear.id)!;
+      if (Math.hypot(live.x - snap.character.x, live.y - snap.character.y) <= kaleConstants.meleeReachPx) {
+        break;
+      }
+      await ask(hero.socket, { type: 'move', x: live.x, y: live.y });
+      snap = await ripen(hero.socket, 1);
+    }
+    const struck = beetIn(snap, bear.id)!;
+    expect(Math.hypot(struck.x - snap.character.x, struck.y - snap.character.y)).toBeLessThanOrEqual(
+      kaleConstants.meleeReachPx,
+    );
+    await ask(hero.socket, { type: 'attack', once: true, monsterId: bear.id });
+    await ask(hero.socket, { type: 'move', x: struck.x + gap, y: struck.y });
     await ripen(hero.socket, 3);
 
     // The chase covers one tick of rules speed per tick, never more.
@@ -259,7 +270,7 @@ describe('lemon room aggro', () => {
     const stepPx = (kaleConstants.monsterChaseSpeedPxPerSec * kaleConstants.tickMs) / 1000;
     expect(Math.hypot(next.x - before.x, next.y - before.y)).toBeLessThanOrEqual(stepPx + 1e-6);
 
-    let snap = await ripen(hero.socket, 100);
+    snap = await ripen(hero.socket, 100);
     const chaser = beetIn(snap, bear.id)!;
     expect(Math.hypot(chaser.x - snap.character.x, chaser.y - snap.character.y)).toBeLessThanOrEqual(
       kaleConstants.meleeReachPx,
@@ -287,12 +298,12 @@ describe('lemon room aggro', () => {
   it('bites a wolf at 0 and 1000 ms, a bear at 0, 800 and 1600 ms, with the monster already in reach', async () => {
     const wolfHero = await joinBeside('Pear', 'wolf', 4, { place: 'green', level: 6, hp: 140, maxHp: 140 });
     const wolf = wolfHero.beet;
-    await ask(wolfHero.socket, { type: 'attack', monsterId: wolf.id });
+    await ask(wolfHero.socket, { type: 'attack', once: true, monsterId: wolf.id });
     expect(await biteTimesMs(wolfHero.socket, wolf.id, 14)).toEqual([0, 1000]);
 
     const bearHero = await joinBeside('Plum', 'bear', 4, { place: 'grey', level: 6, hp: 140, maxHp: 140 });
     const bear = bearHero.beet;
-    await ask(bearHero.socket, { type: 'attack', monsterId: bear.id });
+    await ask(bearHero.socket, { type: 'attack', once: true, monsterId: bear.id });
     expect(await biteTimesMs(bearHero.socket, bear.id, 20)).toEqual([0, 800, 1600]);
   }, 60_000);
 
@@ -329,7 +340,7 @@ describe('lemon room aggro', () => {
       hp: rowOf('wolf').attack,
       maxHp: 52,
     });
-    await ask(hero.socket, { type: 'attack', monsterId: wolf.id });
+    await ask(hero.socket, { type: 'attack', once: true, monsterId: wolf.id });
     const snap = await ripen(hero.socket, 1);
     const [townX, townY] = townSpawn;
     const fullMax = maxHealth(heroOf({ ...snap.character, ...kept }));
@@ -352,7 +363,7 @@ describe('lemon room aggro', () => {
     const wolfCalm = await ripen(wolf.socket, 0);
     const calmWolf = beetIn(wolfCalm, wolf.beet.id)!;
     expect(calmWolf.aggro).toBe(false);
-    const wolfHit = await ask(wolf.socket, { type: 'attack', monsterId: wolf.beet.id });
+    const wolfHit = await ask(wolf.socket, { type: 'attack', once: true, monsterId: wolf.beet.id });
     const hitWolf = beetIn(wolfHit, wolf.beet.id)!;
     expect(hitWolf.aggro).toBe(true);
     expect(hitWolf.hp).toBeLessThan(calmWolf.hp);
@@ -361,7 +372,7 @@ describe('lemon room aggro', () => {
     const bearCalm = await ripen(bear.socket, 0);
     const calmBear = beetIn(bearCalm, bear.beet.id)!;
     expect(calmBear.aggro).toBe(false);
-    const bearHit = await ask(bear.socket, { type: 'attack', monsterId: bear.beet.id });
+    const bearHit = await ask(bear.socket, { type: 'attack', once: true, monsterId: bear.beet.id });
     const hitBear = beetIn(bearHit, bear.beet.id)!;
     expect(hitBear.aggro).toBe(true);
     expect(hitBear.hp).toBeLessThan(calmBear.hp);
