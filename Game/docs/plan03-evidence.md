@@ -18,3 +18,6 @@ All six walks reached their target within 1 px: inside to outside through the so
 
 ## Slice 2 after-check (real Chrome)
 Draw calls were counted in the page during a 3.5 s walk: about 52 painted frames per second, gap between frames median 14.8 ms (p95 20.2, max 27.4). Before the change the page repainted only when a snapshot arrived (about 10 per second, positions jumping 12 to 24 px). Unit tests prove the per-frame step is even and never exceeds 1.25 x speed x dt. The six gate walks still pass with the new camera (clicks map correctly). Tests: 382 pass.
+
+## Slices 3-4 after-check (real server, same measurement as before)
+Player in the green at (800,330), 12 s: 11 monsters on screen, all 11 moved (before: 5 of 12; all 7 bears moved 0 px, now the 5 visible bears moved 17 to 22 px). Closest same-zone pair: 56 px (before 15 px). Tests: 397 pass.

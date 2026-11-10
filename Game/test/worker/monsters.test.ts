@@ -423,57 +423,11 @@ describe('lemon room cabbage', () => {
     expect(sortedBeets(fernAgain.welcome.snapshot.monsters)).toEqual(living);
     expect(fernAgain.welcome.snapshot.monsters.find((beet) => beet.id === born.id)).toEqual(born);
     expect(fernAgain.welcome.snapshot.monsters.some((beet) => beet.id === victim.id)).toBe(false);
-
-    // Fern walks to the green. After she arrives, beets in her zone or on her widest window move, and far ones do not.
-    const moveHeard = nextMango(fernAgain.socket);
-    fernAgain.socket.send(JSON.stringify({ type: 'move', x: 800, y: 330 }));
-    await moveHeard;
-    const arriveHeard = nextMango(fernAgain.socket);
-    fernAgain.socket.send(JSON.stringify({ type: 'ripen', steps: 300 }));
-    const arrived = await arriveHeard;
-    expect(arrived.character.place).toBe('green');
-    const parked = arrived.snapshot.monsters;
-    const stepHeard = nextMango(fernAgain.socket);
-    fernAgain.socket.send(JSON.stringify({ type: 'ripen', steps: 40 }));
-    const stepped = await stepHeard;
-    let seenBears = 0;
-    let hidden = 0;
-    for (const before of parked) {
-      const after = stepped.snapshot.monsters.find((beet) => beet.id === before.id)!;
-      const watched = before.zone === 'green' || figSeesBeet('green', arrived.character.x, arrived.character.y, before.x, before.y);
-      const moved = after.x !== before.x || after.y !== before.y;
-      if (watched) {
-        if (before.kind === 'bear') seenBears += 1;
-        expect(moved, before.id).toBe(true);
-      } else {
-        hidden += 1;
-        expect(moved, before.id).toBe(false);
-      }
-    }
-    expect(seenBears).toBeGreaterThan(0);
-    expect(hidden).toBeGreaterThan(0);
-
-    // A second fig in the cemetery keeps that herd walking while Fern keeps the wolves walking.
-    const plum = await postFig('Plum', 'woman');
-    const plumJoin = await connectFig(wsUrl, plum.grape);
-    openSockets.push(plumJoin.socket);
-    const plumMove = broadcastMango(plumJoin.socket, fernAgain.socket, { type: 'move', x: 200, y: 160 });
-    await plumMove;
-    const plumArrive = await broadcastMango(plumJoin.socket, fernAgain.socket, { type: 'ripen', steps: 300 });
-    expect(plumArrive.senderSnap.character.place).toBe('cemetery');
-    expect(plumArrive.otherSnap.character.place).toBe('green');
-    const bothParked = plumArrive.senderSnap.snapshot.monsters;
-    const bothLater = (await broadcastMango(plumJoin.socket, fernAgain.socket, { type: 'ripen', steps: 30 })).senderSnap;
-    for (const before of bothParked) {
-      if (before.zone !== 'green' && before.zone !== 'cemetery') continue;
-      const after = bothLater.snapshot.monsters.find((beet) => beet.id === before.id)!;
-      expect(after.x !== before.x || after.y !== before.y, before.id).toBe(true);
-    }
   }, 120_000);
 });
 
 // A connected fig standing still. Place and feet both matter: the zone, and the widest window around the feet.
-function figIn(place: ZoneName): FigWalk {
+function figAt(x: number, y: number, place: ZoneName): FigWalk {
   return sproutFig({
     id: `fig-${place}`,
     name: 'Fig',
@@ -487,9 +441,13 @@ function figIn(place: ZoneName): FigWalk {
     sword: null,
     armor: null,
     place,
-    x: 640,
-    y: 360,
+    x,
+    y,
   });
+}
+
+function figIn(place: ZoneName): FigWalk {
+  return figAt(640, 360, place);
 }
 
 // Step the bed this many whole ticks. Every beet position is recorded on every tick.
@@ -579,6 +537,21 @@ describe('cabbage patrol on the rules tick', () => {
     }
     expect(seen).toBeGreaterThan(0);
     expect(hidden).toBeGreaterThan(0);
+  });
+
+  it('keeps the green herd and the cemetery herd walking when a fig stands in each', () => {
+    const figs = new Map<string, FigWalk>([
+      ['fig-green', figAt(640, 360, 'green')],
+      // East of the graves, past the skeleton wake radius, so that herd patrols.
+      ['fig-cemetery', figAt(535, 130, 'cemetery')],
+    ]);
+    const before = plantCabbage();
+    const walked = walkBed(before, figs, 40);
+    for (const beet of before.beets) {
+      if (beet.zone !== 'green' && beet.zone !== 'cemetery') continue;
+      const later = walked.bed.beets.find((candidate) => candidate.id === beet.id)!;
+      expect(later.x !== beet.x || later.y !== beet.y, beet.id).toBe(true);
+    }
   });
 
   it('drops one seed per kill, worth that row’s coins, for a wolf, a bear, and a skeleton', () => {

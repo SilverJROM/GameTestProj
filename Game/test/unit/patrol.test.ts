@@ -184,7 +184,8 @@ describe('radish patrol on the rules tick', () => {
     const figs = new Map<string, FigWalk>([
       ['fig-green', figAt('fig-green', 'green', 800, 330)],
       ['fig-grey', figAt('fig-grey', 'grey', 1000, 180)],
-      ['fig-cemetery', figAt('fig-cemetery', 'cemetery', 200, 100)],
+      // Clear of every skeleton's wake radius, so the herd patrols its radishes.
+      ['fig-cemetery', figAt('fig-cemetery', 'cemetery', 535, 130)],
     ]);
     const walked = walkBed(plantCabbage(), figs, ticks);
     for (const zone of HERD_ZONES) {
@@ -240,7 +241,7 @@ describe('radish patrol on the rules tick', () => {
   it('keeps both herds walking when two figs stand in different zones', () => {
     const figs = new Map<string, FigWalk>([
       ['fig-green', figAt('fig-green', 'green', 720, 280)],
-      ['fig-cemetery', figAt('fig-cemetery', 'cemetery', 60, 60)],
+      ['fig-cemetery', figAt('fig-cemetery', 'cemetery', 535, 130)],
     ]);
     const before = plantCabbage();
     const walked = walkBed(before, figs, 40);

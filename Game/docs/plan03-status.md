@@ -2,21 +2,21 @@
 
 Recovery file. If the session closes, read this first, then `docs/plan03.md`. Times in UTC. Same topology and rules as `docs/plan02-status.md` (Grok implements, Claude reviews and commits, user-approved plan only).
 
-Last updated: 2026-11-10 14:44 UTC
+Last updated: 2026-11-10 15:03 UTC
 
 | Item | Value |
 | --- | --- |
 | Base | `main` at `cde3469` |
 | Working branch | `update-03` (cut from `main`) |
-| Overall | 25% (slices 0-2 of 12 done) |
+| Overall | 42% (slices 0-4 of 12 done) |
 
 | Slice | What | Status | Commit |
 | --- | --- | --- | --- |
 | 0 | Branch and measurement (evidence in `docs/plan03-evidence.md`) | **done** | see git log |
 | 1 | Gate routing and wall sliding | **done** | see git log |
 | 2 | Smooth walking (interpolation) | **done** | see git log |
-| 3 | Everything on screen patrols (merged with 4) | **in progress** (Grok started 14:25 UTC; WIP checkpoint 14:44 UTC UNREVIEWED; resume by waiting for marker `slices/p3-slice-3.done` or rerun Grok on top) | - |
-| 4 | Own patrol patch, no overlap (merged into 3) | in progress | - |
+| 3 | Everything on screen patrols (merged with 4) | **done** | see git log |
+| 4 | Own patrol patch, no overlap (merged into 3) | **done** | see git log |
 | 5 | Sprite click area | pending | - |
 | 6 | Click to chase and fight | pending | - |
 | 7 | Coin 24 px, walk-on pickup | pending | - |

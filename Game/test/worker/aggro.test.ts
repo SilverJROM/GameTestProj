@@ -246,11 +246,22 @@ describe('lemon room aggro', () => {
     const bear = firstBeet('bear');
     const gap = kaleConstants.meleeReachPx * 3;
     const hero = await joinFig('Hazel', { x: bear.x + gap, y: bear.y, place: 'grey', level: 6, hp: 140, maxHp: 140 });
-    // Out of reach, so the swing needs a walk first; stand in reach to hit, then step back.
-    await ask(hero.socket, { type: 'move', x: bear.x + kaleConstants.meleeReachPx, y: bear.y });
-    await ripen(hero.socket, 20);
+    // The bear patrols its radish, so the swing has to land on wherever it stands now, then the fig steps back.
+    let snap = await ripen(hero.socket, 0);
+    for (let step = 0; step < 80; step += 1) {
+      const live = beetIn(snap, bear.id)!;
+      if (Math.hypot(live.x - snap.character.x, live.y - snap.character.y) <= kaleConstants.meleeReachPx) {
+        break;
+      }
+      await ask(hero.socket, { type: 'move', x: live.x, y: live.y });
+      snap = await ripen(hero.socket, 1);
+    }
+    const struck = beetIn(snap, bear.id)!;
+    expect(Math.hypot(struck.x - snap.character.x, struck.y - snap.character.y)).toBeLessThanOrEqual(
+      kaleConstants.meleeReachPx,
+    );
     await ask(hero.socket, { type: 'attack', monsterId: bear.id });
-    await ask(hero.socket, { type: 'move', x: bear.x + gap, y: bear.y });
+    await ask(hero.socket, { type: 'move', x: struck.x + gap, y: struck.y });
     await ripen(hero.socket, 3);
 
     // The chase covers one tick of rules speed per tick, never more.
@@ -259,7 +270,7 @@ describe('lemon room aggro', () => {
     const stepPx = (kaleConstants.monsterChaseSpeedPxPerSec * kaleConstants.tickMs) / 1000;
     expect(Math.hypot(next.x - before.x, next.y - before.y)).toBeLessThanOrEqual(stepPx + 1e-6);
 
-    let snap = await ripen(hero.socket, 100);
+    snap = await ripen(hero.socket, 100);
     const chaser = beetIn(snap, bear.id)!;
     expect(Math.hypot(chaser.x - snap.character.x, chaser.y - snap.character.y)).toBeLessThanOrEqual(
       kaleConstants.meleeReachPx,

@@ -287,7 +287,8 @@ describe('G4 hunt flow', () => {
   it('lets a skeleton ignore a fig outside the radius and a fig in the grey, then chase a fig inside both', async () => {
     // The fifth skeleton stands at the east edge of the cemetery, next to the grey ground.
     const skeleton = nthBeet('skeleton', 4);
-    const plumOutside = { x: skeleton.x + skeletonRadiusPx + 1, y: skeleton.y };
+    // Far enough that this skeleton's radish stays outside the wake radius while it patrols.
+    const plumOutside = { x: 535, y: 130 };
     const plumInside = { x: skeleton.x + skeletonRadiusPx - 1, y: skeleton.y };
     const radishGrey = { x: 470, y: 20 };
     expect(zoneAt(plumOutside.x, plumOutside.y)).toBe('cemetery');

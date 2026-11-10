@@ -175,10 +175,15 @@ describe('lemon room skeleton proximity aggro', () => {
 
   it('ignores a fig just outside the radius and targets one just inside, biting the row attack on the rules gap', async () => {
     const skeleton = borderSkeleton();
-    const outside = await joinFig('Plum', { x: skeleton.x + skeletonRadiusPx + 1, y: skeleton.y, place: 'cemetery', level: 6, hp: 80, maxHp: 80 });
+    // East of every grave's radish, so a patrol loop cannot walk into the wake radius.
+    const feet = { x: 535, y: 130 };
+    expect(zoneAt(feet.x, feet.y)).toBe('cemetery');
+    expect(Math.hypot(feet.x - skeleton.x, feet.y - skeleton.y)).toBeGreaterThan(skeletonRadiusPx);
+    const outside = await joinFig('Plum', { ...feet, place: 'cemetery', level: 6, hp: 80, maxHp: 80 });
     const snap = await ripen(outside.socket, 200);
-    expect([beetIn(snap, skeleton.id)!.x, beetIn(snap, skeleton.id)!.y]).toEqual([skeleton.x, skeleton.y]);
-    expect(beetIn(snap, skeleton.id)!.swung).toBe(false);
+    const beet = beetIn(snap, skeleton.id)!;
+    expect(Math.hypot(beet.x - snap.character.x, beet.y - snap.character.y)).toBeGreaterThan(skeletonRadiusPx);
+    expect(beet.swung).toBe(false);
     expect(snap.character.hp).toBe(80);
     // Close the socket so this fig is gone before the next case.
     outside.socket.close();
@@ -221,10 +226,11 @@ describe('lemon room skeleton proximity aggro', () => {
     expect(zoneAt(spot.x, spot.y)).toBe('grey');
     expect(Math.hypot(spot.x - skeleton.x, spot.y - skeleton.y)).toBeLessThan(skeletonRadiusPx);
     const grey = await joinFig('Radish', { ...spot, place: 'grey', level: 6, hp: 80, maxHp: 80 });
-    const before = beetIn(await ripen(grey.socket, 0), skeleton.id)!;
+    // A grey fig is not a target. The skeleton may still patrol when it sits on her screen.
     const snap = await ripen(grey.socket, 200);
-    expect([beetIn(snap, skeleton.id)!.x, beetIn(snap, skeleton.id)!.y]).toEqual([before.x, before.y]);
-    expect(beetIn(snap, skeleton.id)!.swung).toBe(false);
+    const beet = beetIn(snap, skeleton.id)!;
+    expect(beet.swung).toBe(false);
     expect(snap.character.hp).toBe(80);
+    expect(Math.hypot(beet.x - spot.x, beet.y - spot.y)).toBeGreaterThan(kaleConstants.meleeReachPx);
   }, 60_000);
 });
