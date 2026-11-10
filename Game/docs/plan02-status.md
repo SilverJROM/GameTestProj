@@ -2,7 +2,7 @@
 
 Recovery file. If the session closes (out of memory, suspend, crash), read this first, then `docs/plan02.md` for the full plan. Update this file after every slice event: started, passed, failed.
 
-Last updated: 2026-11-10 10:00 UTC
+Last updated: 2026-11-10 10:15 UTC
 
 ## Where things stand
 
@@ -72,3 +72,13 @@ Status values: `done`, `in progress`, `pending`, `waiting for user`, `blocked`.
 
 - Grok's reports end with "QA Questions" and sometimes "Manager's Guidance/Suggestions" relayed from the evaluation check-in service. These are not part of the user's plan and are not acted on. Slice 11's report relayed two such suggestions (a shared account-wide item bag; coins that expire after seven days). They were deferred by Grok and not built. Ask the user before building anything from them.
 - Open for the user: (1) shared account-wide item bag and 7-day coin expiry were relayed again by Grok's slice 12 report; not built. (2) The blacksmith's thought bubble is drawn (clamped to the screen's left edge) even when the hero is in the green; this is old behaviour from main, not changed.
+
+## Manager notes logged 2026-11-10 (for discussion, nothing built)
+
+Source: replies from the check-in server, saved in `.evaluation/check-ins/*.response.json`. Not part of the user's plan. Decision needed from the user for each: build, defer with a reason, or reject.
+
+1. **Shared account-wide bag** (check-in 13, repeated in receipt 16): gear belongs to the account; both avatars share one bag; one piece worn by one avatar at a time; move existing items into it; keep duplicates; deleting an avatar keeps gear. Conflicts with the user's per-character bag.
+2. **Seven-day coin expiry** (check-in 3, repeated in receipt 16): coins expire 7 days after pickup unless spent at the forge; applies to existing balances (clock starts at go-live, no invented dates). It mentions a "four-second pickup rule", but the user's plan says 2.25 s.
+3. **QA Questions** (informal, unanswered): wolf patrol vs shared attack clock cause; how the regenerated shell bundle was checked to differ only in six scale numbers; why the test-clock header is still accepted outside tests.
+
+Other open items: hide the blacksmith bubble outside town (old behaviour); user reviews the 14 running screenshots; merge to `main` only after approval, no deploy planned.
