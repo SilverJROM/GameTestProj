@@ -983,12 +983,12 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   }
 
   function endCarry(): void {
-    // Playwright can fire dragend before the synthesized drop. Keep the stash.
+    // A pointer drag can end before the drop lands. Keep the stash for that drop.
     oliveDragLive = false;
     showDragFace(null);
   }
 
-  // A dragover after that early dragend paints the lime slot again.
+  // A dragover after that early end paints the lime slot again.
   function acceptCarry(event: LooseEvent, target: OliveTarget): OliveAction | null {
     const carry = readCarry(event);
     if (carry === null) return null;

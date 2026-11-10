@@ -186,9 +186,9 @@ function fireDrag(el: FakeEl, type: string, transfer: FakeTransfer): FakeEvent {
   return event;
 }
 
-function fieldText(root: FakeEl, field: string): string {
-  const walk = (node: FakeEl): string | null => {
-    if (node.dataset.field === field) return node.textContent;
+function fieldNode(root: FakeEl, field: string): FakeEl {
+  const walk = (node: FakeEl): FakeEl | null => {
+    if (node.dataset.field === field) return node;
     for (const child of node.children) {
       const found = walk(child);
       if (found !== null) return found;
@@ -198,6 +198,27 @@ function fieldText(root: FakeEl, field: string): string {
   const found = walk(root);
   if (found === null) throw new Error(`missing ${field}`);
   return found;
+}
+
+function fieldText(root: FakeEl, field: string): string {
+  return fieldNode(root, field).textContent;
+}
+
+function point(el: FakeEl): void {
+  const event: FakeEvent = {
+    target: el,
+    stopped: false,
+    defaultPrevented: false,
+    preventDefault() {
+      event.defaultPrevented = true;
+    },
+    stopPropagation() {
+      event.stopped = true;
+    },
+  };
+  for (const type of ['pointerdown', 'mousedown']) {
+    for (const listener of el.listeners[type] ?? []) listener(event);
+  }
 }
 
 function grapeFace(tile: FakeEl): { name: string; bonus: string; worn: boolean; seal: string } {
@@ -590,7 +611,7 @@ describe('live bag and blacksmith panels', () => {
 
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(false);
-    expect(xp.textContent).toBe('Experience 9 / 10');
+    expect(xp.textContent).toBe('9 / 10');
     expect(coins.textContent).toBe('Coins: 1');
     click(oliveClose);
     expect(sheet.hidden).toBe(true);
@@ -647,49 +668,120 @@ describe('live bag and blacksmith panels', () => {
     if (itemHost === undefined) {
       throw new Error('olive-items missing');
     }
-    expect(itemHost.children.map((button) => button.textContent)).toEqual([
-      'Short sword +2 strike',
-      'Leather +12 max HP',
-    ]);
+    const shortTile = itemHost.children[0];
+    const leatherTile = itemHost.children[1];
+    if (shortTile === undefined || leatherTile === undefined) throw new Error('olive grapes missing');
+    expect(grapeFace(shortTile)).toEqual({ name: 'Short sword', bonus: '+2 strike', worn: false, seal: '' });
+    expect(grapeFace(leatherTile)).toEqual({ name: 'Leather', bonus: '+12 max HP', worn: false, seal: '' });
     const health = elements.get('olive-health')!;
     const strikeLine = elements.get('olive-strike')!;
     const armorLine = elements.get('olive-armor')!;
-    if (health === undefined || strikeLine === undefined || armorLine === undefined) {
+    const hint = elements.get('olive-hint');
+    if (health === undefined || strikeLine === undefined || armorLine === undefined || hint === undefined) {
       throw new Error('bag lines missing');
     }
-    expect(sword.textContent).toBe('Nothing worn');
-    expect(armorLine.textContent).toBe('Nothing worn');
-    expect(strikeLine.textContent).toBe('Strike 4');
+    expect(fieldText(sword, 'name')).toBe('Nothing worn');
+    expect(fieldText(sword, 'bonus')).toBe('');
+    expect(fieldText(armorLine, 'name')).toBe('Nothing worn');
+    expect(fieldText(armorLine, 'bonus')).toBe('');
+    expect(strikeLine.textContent).toBe('4');
     expect(health.textContent).toBe('40 / 70');
 
-    click(itemHost.children[0]!);
+    click(shortTile);
     expect(sheet.hidden).toBe(false);
     expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'equip', itemId: 'shortSword' });
 
     deliver(figSnapshot({ ...owned, sword: 'shortSword' }));
     expect(sheet.hidden).toBe(false);
-    expect(sword.textContent).toBe('Short sword');
-    expect(strikeLine.textContent).toBe('Strike 6');
+    expect(itemHost.children[0]).toBe(shortTile);
+    expect(grapeFace(shortTile)).toEqual({ name: 'Short sword', bonus: '+2 strike', worn: true, seal: 'Equipped' });
+    expect(fieldText(sword, 'name')).toBe('Short sword');
+    expect(fieldText(sword, 'bonus')).toBe('+2 strike');
+    expect(strikeLine.textContent).toBe('6');
     expect(health.textContent).toBe('40 / 70');
 
     click(sword);
     expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'unequip', slot: 'sword' });
     deliver(figSnapshot({ ...owned, sword: null }));
-    expect(sword.textContent).toBe('Nothing worn');
-    expect(strikeLine.textContent).toBe('Strike 4');
+    expect(fieldText(sword, 'name')).toBe('Nothing worn');
+    expect(grapeFace(shortTile).worn).toBe(false);
+    expect(strikeLine.textContent).toBe('4');
 
-    click(itemHost.children[1]!);
+    click(leatherTile);
     expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'equip', itemId: 'leather' });
     deliver(figSnapshot({ ...owned, armor: 'leather', maxHp: 82 }));
-    expect(armorLine.textContent).toBe('Leather');
+    expect(itemHost.children[1]).toBe(leatherTile);
+    expect(grapeFace(leatherTile)).toEqual({ name: 'Leather', bonus: '+12 max HP', worn: true, seal: 'Equipped' });
+    expect(fieldText(armorLine, 'name')).toBe('Leather');
+    expect(fieldText(armorLine, 'bonus')).toBe('+12 max HP');
     expect(health.textContent).toBe('40 / 82');
-    expect(strikeLine.textContent).toBe('Strike 4');
+    expect(strikeLine.textContent).toBe('4');
 
     click(armorLine);
     expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'unequip', slot: 'armor' });
     deliver(figSnapshot({ ...owned, armor: null, maxHp: 70 }));
-    expect(armorLine.textContent).toBe('Nothing worn');
+    expect(fieldText(armorLine, 'name')).toBe('Nothing worn');
     expect(health.textContent).toBe('40 / 70');
+    expect(sheet.hidden).toBe(false);
+
+    const equipDrag = grapeTransfer();
+    fireDrag(shortTile, 'dragstart', equipDrag);
+    expect(equipDrag.effectAllowed).toBe('move');
+    expect(sword.className).toBe('slot lime');
+    expect(armorLine.className).toBe('slot peach');
+    expect(hint.textContent).toBe('Strike 4 becomes 6');
+    expect(hint.hidden).toBe(false);
+    expect(fieldNode(sword, 'drop').hidden).toBe(false);
+    expect(fieldNode(armorLine, 'drop').hidden).toBe(true);
+    fireDrag(shortTile, 'dragend', equipDrag);
+    expect(sword.className).toBe('slot');
+    const equipOver = fireDrag(sword, 'dragover', equipDrag);
+    expect(equipOver.defaultPrevented).toBe(true);
+    expect(equipDrag.dropEffect).toBe('move');
+    expect(sword.className).toBe('slot lime');
+    expect(armorLine.className).toBe('slot peach');
+    fireDrag(sword, 'drop', equipDrag);
+    expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'equip', itemId: 'shortSword' });
+    expect(sword.className).toBe('slot');
+    deliver(figSnapshot({ ...owned, sword: 'shortSword' }));
+    expect(itemHost.children[0]).toBe(shortTile);
+    expect(grapeFace(shortTile).seal).toBe('Equipped');
+    expect(strikeLine.textContent).toBe('6');
+    expect(health.textContent).toBe('40 / 70');
+
+    const unequipDrag = grapeTransfer();
+    fireDrag(sword, 'dragstart', unequipDrag);
+    expect(itemHost.className).toBe('plum-row lime');
+    expect(hint.textContent).toBe('Strike 6 becomes 4');
+    fireDrag(sword, 'dragend', unequipDrag);
+    const rowOver = fireDrag(itemHost, 'dragover', unequipDrag);
+    expect(rowOver.defaultPrevented).toBe(true);
+    expect(itemHost.className).toBe('plum-row lime');
+    fireDrag(itemHost, 'drop', unequipDrag);
+    expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'unequip', slot: 'sword' });
+    deliver(figSnapshot({ ...owned, sword: null }));
+    expect(strikeLine.textContent).toBe('4');
+    expect(grapeFace(shortTile).worn).toBe(false);
+
+    const wrongDrag = grapeTransfer();
+    const sentBeforeWrong = FakeSocket.open?.sent.length ?? 0;
+    fireDrag(leatherTile, 'dragstart', wrongDrag);
+    expect(armorLine.className).toBe('slot lime');
+    expect(sword.className).toBe('slot peach');
+    const wrongOver = fireDrag(sword, 'dragover', wrongDrag);
+    expect(wrongOver.defaultPrevented).toBe(false);
+    fireDrag(sword, 'drop', wrongDrag);
+    fireDrag(leatherTile, 'dragend', wrongDrag);
+    expect(FakeSocket.open?.sent.length).toBe(sentBeforeWrong);
+    expect(sword.className).toBe('slot');
+
+    point(leatherTile);
+    click(leatherTile);
+    expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'equip', itemId: 'leather' });
+    deliver(figSnapshot({ ...owned, armor: 'leather', maxHp: 82 }));
+    expect(health.textContent).toBe('40 / 82');
+    expect(fieldText(armorLine, 'name')).toBe('Leather');
+    expect(strikeLine.textContent).toBe('4');
     expect(sheet.hidden).toBe(false);
   });
 });
