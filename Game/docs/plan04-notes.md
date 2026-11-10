@@ -166,3 +166,8 @@ Facts found while checking (corrections to the earlier review):
 - Gate openings are kept clear of monsters (patrol cells and the avoidance rule keep monsters out of the gate openings); elsewhere they spread over the whole section.
 - The skeleton has no chase limit.
 - Item 3 is settled and ready to build when the developer says go. Next topic: sound (the developer wants to talk about it again).
+
+### Background music rule (developer, 2026-11-10)
+The background track follows the section the player's avatar is in, with a 2 second fade when the section changes.
+Design: the track is picked from the avatar's zone (town, green, grey, cemetery); on a change, the old track fades out and the new one fades in over 2 s (crossfade).
+Details to settle: the grey zone (bears) has no track of its own (we have town, fields, cemetery); a small delay so crossing a border back and forth does not flip the music; tracks loop; the music starts on the first click or key press (browser rule).
