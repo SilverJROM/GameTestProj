@@ -147,3 +147,16 @@ Questions for the developer:
 3. What counts as aggro today (a player within sight starts a chase)? Keep as is, and how far should they chase before giving up?
 4. Do monsters spread over the whole section including near the gates and paths, or should a safe margin stay free near the town and gates?
 5. Same rules for all three monsters (wolf, bear, skeleton), or should bears (slower, larger) move even slower?
+
+### Item 3 answers (developer, 2026-11-10) — confirmed design, not started
+
+1. Overlap rule accepted: a pair may overlap by up to 40% of the narrower sprite, never a third, never 1 to 1.
+2. Patrol speed 10 to 12 px/s. Chosen: wolf 11, skeleton 11, bear slower at 8 (the developer said the bear is slower). Chase stays 90.
+3. Aggro: the skeleton wakes at 100 px (today 120, `skeletonRadiusPx`). Wolf and bear chase up to 250 px from where the chase began (or from their cell; to be settled), then give up and walk back at patrol speed.
+4. Spread over the whole section, with no free margin near gates or paths (answer was "yes"; confirm this reading).
+5. Bear slower than wolf and skeleton.
+
+Facts found while checking (corrections to the earlier review):
+- Each monster type has 7 in its zone (`count: 7` in `tables.ts`). The earlier "9 wolves, 8 skeletons" were spawn points, not monsters.
+- Wolf and bear aggro is by hit only today (they chase after being hit), the skeleton by proximity. There is no chase limit now; a chase ends only when the target is gone, dead or outside the zone. The 250 px limit is new.
+- With no gate margin, monsters can stand in a gate. Safe by the zone rule today (town is never entered: the town, green and grey figs are never skeleton targets), but a monster blocking a gate route is a risk for best-route walking (item 2).
