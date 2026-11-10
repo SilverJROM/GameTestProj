@@ -18,12 +18,13 @@ import {
   type SnapshotMessage,
   type WelcomeMessage,
 } from '../../src/protocol';
-import { spawnPoints, zoneAt } from '../../src/rules/regions';
+import { firstSolidWallCrossing, spawnPoints, zoneAt } from '../../src/rules/regions';
 import { kaleConstants, onionMonsterRows, pearTimings, type ZoneName } from '../../src/rules/tables';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import type { CharacterDb, CharacterFacts } from '../../src/server/db';
-import { createPapayaClock } from '../../src/world/core';
-import { plantCabbage, pruneBeet, sproutYams, yamDueMs, type Beet } from '../../src/world/monsters';
+import { createPapayaClock, sproutFig, type FigWalk } from '../../src/world/core';
+import { stepAggro } from '../../src/world/combat';
+import { plantCabbage, pruneBeet, readCabbage, sproutYams, yamDueMs, type Beet, type CabbageBed } from '../../src/world/monsters';
 
 const guavaSecret = 'guava-session-secret';
 
@@ -414,4 +415,110 @@ describe('lemon room cabbage', () => {
     expect(fernAgain.welcome.snapshot.monsters.find((beet) => beet.id === born.id)).toEqual(born);
     expect(fernAgain.welcome.snapshot.monsters.some((beet) => beet.id === victim.id)).toBe(false);
   }, 120_000);
+});
+
+// A connected fig standing still in a zone. Only its place matters to the patrol rule.
+function figIn(place: ZoneName): FigWalk {
+  return sproutFig({
+    id: `fig-${place}`,
+    name: 'Fig',
+    nameKey: 'fig',
+    gender: 'woman',
+    level: 1,
+    xp: 0,
+    hp: 70,
+    maxHp: 70,
+    coins: 0,
+    sword: null,
+    armor: null,
+    place,
+    x: 640,
+    y: 360,
+  });
+}
+
+// Step the bed this many whole ticks. Every beet position is recorded on every tick.
+function walkBed(bed: CabbageBed, figs: ReadonlyMap<string, FigWalk>, ticks: number) {
+  const trail = new Map<string, Array<readonly [number, number]>>();
+  for (const beet of bed.beets) {
+    trail.set(beet.id, [[beet.x, beet.y]]);
+  }
+  let now = 0;
+  let current = bed;
+  let stored = false;
+  for (let tick = 0; tick < ticks; tick += 1) {
+    now += kaleConstants.tickMs;
+    const stepped = stepAggro(current, figs, kaleConstants.tickMs, now);
+    stored = stored || stepped.changed;
+    current = stepped.bed;
+    for (const beet of current.beets) {
+      trail.get(beet.id)!.push([beet.x, beet.y]);
+    }
+  }
+  return { bed: current, trail, stored };
+}
+
+describe('cabbage patrol on the rules tick', () => {
+  const green = new Map([['fig-green', figIn('green')]]);
+
+  it('walks the wolves the same way twice, inside the green, through no wall, with no storage write', () => {
+    const first = walkBed(plantCabbage(), green, 10_000);
+    const second = walkBed(plantCabbage(), green, 10_000);
+    const wolves = plantCabbage().beets.filter((beet) => beet.kind === 'wolf');
+    expect(wolves).toHaveLength(7);
+    let walked = 0;
+    for (const wolf of wolves) {
+      const path = first.trail.get(wolf.id)!;
+      expect(path).toEqual(second.trail.get(wolf.id)!);
+      const stepPx = (kaleConstants.monsterPatrolSpeedPxPerSec * kaleConstants.tickMs) / 1000;
+      for (let tick = 1; tick < path.length; tick += 1) {
+        const [x, y] = path[tick]!;
+        const [fromX, fromY] = path[tick - 1]!;
+        expect(zoneAt(x, y)).toBe('green');
+        expect(firstSolidWallCrossing([fromX, fromY], [x, y])).toBeNull();
+        expect(Math.hypot(x - fromX, y - fromY)).toBeLessThanOrEqual(stepPx + 1e-6);
+        if (x !== fromX || y !== fromY) {
+          walked += 1;
+        }
+      }
+    }
+    expect(walked).toBeGreaterThan(0);
+    // Patrol alone is never a storage event.
+    expect(first.stored).toBe(false);
+    // Bears and skeletons have no fig in their zone, so they stay on their leeks.
+    for (const beet of first.bed.beets.filter((candidate) => candidate.kind !== 'wolf')) {
+      const start = plantCabbage().beets.find((candidate) => candidate.id === beet.id)!;
+      expect([beet.x, beet.y]).toEqual([start.x, start.y]);
+    }
+  });
+
+  it('moves nothing with no fig connected, or with a fig only in town', () => {
+    const none = walkBed(plantCabbage(), new Map(), 10_000);
+    expect(none.bed).toEqual(plantCabbage());
+    const town = walkBed(plantCabbage(), new Map([['fig-town', figIn('town')]]), 10_000);
+    expect(town.bed).toEqual(plantCabbage());
+  });
+
+  it('reads a stored beet that lacks a spawn index and a leg with defaults', () => {
+    const fresh = plantCabbage();
+    const old = JSON.parse(JSON.stringify(fresh)) as { beets: Array<Record<string, unknown>> };
+    for (const beet of old.beets) {
+      delete beet.spawnIndex;
+      delete beet.legDir;
+    }
+    expect(readCabbage(old)).toEqual(fresh);
+  });
+
+  it('puts a beet back on its leek after its walk stays blocked for ten ticks', () => {
+    // A wolf nudged outside the green cannot take any step (the step would leave its zone).
+    const bed = plantCabbage();
+    const wolf = bed.beets.find((beet) => beet.kind === 'wolf')!;
+    const stuck: CabbageBed = { ...bed, beets: bed.beets.map((beet) => (beet.id === wolf.id ? { ...beet, x: 5, y: 700 } : beet)) };
+    const ticks = walkBed(stuck, green, 10);
+    const home = spawnPoints.green[wolf.spawnIndex]!;
+    const after = ticks.bed.beets.find((beet) => beet.id === wolf.id)!;
+    expect([after.x, after.y]).toEqual([home[0], home[1]]);
+    const nineTicks = walkBed(stuck, green, 9).bed.beets.find((beet) => beet.id === wolf.id)!;
+    expect([nineTicks.x, nineTicks.y]).toEqual([5, 700]);
+  });
 });

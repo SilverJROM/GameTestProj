@@ -5,10 +5,68 @@
 
 import type { CharacterFactsPatch } from '../server/db';
 import { awardXp, deathResult, duelPayout, maxHealth, strike, type Hero } from '../rules/logic';
-import { skeletonRadiusPx, townSpawn } from '../rules/regions';
+import { firstSolidWallCrossing, inRing, skeletonRadiusPx, spawnPoints, townSpawn, zoneRings } from '../rules/regions';
 import { kaleConstants, onionMonsterRows, pearTimings } from '../rules/tables';
 import { aggroBeet, dropTarget, hurtBeet, type Beet, type CabbageBed } from './monsters';
 import type { FigWalk, PersimmonWrite } from './core';
+
+// A beet whose walk stays blocked this many ticks in a row (1 second) goes back to its own leek.
+const blockedTicksLimit = 10;
+
+// True when a beet may stand at the spot: inside its own zone ring.
+function inOwnPatch(beet: Beet, x: number, y: number): boolean {
+  return zoneRings[beet.zone].some((ring) => inRing(ring, x, y));
+}
+
+// True when the step from the beet to the spot crosses no solid wall and stays in the beet's zone.
+function stepIsOpen(beet: Beet, x: number, y: number): boolean {
+  return firstSolidWallCrossing([beet.x, beet.y], [x, y]) === null && inOwnPatch(beet, x, y);
+}
+
+// One idle step along the beet's vine at the rules patrol speed. The vine runs from its leek to the next
+// leek of the zone (wrapping). Off the vine (after a chase) the same step walks straight to the end it
+// was heading for. A blocked step is not taken; ten blocked ticks in a row plant the beet on its own leek.
+function patrolBeet(beet: Beet, patrolPx: number): Beet {
+  const leeks = spawnPoints[beet.zone];
+  if (leeks.length < 2) {
+    return beet;
+  }
+  const home = leeks[beet.spawnIndex % leeks.length]!;
+  const far = leeks[(beet.spawnIndex + 1) % leeks.length]!;
+  const end = beet.legDir === 1 ? far : home;
+  const dx = end[0] - beet.x;
+  const dy = end[1] - beet.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist <= 1e-9) {
+    return { ...dropBlocked(beet), legDir: beet.legDir === 1 ? -1 : 1 };
+  }
+  const arrives = dist <= patrolPx;
+  const nextX = arrives ? end[0] : beet.x + (dx / dist) * patrolPx;
+  const nextY = arrives ? end[1] : beet.y + (dy / dist) * patrolPx;
+  if (!stepIsOpen(beet, nextX, nextY)) {
+    const blocked = (beet.blockedTicks ?? 0) + 1;
+    if (blocked >= blockedTicksLimit) {
+      return { ...dropBlocked(beet), x: home[0], y: home[1], legDir: 1 };
+    }
+    return { ...beet, blockedTicks: blocked };
+  }
+  const moved = { ...dropBlocked(beet), x: nextX, y: nextY };
+  return arrives ? { ...moved, legDir: beet.legDir === 1 ? -1 : 1 } : moved;
+}
+
+function dropBlocked(beet: Beet): Beet {
+  const { blockedTicks: _blocked, ...rest } = beet;
+  return rest;
+}
+
+// Zones that hold at least one connected fig.
+function zonesWithFigs(figs: ReadonlyMap<string, FigWalk>): ReadonlySet<string> {
+  const zones = new Set<string>();
+  for (const fig of figs.values()) {
+    zones.add(fig.facts.place);
+  }
+  return zones;
+}
 
 export type SwingKind = 'monster' | 'duel';
 
@@ -122,12 +180,17 @@ export interface AggroStep {
   readonly writes: readonly PersimmonWrite[];
   // Ids of the beets whose bite landed this tick.
   readonly swung: readonly string[];
+  // True when aggro, a bite, or a chase step changed the bed. These are the changes that get stored.
   readonly changed: boolean;
+  // True when a beet moved or turned on its vine with nothing else changing. Patrol never writes storage.
+  readonly patrolled: boolean;
 }
 
 // One rules tick of wolf and bear aggro on the injected lime clock. nowMs is the end of this tick.
-// A beet with no target stands still. A chasing beet steps at the rules chase speed and does not bite
+// A beet with no target walks its vine at the rules patrol speed, but only while a connected fig stands in its
+// zone. With no fig connected nothing moves at all. A chasing beet steps at the rules chase speed and does not bite
 // on a tick it moved. In reach it bites on its own clock (swingMs on the beet), never the player's trySwing.
+// Every step checks the walls and the beet's own zone; a step that fails is not taken.
 // Aggro clears when the target is gone, dead, or outside the beet's zone.
 export function stepAggro(
   bed: CabbageBed,
@@ -139,19 +202,27 @@ export function stepAggro(
   const swung: string[] = [];
   const felledFigs = new Set<string>();
   let changed = false;
+  let patrolled = false;
   const chasePx = (kaleConstants.monsterChaseSpeedPxPerSec * elapsedMs) / 1000;
+  const patrolPx = (kaleConstants.monsterPatrolSpeedPxPerSec * elapsedMs) / 1000;
+  const watchedZones = zonesWithFigs(figs);
 
   let beets: Beet[] = bed.beets.map((sprout) => {
     let beet = sprout;
     if (beet.targetId === undefined) {
       // A proximity beet wakes on the nearest cemetery fig inside the rules radius. Others stand still.
       const rootRow = onionMonsterRows.find((candidate) => candidate.id === beet.kind);
-      if (rootRow === undefined || rootRow.aggro !== 'proximity') {
+      if (!watchedZones.has(beet.zone)) {
         return beet;
       }
-      const nearestFig = nearestCemeteryFig(beet, figs, felledFigs);
+      const nearestFig =
+        rootRow !== undefined && rootRow.aggro === 'proximity' ? nearestCemeteryFig(beet, figs, felledFigs) : null;
       if (nearestFig === null) {
-        return beet;
+        const walked = patrolBeet(beet, patrolPx);
+        if (walked !== beet) {
+          patrolled = true;
+        }
+        return walked;
       }
       // The target is kept from here on; a closer fig later does not steal it.
       beet = { ...beet, targetId: nearestFig.facts.id };
@@ -176,8 +247,13 @@ export function stepAggro(
     if (dist > kaleConstants.meleeReachPx) {
       // Close in to half reach so the beet lands inside reach with room to spare.
       const travel = Math.min(chasePx, dist - kaleConstants.meleeReachPx / 2);
+      const chaseX = beet.x + (dx / dist) * travel;
+      const chaseY = beet.y + (dy / dist) * travel;
+      if (!stepIsOpen(beet, chaseX, chaseY)) {
+        return beet;
+      }
       changed = true;
-      return { ...beet, x: beet.x + (dx / dist) * travel, y: beet.y + (dy / dist) * travel };
+      return { ...beet, x: chaseX, y: chaseY };
     }
     // Advance the bite clock by the exact gap so a 0.75 s skeleton does not snap to the 100 ms tick.
     // A bite a full tick or more late starts again from now, so late bites are not queued.
@@ -216,7 +292,7 @@ export function stepAggro(
       beet.targetId !== undefined && felledFigs.has(beet.targetId) ? dropTarget(beet) : beet,
     );
   }
-  return { bed: changed ? { ...bed, beets } : bed, writes, swung, changed };
+  return { bed: changed || patrolled ? { ...bed, beets } : bed, writes, swung, changed, patrolled };
 }
 
 export interface FigStrike {

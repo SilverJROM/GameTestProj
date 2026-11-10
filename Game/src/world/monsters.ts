@@ -1,7 +1,7 @@
 // Cabbage bed: living beets and the yams waiting to sprout.
 // Each beet stands on a leek from the regions module, inside its own zone. Town grows none.
 // A prune removes one beet and plants a yam. The yam sprouts after the rules respawn delay,
-// on a different leek in that same zone. Beets do not walk, chase, or bite here.
+// on a different leek in that same zone. Beets do not walk, chase, or bite here (the combat module steps them).
 // The delay is pearTimings.respawnSeconds. This module does not copy that number.
 // The bed is pure. The room owns the lime clock and the Durable Object store.
 
@@ -19,6 +19,13 @@ export interface Beet {
   readonly targetId?: string;
   // Lime-clock time of this beet's last bite. Its own clock, apart from the player's swing clock.
   readonly swingMs?: number;
+  // The leek this beet sprouted on: its index in the zone's leek list. Its vine runs from this
+  // leek to the next one (index + 1, wrapping). Beets stored before patrol existed read back nearest-leek.
+  readonly spawnIndex: number;
+  // Which end of the vine the beet is heading for: 1 is the next leek, -1 is its own leek.
+  readonly legDir: 1 | -1;
+  // Whole ticks the beet's walk has been blocked in a row. Absent while it walks freely.
+  readonly blockedTicks?: number;
 }
 
 // A yam is one pruned beet waiting to sprout. dueMs is lime-clock time.
@@ -67,6 +74,22 @@ function leekKey(x: number, y: number): string {
 
 function sameLeek(x: number, y: number, spot: Point): boolean {
   return spot[0] === x && spot[1] === y;
+}
+
+// Index of a leek in its zone's list. A spot that is not on the list takes the nearest leek.
+export function leekIndexOf(zone: ZoneName, spot: Point): number {
+  const spots = spawnPoints[zone];
+  let best = 0;
+  let bestDist = Infinity;
+  for (let index = 0; index < spots.length; index += 1) {
+    const leek = spots[index]!;
+    const dist = Math.hypot(leek[0] - spot[0], leek[1] - spot[1]);
+    if (dist < bestDist) {
+      best = index;
+      bestDist = dist;
+    }
+  }
+  return best;
 }
 
 // Next leek in the zone that is not the pruned spot. An empty leek wins when one is free.
@@ -128,6 +151,8 @@ export function plantCabbage(): CabbageBed {
         x: spot[0],
         y: spot[1],
         hp: row.hp,
+        spawnIndex: planted - 1,
+        legDir: 1,
       });
     }
     nextSerial[row.id] = planted + 1;
@@ -188,7 +213,17 @@ export function hurtBeet(bed: CabbageBed, beetId: string, amount: number, killer
 
 // A beet with no target and no bite stamp. The tomato is dropped from the copy.
 export function dropTarget(beet: Beet): Beet {
-  return { id: beet.id, kind: beet.kind, zone: beet.zone, x: beet.x, y: beet.y, hp: beet.hp };
+  return {
+    id: beet.id,
+    kind: beet.kind,
+    zone: beet.zone,
+    x: beet.x,
+    y: beet.y,
+    hp: beet.hp,
+    spawnIndex: beet.spawnIndex,
+    legDir: beet.legDir,
+    ...(beet.blockedTicks !== undefined ? { blockedTicks: beet.blockedTicks } : {}),
+  };
 }
 
 // The first hit names the target. Only a hit-aggro kind takes one, and the first holder keeps it.
@@ -241,6 +276,8 @@ export function sproutYams(bed: CabbageBed, nowMs: number): CabbageBed {
       x: spot[0],
       y: spot[1],
       hp: row.hp,
+      spawnIndex: leekIndexOf(row.zone, spot),
+      legDir: 1,
     });
   }
   return { beets, yams: waiting, nextSerial, seeds: bed.seeds, nextSeed: bed.nextSeed };
@@ -270,7 +307,23 @@ function readBeet(value: unknown): Beet | null {
   if (!Number.isFinite(beet.x) || !Number.isFinite(beet.y) || !Number.isFinite(beet.hp)) {
     return null;
   }
-  const base: Beet = { id: beet.id, kind: beet.kind, zone: beet.zone, x: beet.x, y: beet.y, hp: beet.hp };
+  // A beet stored before patrol existed has no leek index or leg: it takes the nearest leek and heads for the next one.
+  const spotCount = spawnPoints[beet.zone].length;
+  const hasIndex =
+    typeof beet.spawnIndex === 'number' && Number.isInteger(beet.spawnIndex) && beet.spawnIndex >= 0 && beet.spawnIndex < spotCount;
+  const base: Beet = {
+    id: beet.id,
+    kind: beet.kind,
+    zone: beet.zone,
+    x: beet.x,
+    y: beet.y,
+    hp: beet.hp,
+    spawnIndex: hasIndex ? (beet.spawnIndex as number) : spotCount > 0 ? leekIndexOf(beet.zone, [beet.x, beet.y]) : 0,
+    legDir: beet.legDir === -1 ? -1 : 1,
+    ...(typeof beet.blockedTicks === 'number' && Number.isInteger(beet.blockedTicks) && beet.blockedTicks > 0
+      ? { blockedTicks: beet.blockedTicks }
+      : {}),
+  };
   // A beet stored before aggro existed has neither field and loads with no target.
   const hasTarget = typeof beet.targetId === 'string' && beet.targetId.length > 0;
   const hasSwing = typeof beet.swingMs === 'number' && Number.isFinite(beet.swingMs);

@@ -134,12 +134,16 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     serverSocket.accept();
 
     const previous = this.figSockets.get(appleId);
+    // The first fig into an empty room restarts the tick clock here, so the empty time is never caught up.
+    if (this.figSockets.size === 0) {
+      this.orchard.wateredMs = this.limeClock.nowMs();
+    }
     this.figSockets.set(appleId, serverSocket);
     this.orchard.figs.set(appleId, planted);
     // A returning owner starts every dig over.
     this.radishDigs.delete(appleId);
     this.lemonOpenedMs.set(appleId, this.limeClock.nowMs());
-    if (!this.melonPrimed && anyDigDue(this.cabbage, this.orchard.figs)) {
+    if (!this.melonPrimed && (anyDigDue(this.cabbage, this.orchard.figs) || this.anyBedWatched())) {
       this.noteMelon();
     }
     if (previous !== undefined) {
@@ -175,6 +179,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     const welcome = bakeWelcome(planted, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs), this.duelOrchard.pairs);
     serverSocket.send(JSON.stringify(welcome));
 
+    await this.armOrchard(false);
+
     return new Response(null, { status: 101, webSocket: clientSocket });
   }
 
@@ -182,19 +188,25 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (this.papayaManual) {
       return;
     }
+    // An empty room does not tick, patrol, chase, bite, or broadcast, and arms no alarm.
+    if (this.figSockets.size === 0) {
+      return;
+    }
     const cabbageChanged = await this.sproutCabbage();
     let writes: PersimmonWrite[] = [];
     let aggroChanged = false;
+    let patrolWalked = false;
     if (this.melonPrimed) {
       const ripened = this.ripenWorld();
       writes = ripened.writes;
       aggroChanged = ripened.changed;
+      patrolWalked = ripened.walked;
       await this.persistPersimmons(writes);
       if (aggroChanged) {
         await this.storeCabbage();
       }
     }
-    if (writes.length > 0 || cabbageChanged || aggroChanged || this.radishDigs.size > 0) {
+    if (writes.length > 0 || cabbageChanged || aggroChanged || patrolWalked || this.radishDigs.size > 0) {
       this.broadcastMango();
     }
     await this.armOrchard(true);
@@ -326,13 +338,18 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   // Ripen the figs and step the beets' aggro on every whole tick, on the same lime clock.
-  private ripenWorld(): { writes: PersimmonWrite[]; changed: boolean } {
+  // `changed` is what gets stored; `walked` also counts idle patrol, which is shown but never stored on its own.
+  private ripenWorld(): { writes: PersimmonWrite[]; changed: boolean; walked: boolean } {
     this.swungBeets = new Set<string>();
     let changed = false;
+    let walked = false;
     const writes = ripenDue(this.orchard, (tickEndMs) => {
       const stepped = stepAggro(this.cabbage, this.orchard.figs, kaleConstants.tickMs, tickEndMs);
-      if (stepped.changed) {
+      if (stepped.changed || stepped.patrolled) {
         this.cabbage = stepped.bed;
+        walked = true;
+      }
+      if (stepped.changed) {
         changed = true;
       }
       for (const beetId of stepped.swung) {
@@ -345,7 +362,19 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       }
       return [...stepped.writes, ...dug.writes];
     });
-    return { writes, changed };
+    return { writes, changed, walked };
+  }
+
+  // True while a connected fig stands in a zone that holds beets: they patrol, so the tick clock keeps running.
+  private anyBedWatched(): boolean {
+    if (this.figSockets.size === 0) {
+      return false;
+    }
+    const watched = new Set<string>();
+    for (const fig of this.orchard.figs.values()) {
+      watched.add(fig.facts.place);
+    }
+    return this.cabbage.beets.some((beet) => watched.has(beet.zone));
   }
 
   private async loadCabbage(): Promise<void> {
@@ -458,11 +487,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       this.anyFigMoving() ||
       anyAggro(this.cabbage) ||
       this.swungBeets.size > 0 ||
+      this.anyBedWatched() ||
       anyDigDue(this.cabbage, this.orchard.figs)
     ) {
       when = Date.now() + kaleConstants.tickMs;
     }
-    for (const yam of this.cabbage.yams) {
+    for (const yam of this.figSockets.size === 0 ? [] : this.cabbage.yams) {
       if (when === null || yam.dueMs < when) {
         when = yam.dueMs;
       }

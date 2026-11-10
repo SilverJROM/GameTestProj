@@ -184,6 +184,20 @@ describe('lemon room aggro', () => {
     return { id: fig.facts.id, socket: joined.socket };
   }
 
+  // A fig joined beside the nth beet of a kind where it stands NOW. Beets patrol while a fig is in their zone,
+  // so the spawn point is not enough: a first visit in town reads the welcome, then the real join lands there.
+  async function joinBeside(name: string, kind: string, nth: number, patch: Partial<CharacterFacts>) {
+    const fig = await postFig(name);
+    const scout = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, fig.grape);
+    const id = nthBeet(kind, nth).id;
+    const standing = scout.welcome.snapshot.monsters.find((beet) => beet.id === id)!;
+    scout.socket.close();
+    await saveFacts(kiwiDb, fig.facts.id, { ...patch, x: standing.x, y: standing.y });
+    const joined = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, fig.grape);
+    openSockets.push(joined.socket);
+    return { id: fig.facts.id, socket: joined.socket, beet: standing };
+  }
+
   async function ask(socket: WebSocket, payload: unknown): Promise<SnapshotMessage> {
     const heard = nextMango(socket);
     socket.send(JSON.stringify(payload));
@@ -193,7 +207,7 @@ describe('lemon room aggro', () => {
   const ripen = (socket: WebSocket, steps: number) => ask(socket, { type: 'ripen', steps });
   const beetIn = (snap: SnapshotMessage, id: string) => snap.snapshot.monsters.find((beet) => beet.id === id);
 
-  it('keeps an unhit wolf still, chases the first hitter only, bites on the rules gap, and lets go at the zone edge', async () => {
+  it('walks an unhit wolf slowly, chases the first hitter only, bites on the rules gap, and lets go at the zone edge', async () => {
     const wolf = firstBeet('wolf');
     const bite = rowOf('wolf').attack;
     const fern = await joinFig('Fern', { x: wolf.x, y: wolf.y, place: 'green', level: 6, hp: 80, maxHp: 80 });
@@ -202,9 +216,10 @@ describe('lemon room aggro', () => {
       (await broadcastMango(sender, sender === fern.socket ? basil.socket : fern.socket, payload)).senderSnap;
     const basilHp = (await getById(kiwiDb, basil.id))!.hp;
 
-    // Unhit: many ticks beside a player move nothing and cost nothing.
-    let snap = await duo(fern.socket, { type: 'ripen', steps: 300 });
-    expect([beetIn(snap, wolf.id)!.x, beetIn(snap, wolf.id)!.y]).toEqual([wolf.x, wolf.y]);
+    // Unhit: a few ticks beside a player only patrol (4 px a tick at most) and cost nothing.
+    let snap = await duo(fern.socket, { type: 'ripen', steps: 3 });
+    const patrolPx = (kaleConstants.monsterPatrolSpeedPxPerSec * kaleConstants.tickMs * 3) / 1000;
+    expect(Math.hypot(beetIn(snap, wolf.id)!.x - wolf.x, beetIn(snap, wolf.id)!.y - wolf.y)).toBeLessThanOrEqual(patrolPx + 1e-6);
     expect(beetIn(snap, wolf.id)!.swung).toBe(false);
     expect(snap.character.hp).toBe(80);
 
@@ -235,9 +250,14 @@ describe('lemon room aggro', () => {
     const stopped = beetIn(snap, wolf.id)!;
     const hpAtTown = snap.character.hp;
     snap = await duo(fern.socket, { type: 'ripen', steps: 100 });
-    expect([beetIn(snap, wolf.id)!.x, beetIn(snap, wolf.id)!.y]).toEqual([stopped.x, stopped.y]);
-    expect(beetIn(snap, wolf.id)!.swung).toBe(false);
+    // Basil still stands in the green, so the wolf patrols on (4 px a tick at most) but chases and bites no one.
+    const patrolled = beetIn(snap, wolf.id)!;
+    expect(Math.hypot(patrolled.x - stopped.x, patrolled.y - stopped.y)).toBeLessThanOrEqual(
+      (kaleConstants.monsterPatrolSpeedPxPerSec * kaleConstants.tickMs * 100) / 1000 + 1e-6,
+    );
+    expect(patrolled.swung).toBe(false);
     expect(snap.character.hp).toBe(hpAtTown);
+    expect((await getById(kiwiDb, basil.id))!.hp).toBe(basilHp);
   }, 60_000);
 
   it('reaches the player at the chase speed and then bites for the bear row attack', async () => {
@@ -283,29 +303,36 @@ describe('lemon room aggro', () => {
   }
 
   it('bites a wolf at 0 and 1000 ms, a bear at 0, 800 and 1600 ms, with the monster already in reach', async () => {
-    const wolf = nthBeet('wolf', 4);
-    const wolfHero = await joinFig('Pear', { x: wolf.x, y: wolf.y, place: 'green', level: 6, hp: 140, maxHp: 140 });
+    const wolfHero = await joinBeside('Pear', 'wolf', 4, { place: 'green', level: 6, hp: 140, maxHp: 140 });
+    const wolf = wolfHero.beet;
     await ask(wolfHero.socket, { type: 'attack', monsterId: wolf.id });
     expect(await biteTimesMs(wolfHero.socket, wolf.id, 14)).toEqual([0, 1000]);
 
-    const bear = nthBeet('bear', 4);
-    const bearHero = await joinFig('Plum', { x: bear.x, y: bear.y, place: 'grey', level: 6, hp: 140, maxHp: 140 });
+    const bearHero = await joinBeside('Plum', 'bear', 4, { place: 'grey', level: 6, hp: 140, maxHp: 140 });
+    const bear = bearHero.beet;
     await ask(bearHero.socket, { type: 'attack', monsterId: bear.id });
     expect(await biteTimesMs(bearHero.socket, bear.id, 20)).toEqual([0, 800, 1600]);
   }, 60_000);
 
   it('bites a skeleton at 0, 800, 1500, 2300 and 3000 ms, so the 0.75 s gap is not snapped to the tick', async () => {
-    const skeleton = nthBeet('skeleton', 4);
-    const hero = await joinFig('Leek', { x: skeleton.x, y: skeleton.y, place: 'cemetery', level: 6, hp: 140, maxHp: 140 });
+    const hero = await joinBeside('Leek', 'skeleton', 4, { place: 'cemetery', level: 6, hp: 140, maxHp: 140 });
+    const skeleton = hero.beet;
     expect(await biteTimesMs(hero.socket, skeleton.id, 34)).toEqual([0, 800, 1500, 2300, 3000]);
   }, 60_000);
 
   it('still ignores a player who is not in the cemetery, even beside a skeleton', async () => {
     const skeleton = firstBeet('skeleton');
     const hero = await joinFig('Sage', { x: skeleton.x, y: skeleton.y, place: 'town', level: 6, hp: 80, maxHp: 80 });
-    const snap = await ripen(hero.socket, 200);
-    expect([beetIn(snap, skeleton.id)!.x, beetIn(snap, skeleton.id)!.y]).toEqual([skeleton.x, skeleton.y]);
-    expect(beetIn(snap, skeleton.id)!.swung).toBe(false);
+    // The skeleton may patrol (4 px a tick) but never chases (9 px a tick) and never bites.
+    let snap = await ripen(hero.socket, 0);
+    for (let tick = 0; tick < 5; tick += 1) {
+      const before = beetIn(snap, skeleton.id)!;
+      snap = await ripen(hero.socket, 1);
+      const after = beetIn(snap, skeleton.id)!;
+      const patrolPx = (kaleConstants.monsterPatrolSpeedPxPerSec * kaleConstants.tickMs) / 1000;
+      expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeLessThanOrEqual(patrolPx + 1e-6);
+      expect(after.swung).toBe(false);
+    }
     expect(snap.character.hp).toBe(80);
   }, 60_000);
 
