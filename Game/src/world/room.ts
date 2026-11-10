@@ -106,6 +106,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   private readonly chaseTargets = new Map<string, string>();
   private readonly chaseAims = new Map<string, { x: number; y: number }>();
   private swungFigs = new Set<string>();
+  // Ticks a chasing fig has stood still out of reach. A chase that cannot get closer is given up.
+  private readonly chaseStalls = new Map<string, { x: number; y: number; ticks: number }>();
   private pendingHits: HitMark[] = [];
   private hitSeq = 0;
   // Running coin digs per owner, and when each owner's lemon opened. Both live only in memory.
@@ -168,6 +170,10 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     this.figSockets.set(appleId, serverSocket);
     this.orchard.figs.set(appleId, planted);
+    // A fresh session never inherits a chase from an earlier socket of the same character.
+    this.chaseTargets.delete(appleId);
+    this.chaseAims.delete(appleId);
+    this.chaseStalls.delete(appleId);
     // A returning owner starts every dig over.
     this.radishDigs.delete(appleId);
     this.lemonOpenedMs.set(appleId, this.limeClock.nowMs());
@@ -194,6 +200,9 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       // The elapsed dig time is thrown away; the coin stays on the ground.
       this.radishDigs.delete(appleId);
       this.lemonOpenedMs.delete(appleId);
+      this.chaseTargets.delete(appleId);
+      this.chaseAims.delete(appleId);
+      this.chaseStalls.delete(appleId);
       // A disconnect drops this fig's offers and pairing, with no purse change.
       dropDuelsFor(this.duelOrchard, appleId);
       // A disconnect clears every beet that was chasing this fig.
@@ -418,8 +427,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       return;
     }
     this.noteMelon();
-    this.chaseTargets.delete(appleId);
-    this.chaseAims.delete(appleId);
+    this.stopChase(appleId);
     orderGuava(fig, rawX, rawY);
     this.broadcastMango();
     await this.armMango();
@@ -534,6 +542,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     this.swingClocks.delete(appleId);
     this.chaseTargets.delete(appleId);
     this.chaseAims.delete(appleId);
+    this.chaseStalls.delete(appleId);
     dropDuelsFor(this.duelOrchard, appleId);
     const cleared = clearAggroOn(this.cabbage, appleId);
     const keptSeeds = cleared.seeds.filter((seed) => seed.ownerId !== appleId);
@@ -573,9 +582,14 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     if (beetId === undefined) {
       if (rivalId !== undefined) {
+        // A duel swing ends any monster chase, so the two never fight over the one attack clock.
+        this.stopChase(appleId);
         await this.onDuelSwing(appleId, fig, rivalId);
       }
       return;
+    }
+    if (once) {
+      this.stopChase(appleId);
     }
     await this.sproutCabbage();
     const target = this.cabbage.beets.find((candidate) => candidate.id === beetId);
@@ -591,6 +605,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     await this.armOrchard(false);
     this.broadcastMango();
+  }
+
+  private stopChase(appleId: string): void {
+    this.chaseTargets.delete(appleId);
+    this.chaseAims.delete(appleId);
+    this.chaseStalls.delete(appleId);
   }
 
   // One swing at a monster on this fig's attack clock. Out of reach or too soon does nothing.
@@ -650,8 +670,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       const fig = this.orchard.figs.get(appleId);
       const beet = this.cabbage.beets.find((candidate) => candidate.id === beetId);
       if (fig === undefined || beet === undefined || fig.facts.hp <= 0 || fig.facts.place !== beet.zone) {
-        this.chaseTargets.delete(appleId);
-        this.chaseAims.delete(appleId);
+        this.stopChase(appleId);
         continue;
       }
       const dist = Math.hypot(beet.x - fig.facts.x, beet.y - fig.facts.y);
@@ -662,18 +681,24 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
           changed = true;
         }
         this.chaseAims.delete(appleId);
+        this.chaseStalls.delete(appleId);
         fig.apricotFacing = beet.x < fig.facts.x ? 'left' : 'right';
         if (await this.strikeOnce(appleId, fig, beetId)) {
           changed = true;
         }
         continue;
       }
-      const wasArmed = fig.guavaArmed;
       this.aimAtTarget(appleId, fig);
-      if (!fig.guavaArmed && !wasArmed) {
-        // Blocked and not moving: give the chase up rather than stand forever.
-        this.chaseTargets.delete(appleId);
-        this.chaseAims.delete(appleId);
+      // Out of reach and not getting closer (a wall in the way): give the chase up after two seconds.
+      const stall = this.chaseStalls.get(appleId);
+      if (stall !== undefined && Math.hypot(stall.x - fig.facts.x, stall.y - fig.facts.y) < 0.5) {
+        stall.ticks += 1;
+        if (stall.ticks >= 20) {
+          this.stopChase(appleId);
+          continue;
+        }
+      } else {
+        this.chaseStalls.set(appleId, { x: fig.facts.x, y: fig.facts.y, ticks: 0 });
       }
       changed = true;
     }

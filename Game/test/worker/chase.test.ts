@@ -169,7 +169,7 @@ describe('lemon room click to chase and fight', () => {
     });
     const joined = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, fig.grape);
     openSockets.push(joined.socket);
-    return { id: fig.facts.id, socket: joined.socket, wolfId: id };
+    return { id: fig.facts.id, socket: joined.socket, wolfId: id, grape: fig.grape };
   }
 
   async function ask(socket: WebSocket, payload: unknown): Promise<SnapshotMessage> {
@@ -260,5 +260,39 @@ describe('lemon room click to chase and fight', () => {
     for (let tick = 0; tick < 10; tick += 1) snap = await ripen(hero.socket);
     const end = selfOf(snap, hero.id);
     expect(Math.hypot(end.x - start.x, end.y - start.y)).toBeLessThan(1);
+  }, 60_000);
+
+  it('a chase does not survive a disconnect: a new session of the same character stands still until clicked', async () => {
+    const hero = await joinNear('Dropper', 5, 140);
+    let snap = await ask(hero.socket, { type: 'attack', monsterId: hero.wolfId });
+    for (let tick = 0; tick < 2; tick += 1) snap = await ripen(hero.socket);
+    hero.socket.close();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const back = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, hero.grape);
+    openSockets.push(back.socket);
+    let again = await ripen(back.socket);
+    const start = selfOf(again, hero.id);
+    let swung = false;
+    for (let tick = 0; tick < 12; tick += 1) {
+      again = await ripen(back.socket);
+      if (again.snapshot.hits.some((row) => row.targetKind === 'monster')) swung = true;
+    }
+    const end = selfOf(again, hero.id);
+    expect(swung).toBe(false);
+    expect(Math.hypot(end.x - start.x, end.y - start.y)).toBeLessThan(1);
+  }, 60_000);
+
+  it('a one-swing attack ends a chase already running: the fig finishes its walk but never swings again', async () => {
+    const hero = await joinNear('Switcher', 6, 130);
+    let snap = await ask(hero.socket, { type: 'attack', monsterId: hero.wolfId });
+    snap = await ripen(hero.socket);
+    snap = await ask(hero.socket, { type: 'attack', monsterId: hero.wolfId, once: true });
+    let swings = 0;
+    for (let tick = 0; tick < 40; tick += 1) {
+      snap = await ripen(hero.socket);
+      swings += snap.snapshot.hits.filter((row) => row.targetKind === 'monster').length;
+    }
+    expect(swings).toBe(0);
+    expect(selfOf(snap, hero.id).moving).toBe(false);
   }, 60_000);
 });
