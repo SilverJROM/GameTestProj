@@ -6,6 +6,7 @@ import { plantFigBoard, type FigBoard, type LemonLike } from '../../src/client/m
 import { mangoForgeBox } from '../../src/rules/regions';
 import { mangoGearRows, onionMonsterRows, pearTimings } from '../../src/rules/tables';
 import {
+  BEET_PAD_PX,
   CEMETERY_WALL_SRC,
   HEALTH_BAR_H,
   HEALTH_X,
@@ -15,6 +16,7 @@ import {
   LIME_BUBBLE_W,
   SMITH_X,
   SMITH_Y,
+  beetSpriteRect,
   bagTiles,
   figStandSrc,
   kiwiSliderBox,
@@ -329,6 +331,14 @@ describe('world view', () => {
     board.click({ x: 320, y: 500, button: 0 });
     expect(lemon.sent).toHaveLength(7);
     expect(mangoOf(lemon, 6)).toEqual({ type: 'move', x: 320, y: 500 });
+
+    const melon = beetSpriteRect(900, 360, 'wolf');
+    const headY = 360 - melon.pictureHeight + 1;
+    expect(360 - headY).toBeGreaterThan(scaleFor('wolf') / 2);
+    board.click({ x: 900, y: headY, button: 0 });
+    expect(mangoOf(lemon, 7)).toEqual({ type: 'attack', monsterId: 'beet-wolf' });
+    board.click({ x: 900, y: melon.y - 1, button: 0 });
+    expect(mangoOf(lemon, 8)).toEqual({ type: 'move', x: 900, y: melon.y - 1 });
   });
 
   it('plays attack-1 then attack-2 after the local fig swings', () => {
@@ -498,6 +508,13 @@ describe('world view', () => {
     expect(role(moving, 'monster', 'wolf').height).toBe(scaleFor('wolf'));
     expect(role(moving, 'monster', 'bear').height).toBe(scaleFor('bear'));
     expect(role(moving, 'monster', 'skeleton').height).toBe(scaleFor('skeleton'));
+    for (const id of ['wolf', 'bear', 'skeleton'] as const) {
+      const still = role(moving, 'monster', id);
+      const box = beetSpriteRect(still.x, still.y, still.kind, still.src);
+      expect(still.width).toBe(box.pictureWidth);
+      expect(still.height).toBe(box.pictureHeight);
+      expect(still.y - still.height).toBe(box.y + BEET_PAD_PX);
+    }
 
     const { board: swingBoard } = openBoard();
     feed(swingBoard, {

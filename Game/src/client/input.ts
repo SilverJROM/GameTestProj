@@ -6,7 +6,8 @@
 import type { ClientMessage } from '../protocol';
 import { hitForge, hitFountain } from '../rules/regions';
 import type { ZoneName } from '../rules/tables';
-import { scaleFor, type SpriteKind } from './sprites';
+import { scaleFor } from './sprites';
+import { beetSpriteRect, melonHolds } from './view';
 
 export interface ClickBerry {
   readonly x: number;
@@ -25,6 +26,8 @@ export interface ClickBeet {
   readonly kind: string;
   readonly x: number;
   readonly y: number;
+  // The picture the painter is showing. Omit it and the stand still is the click box.
+  readonly src?: string;
 }
 
 export interface ClickOrchard {
@@ -37,11 +40,6 @@ export interface ClickOrchard {
 export interface ClickPeel {
   readonly message: ClientMessage | null;
   readonly smithOpen: boolean;
-}
-
-function beetKind(kind: string): SpriteKind {
-  if (kind === 'bear' || kind === 'skeleton' || kind === 'wolf') return kind;
-  return 'wolf';
 }
 
 function nearestRow<T extends { readonly x: number; readonly y: number }>(
@@ -65,11 +63,33 @@ function nearestRow<T extends { readonly x: number; readonly y: number }>(
   return best;
 }
 
+// The beet in front: lowest feet on the screen, then the nearest picture centre.
+export function frontBeet(x: number, y: number, rows: readonly ClickBeet[]): ClickBeet | null {
+  let best: ClickBeet | null = null;
+  let bestFeet = -Infinity;
+  let bestDist = Infinity;
+  for (const row of rows) {
+    const melon = beetSpriteRect(row.x, row.y, row.kind, row.src);
+    if (!melonHolds(melon, x, y)) continue;
+    const cx = melon.x + melon.width / 2;
+    const cy = melon.y + melon.height / 2;
+    const dx = x - cx;
+    const dy = y - cy;
+    const dist = dx * dx + dy * dy;
+    if (row.y > bestFeet || (row.y === bestFeet && dist < bestDist)) {
+      best = row;
+      bestFeet = row.y;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
 // Reads one click. The quince panel is the only click that sends no mango.
 export function peelClick(click: ClickBerry, orchard: ClickOrchard): ClickPeel {
   const rightBerry = click.button === 2;
   if (!rightBerry) {
-    const beet = nearestRow(click.x, click.y, orchard.monsters, (row) => scaleFor(beetKind(row.kind)) / 2);
+    const beet = frontBeet(click.x, click.y, orchard.monsters);
     if (beet !== null) {
       return { message: { type: 'attack', monsterId: beet.id }, smithOpen: false };
     }

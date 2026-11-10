@@ -9,7 +9,7 @@ import { townSpawn } from '../rules/regions';
 import { removeMagenta } from './sprites';
 import { glideCitrus } from './smooth';
 import { canvasToMap, mapToCanvas, viewBox, type PeachView } from './camera';
-import { answerPlum, buyQuince, equipQuince, peelClick, unequipQuince, type ClickBerry } from './input';
+import { answerPlum, buyQuince, equipQuince, frontBeet, peelClick, unequipQuince, type ClickBerry } from './input';
 import {
   CEMETERY_WALL_SRC,
   GROUND_SRC,
@@ -26,9 +26,11 @@ import {
   paintOrchard,
   healthReadout,
   hudReadout,
+  paintBeetRim,
   paintHealth,
   paintHud,
   paintStack,
+  rememberGuavaPixels,
   shopSheet,
   townControls,
   type ShopRow,
@@ -36,6 +38,7 @@ import {
   type OliveCarry,
   type OliveTarget,
   type BlitCtx,
+  type RimCtx,
   type ScreenCtx,
   type FigPaint,
   type GuavaStill,
@@ -570,22 +573,17 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     writeGuavaZoom(percent);
   }
 
-  function shownFeet(role: 'player' | 'monster', id: string, x: number, y: number): { x: number; y: number } {
-    return citrusShown.get(citrusKey(role, id)) ?? { x, y };
-  }
-
   function click(berry: ClickBerry): void {
+    const stills = pose();
     const peeled = peelClick(berry, {
       selfId,
       selfPlace,
-      players: orchard.players.map((fig) => {
-        const feet = shownFeet('player', fig.id, fig.x, fig.y);
-        return { id: fig.id, x: feet.x, y: feet.y };
-      }),
-      monsters: orchard.monsters.map((beet) => {
-        const feet = shownFeet('monster', beet.id, beet.x, beet.y);
-        return { id: beet.id, kind: beet.kind, x: feet.x, y: feet.y };
-      }),
+      players: stills
+        .filter((still) => still.role === 'player')
+        .map((still) => ({ id: still.id, x: still.x, y: still.y })),
+      monsters: stills
+        .filter((still) => still.role === 'monster')
+        .map((still) => ({ id: still.id, kind: still.kind, x: still.x, y: still.y, src: still.src })),
     });
     quinceOpen = peeled.smithOpen;
     hooks.onSmith?.(quinceOpen);
@@ -715,6 +713,7 @@ interface LooseEl {
   onload?: (() => void) | null;
   naturalWidth?: number;
   naturalHeight?: number;
+  style?: { cursor?: string };
   appendChild?(child: LooseEl): void;
   replaceChild?(next: LooseEl, prev: LooseEl): void;
   removeChild?(child: LooseEl): void;
@@ -996,14 +995,48 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   const loading = new Set<string>();
   const layers = new Map<string, unknown>();
   let painted: GuavaStill[] = [];
+  // Set only while the pointer sits on a beet. A still screen must not keep the rim.
+  let melonHoverId: string | null = null;
+  let melonPointer: { x: number; y: number } | null = null;
 
   const ctx = canvas?.getContext?.('2d') ?? null;
 
+  function setPapayaCursor(cursor: string): void {
+    if (canvas == null) return;
+    if (canvas.style == null) canvas.style = {};
+    canvas.style.cursor = cursor;
+  }
+
+  function beetAt(stills: readonly GuavaStill[], mapX: number, mapY: number): string | null {
+    const rows = stills
+      .filter((still) => still.role === 'monster')
+      .map((still) => ({ id: still.id, kind: still.kind, x: still.x, y: still.y, src: still.src }));
+    return frontBeet(mapX, mapY, rows)?.id ?? null;
+  }
+
   function show(stills: GuavaStill[], nowMs = Date.now()): void {
     painted = stills;
+    if (melonPointer !== null) {
+      const next = beetAt(stills, melonPointer.x, melonPointer.y);
+      if (next !== melonHoverId) {
+        melonHoverId = next;
+        setPapayaCursor(next === null ? '' : 'pointer');
+      }
+    }
     if (ctx === null) return;
+    const view = board.camera();
     ctx.clearRect(0, 0, canvas?.width ?? 1280, canvas?.height ?? 720);
-    paintStack(ctx, stills, board.camera(), (src) => layers.get(src) ?? cache.get(src) ?? null);
+    paintStack(ctx, stills, view, (src) => layers.get(src) ?? cache.get(src) ?? null);
+    const rim = ctx as LooseCtx & RimCtx;
+    if (
+      melonHoverId !== null &&
+      typeof rim.save === 'function' &&
+      typeof rim.stroke === 'function' &&
+      typeof rim.beginPath === 'function'
+    ) {
+      const beet = stills.find((still) => still.role === 'monster' && still.id === melonHoverId);
+      if (beet !== undefined) paintBeetRim(rim, beet.x, beet.y, beet.kind, beet.src, view);
+    }
     const screen = ctx as BlitCtx & ScreenCtx;
     if (typeof screen.fillRect === 'function' && typeof screen.fillText === 'function') {
       paintHealth(screen, board.health());
@@ -1052,6 +1085,9 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     loading.add(src);
     const img = new root.Image();
     img.onload = () => {
+      const width = img.naturalWidth ?? 0;
+      const height = img.naturalHeight ?? 0;
+      if (width > 0 && height > 0) rememberGuavaPixels(src, width, height);
       cache.set(src, peelImage(img));
       show(painted);
     };
@@ -1516,6 +1552,26 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   });
   canvas?.addEventListener?.('contextmenu', (event) => {
     event.preventDefault?.();
+  });
+  const aimBeet = (event: LooseEvent) => {
+    if (canvas == null) return;
+    const pixel = mapBerry(canvas, event);
+    const spot = canvasToMap(board.camera(), pixel.x, pixel.y);
+    melonPointer = spot;
+    const stills = board.pose();
+    const next = beetAt(stills, spot.x, spot.y);
+    if (next === melonHoverId) return;
+    melonHoverId = next;
+    setPapayaCursor(next === null ? '' : 'pointer');
+    show(stills);
+  };
+  canvas?.addEventListener?.('pointermove', aimBeet);
+  canvas?.addEventListener?.('pointerleave', () => {
+    melonPointer = null;
+    setPapayaCursor('');
+    if (melonHoverId === null) return;
+    melonHoverId = null;
+    show(board.pose());
   });
 
   // The kiwi rail is a real control over the picture. Presses on it must not become a walk or an attack.

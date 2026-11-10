@@ -11,7 +11,7 @@ import {
 } from '../../src/client/main';
 import { CITRUS_SNAP_PX, CITRUS_SPEED_CAP, glideCitrus, type CitrusSpot } from '../../src/client/smooth';
 import { scaleFor } from '../../src/client/sprites';
-import { townControls } from '../../src/client/view';
+import { beetSpriteRect, townControls } from '../../src/client/view';
 import { kaleConstants, ZOOM_CLOSE } from '../../src/rules/tables';
 
 const FIG_PACE = kaleConstants.walkSpeedPxPerSec;
@@ -269,13 +269,16 @@ describe('displayed feet', () => {
 
     board.click({ x: 500, y: 400, button: 0 });
     expect(JSON.parse(sent[0] ?? 'null')).toEqual({ type: 'attack', monsterId: 'beet-wolf' });
+    // The displayed head is part of the sprite box.
+    board.click({ x: 500, y: 400 - scaleFor('wolf') + 1, button: 0 });
+    expect(JSON.parse(sent[1] ?? 'null')).toEqual({ type: 'attack', monsterId: 'beet-wolf' });
     board.click({ x: 530, y: 400, button: 0 });
-    expect(JSON.parse(sent[1] ?? 'null').type).toBe('move');
+    expect(JSON.parse(sent[2] ?? 'null').type).toBe('move');
 
     board.click({ x: 600, y: 420, button: 2 });
-    expect(JSON.parse(sent[2] ?? 'null')).toEqual({ type: 'duel_request', playerId: 'fig-other' });
+    expect(JSON.parse(sent[3] ?? 'null')).toEqual({ type: 'duel_request', playerId: 'fig-other' });
     board.click({ x: 630, y: 420, button: 2 });
-    expect(JSON.parse(sent[3] ?? 'null').type).toBe('move');
+    expect(JSON.parse(sent[4] ?? 'null').type).toBe('move');
 
     const shown = feet(board.pose(), 'player', 'fig-self');
     expect(shown.x).toBe(400);
@@ -291,7 +294,8 @@ describe('displayed feet', () => {
     const back = canvasToMap(board.camera(), screen.x, screen.y);
     expect(back.x).toBeCloseTo(coin.x, 5);
     expect(back.y).toBeCloseTo(coin.y, 5);
-    expect(scaleFor('wolf') / 2).toBeLessThan(30);
+    const lagged = beetSpriteRect(500, 400, 'wolf', '/avatars/wolf/stand.png');
+    expect(lagged.x + lagged.width).toBeLessThan(530);
   });
 });
 

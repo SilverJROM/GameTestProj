@@ -123,6 +123,86 @@ function sizedStill(kind: SpriteKind, src: string): { width: number; height: num
   return scaledSize(pixels.width, pixels.height, kind);
 }
 
+// Forgiveness around a beet's picture. The drawn still stays unpadded; the click box grows by this.
+export const BEET_PAD_PX = 6;
+
+// Natural pixels of a picture once it has loaded. The painter's table is the stand-in until then.
+const guavaPixels = new Map<string, { width: number; height: number }>();
+
+export function rememberGuavaPixels(src: string, width: number, height: number): void {
+  if (!(width > 0) || !(height > 0)) return;
+  guavaPixels.set(src, { width, height });
+}
+
+export function forgetGuavaPixels(src?: string): void {
+  if (src === undefined) guavaPixels.clear();
+  else guavaPixels.delete(src);
+}
+
+type BeetKind = 'wolf' | 'bear' | 'skeleton';
+
+function beetKindName(kind: string): BeetKind {
+  if (kind === 'bear' || kind === 'skeleton' || kind === 'wolf') return kind;
+  return 'wolf';
+}
+
+function beetStandSrc(kind: BeetKind): string {
+  return `/avatars/${kind}/stand.png`;
+}
+
+// Width over height of the stand picture. Used only when that picture is not loaded and not in the table.
+function beetFallbackRatio(kind: BeetKind): number {
+  const known = GUAVA_PIXELS[beetStandSrc(kind)];
+  if (known !== undefined && known.height > 0) return known.width / known.height;
+  if (kind === 'bear') return 1.35;
+  if (kind === 'skeleton') return 0.28;
+  return 1.22;
+}
+
+function pixelsOf(src: string): { width: number; height: number } | undefined {
+  const live = guavaPixels.get(src);
+  if (live !== undefined) return live;
+  return GUAVA_PIXELS[src];
+}
+
+// Drawn size of one beet picture. Height is the sprite table. Width keeps the picture's own proportion.
+function beetPictureSize(kind: string, src?: string): { width: number; height: number } {
+  const named = beetKindName(kind);
+  const picture = src !== undefined && src.length > 0 ? src : beetStandSrc(named);
+  const pixels = pixelsOf(picture);
+  if (pixels !== undefined) return scaledSize(pixels.width, pixels.height, named);
+  const height = scaleFor(named);
+  return { width: Math.max(1, Math.round(height * beetFallbackRatio(named))), height };
+}
+
+export interface MelonRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly pictureWidth: number;
+  readonly pictureHeight: number;
+}
+
+// Padded sprite box in map space. The unpadded bottom sits on the feet and the box is centred on x.
+// Pass the src the painter is drawing so the click box matches that picture. Omit it for the stand still.
+export function beetSpriteRect(feetX: number, feetY: number, kind: string, src?: string): MelonRect {
+  const size = beetPictureSize(kind, src);
+  const pad = BEET_PAD_PX;
+  return {
+    x: feetX - size.width / 2 - pad,
+    y: feetY - size.height - pad,
+    width: size.width + pad * 2,
+    height: size.height + pad * 2,
+    pictureWidth: size.width,
+    pictureHeight: size.height,
+  };
+}
+
+export function melonHolds(rect: MelonRect, x: number, y: number): boolean {
+  return x >= rect.x && y >= rect.y && x <= rect.x + rect.width && y <= rect.y + rect.height;
+}
+
 function figFolder(gender: Gender | undefined): string {
   return gender === 'man' ? 'warrior-m' : 'warrior-f';
 }
@@ -251,7 +331,7 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
     const stem = beetStem(beet.kind, chasing, beet.swung === true);
     const kind = beetKind(beet.kind);
     const src = `/avatars/${kind}/${stem}.png`;
-    const size = sizedStill(kind, src);
+    const melon = beetSpriteRect(beet.x, beet.y, kind, src);
     stills.push(
       makeStill({
         role: 'monster',
@@ -261,8 +341,8 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
         src,
         x: beet.x,
         y: beet.y,
-        width: size.width,
-        height: size.height,
+        width: melon.pictureWidth,
+        height: melon.pictureHeight,
         facing: 'right',
         redGlow: false,
         headGlow: beet.aggro === true,
@@ -1009,6 +1089,72 @@ export function paintHud(ctx: ScreenCtx, row: HudReadout): void {
     ctx.fillText(line, row.x, row.y + lineIndex * row.lineGap);
     lineIndex += 1;
   }
+}
+
+// Soft rim around the drawn picture only. Two screen pixels, warm white, a little see-through.
+const BEET_RIM_PX = 2;
+const BEET_RIM_INK = 'rgba(255, 244, 224, 0.72)';
+const BEET_RIM_RADIUS = 6;
+
+export interface RimCtx {
+  save(): void;
+  restore(): void;
+  beginPath(): void;
+  stroke(): void;
+  strokeStyle: string;
+  lineWidth: number;
+  lineJoin: string;
+  roundRect?(x: number, y: number, w: number, h: number, radii?: number): void;
+  rect?(x: number, y: number, w: number, h: number): void;
+  moveTo?(x: number, y: number): void;
+  lineTo?(x: number, y: number): void;
+  quadraticCurveTo?(cpx: number, cpy: number, x: number, y: number): void;
+  closePath?(): void;
+}
+
+function traceMelonRound(ctx: RimCtx, x: number, y: number, w: number, h: number, radius: number): void {
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, w, h, radius);
+    return;
+  }
+  const r = Math.min(radius, w / 2, h / 2);
+  ctx.moveTo?.(x + r, y);
+  ctx.lineTo?.(x + w - r, y);
+  ctx.quadraticCurveTo?.(x + w, y, x + w, y + r);
+  ctx.lineTo?.(x + w, y + h - r);
+  ctx.quadraticCurveTo?.(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo?.(x + r, y + h);
+  ctx.quadraticCurveTo?.(x, y + h, x, y + h - r);
+  ctx.lineTo?.(x, y + r);
+  ctx.quadraticCurveTo?.(x, y, x + r, y);
+  ctx.closePath?.();
+}
+
+// Rounded rim in screen pixels around the unpadded picture. The caller draws it only while the pointer is over the beet.
+export function paintBeetRim(
+  ctx: RimCtx,
+  feetX: number,
+  feetY: number,
+  kind: string,
+  src: string | undefined,
+  view: PeachView,
+): void {
+  const box = beetSpriteRect(feetX, feetY, kind, src);
+  if (!(box.pictureWidth > 0) || !(box.pictureHeight > 0)) return;
+  const left = feetX - box.pictureWidth / 2;
+  const top = feetY - box.pictureHeight;
+  const screen = mapToCanvas(view, left, top);
+  const width = box.pictureWidth * view.scale;
+  const height = box.pictureHeight * view.scale;
+  const radius = Math.min(BEET_RIM_RADIUS, width / 2, height / 2);
+  ctx.save();
+  ctx.strokeStyle = BEET_RIM_INK;
+  ctx.lineWidth = BEET_RIM_PX;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  traceMelonRound(ctx, screen.x, screen.y, width, height, radius);
+  ctx.stroke();
+  ctx.restore();
 }
 
 // Paints the whole stack through the camera: one scale, map pixels in, canvas pixels out.
