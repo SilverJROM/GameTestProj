@@ -114,3 +114,36 @@ Proposed fix (to discuss):
   with no wall contact and a path length within a small margin of the best; a regression run in real Chrome.
 Size estimate: about 1 to 1.5 hours with a Sonnet check, because it touches the walking core.
 Questions: should the client draw the planned path as a faint dotted line, or just show the click marker?
+
+### 3. Enemy spacing, spread and speed (developer request, review done, not started)
+
+Request: monsters jump on each other. Sprites may overlap at best 2 at a time in one frame, never one on top of the other (clear
+view of each). Spread them to cover about 80 to 90% of their section. Patrol slower; normal speed only when aggro (attacking).
+
+Review (code and constants, nothing measured in the browser this time):
+- Patrol is already slower than chase: `monsterPatrolSpeedPxPerSec` 40, chase 90, player walk 120. If it still looks fast, the
+  likely cause is the animation (walk frames swap at a fixed rate) or the client glide, not the patrol speed. Needs a look.
+- Each monster patrols a disk around its own spawn, with the radius capped at 70 px (`patchCapPx`) and 45% of the gap to the
+  nearest spawn (`patchGapShare`). Spawn spacing is only about 80 to 130 px, so the disks cover a small part of each section.
+  That is why the monsters bunch near their spawns, and why plan 03 measured 56 px as the closest pair.
+- Spawns: green 9 wolves, grey 7 bears, cemetery 8 skeletons. Sprite heights are wolf 34, bear 48, skeleton 58 px (widths follow the pictures).
+- There is no separation between monsters, so two can walk onto the same spot. Drawing order is by feet, so they stack and flicker.
+- Covering 80 to 90% of a section means longer, wider routes, which makes meeting more likely, so the spread needs an avoidance
+  rule, not only larger disks.
+
+Proposed fix (to discuss):
+- Give each monster a larger roaming area: sections are divided into one cell per monster (Voronoi-style, from the section shape), the patrol route runs
+  through that cell, and together the cells cover 80 to 90% of the section.
+- Add a separation rule on the server: a monster will not move closer to another than a minimum centre distance of about 55% of the
+  larger sprite's width (so sprites overlap at most partly and each stays clearly visible), and never lets a third sprite into a pair.
+- Patrol speed becomes a setting: proposal 25 px/s (about 60% of today), walking frames slowed to match; aggro speed stays 90.
+- A monster that is chasing and loses the player returns to its cell at patrol speed.
+- Tests: a long simulation (all monsters for 10 minutes) that records the closest pair, the number of triple overlaps (must be 0),
+  the share of the section visited, and the speed in each state; a real-browser look at the three zones.
+
+Questions for the developer:
+1. How strict is "at most 2 overlapping"? Proposal: pairs may overlap by up to 40% of the narrower sprite, no triples, and the server keeps them apart.
+2. Is 25 px/s the right slow speed (about 1 body length per second)? Or slower?
+3. What counts as aggro today (a player within sight starts a chase)? Keep as is, and how far should they chase before giving up?
+4. Do monsters spread over the whole section including near the gates and paths, or should a safe margin stay free near the town and gates?
+5. Same rules for all three monsters (wolf, bear, skeleton), or should bears (slower, larger) move even slower?
