@@ -103,8 +103,8 @@
         touch-action: none;
         transform: rotate(180deg);
       }
-      /* Plum offer and the olive bag stay in the corner. The quince forge is a centered fig panel. */
-      #plum-duel, #olive-sheet {
+      /* The plum offer stays in the corner. The quince forge and the olive bag are centered fig panels. */
+      #plum-duel {
         position: fixed;
         top: 1rem;
         right: 1rem;
@@ -195,6 +195,140 @@
       }
       #quince-smith .buy.own { background: transparent; color: #8a7e70; }
       #quince-smith .note { margin: 10px 0 0; font-size: 16px; color: #c8b79a; }
+      /* Olive bag: the inventory-items mockup. A grape is one owned quince. Lime is the slot that can take the drag. */
+      #olive-sheet[hidden] { display: none !important; }
+      #olive-sheet {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: min(860px, 94vw);
+        max-height: 94vh;
+        overflow: auto;
+        z-index: 5;
+        box-sizing: border-box;
+        background: #221c16;
+        color: #f4efe6;
+        border: 2px solid #6b5433;
+        border-radius: 14px;
+        padding: 16px 26px 12px;
+        font-family: system-ui, Arial, sans-serif;
+      }
+      #olive-sheet .top { display: flex; justify-content: space-between; align-items: center; }
+      #olive-sheet h3 { margin: 0; font-size: 32px; font-weight: 700; }
+      #olive-sheet .close {
+        height: 40px;
+        line-height: 40px;
+        padding: 0 16px;
+        border: 0;
+        border-radius: 8px;
+        background: #3a332b;
+        color: #fff;
+        font-size: 18px;
+        font-weight: 700;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      #olive-sheet .purse { margin: 8px 0 2px; font-size: 22px; color: #f2c200; font-weight: 800; }
+      #olive-sheet .sheet { display: flex; gap: 28px; margin-top: 10px; }
+      #olive-sheet .portrait {
+        width: 220px;
+        height: 360px;
+        background: #16130f;
+        border-radius: 10px;
+        position: relative;
+        flex: none;
+        overflow: hidden;
+      }
+      #olive-sheet .portrait img {
+        position: absolute;
+        left: 110px;
+        top: 340px;
+        height: 300px;
+        width: auto;
+        transform: translate(-50%, -100%);
+        pointer-events: none;
+      }
+      #olive-sheet .stats { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+      #olive-sheet .stat {
+        display: flex;
+        justify-content: space-between;
+        background: #2c261f;
+        border-radius: 8px;
+        padding: 7px 14px;
+        font-size: 20px;
+      }
+      #olive-sheet .stat b { font-weight: 800; }
+      #olive-sheet h4 {
+        margin: 2px 0 4px;
+        font-size: 16px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #c8b79a;
+      }
+      #olive-sheet .fig-bag { margin-top: 2px; }
+      #olive-sheet .plum-row { display: flex; gap: 8px; }
+      #olive-sheet .plum-row.lime { outline: 2px dashed #e6c36a; border-radius: 8px; }
+      #olive-sheet .grape {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        background: #2c261f;
+        border: 2px solid #6b5433;
+        border-radius: 8px;
+        padding: 7px 8px 8px;
+        box-sizing: border-box;
+        cursor: grab;
+        user-select: none;
+      }
+      #olive-sheet .grape .nm { display: block; font-size: 15px; font-weight: 800; line-height: 1.2; }
+      #olive-sheet .grape.worn .nm { padding-right: 66px; }
+      #olive-sheet .grape .bn { display: block; margin-top: 2px; font-size: 13px; color: #d9d0c3; line-height: 1.2; }
+      #olive-sheet .grape.worn { opacity: 0.55; }
+      #olive-sheet .grape .seal {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #c8b79a;
+        background: #16130f;
+        border-radius: 4px;
+        padding: 2px 5px;
+      }
+      #olive-sheet .slot {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        background: #2c261f;
+        border: 2px solid #6b5433;
+        border-radius: 8px;
+        padding: 8px 14px;
+        margin-top: 0;
+        cursor: pointer;
+      }
+      #olive-sheet .slot .kind {
+        color: #c8b79a;
+        font-size: 14px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      #olive-sheet .slot .what { font-size: 20px; font-weight: 800; }
+      #olive-sheet .slot b { font-size: 20px; font-weight: 800; }
+      #olive-sheet .slot.lime {
+        position: relative;
+        border-style: dashed;
+        border-color: #e6c36a;
+        background: #3a3122;
+      }
+      #olive-sheet .slot .dropword { font-size: 14px; font-weight: 800; color: #e6c36a; }
+      #olive-sheet .slot.peach { opacity: 0.38; }
+      #olive-sheet .mango { margin: 1px 2px 0; font-size: 14px; font-weight: 700; color: #f2c200; }
+      #olive-sheet .note { margin: 4px 0 0; font-size: 16px; color: #c8b79a; }
+      #olive-sheet [hidden] { display: none !important; }
     </style>
   </head>
   <body>
@@ -282,16 +416,33 @@
       <p class="note">Buying puts the item in your bag. Equip it from the Bag.</p>
     </section>
     <section id="olive-sheet" hidden>
-      <p>Inventory</p>
-      <button type="button" id="olive-close">Close</button>
-      <p id="olive-coins"></p>
-      <p id="olive-level"></p>
-      <p id="olive-health"></p>
-      <p id="olive-strike"></p>
-      <p id="olive-xp"></p>
-      <p id="olive-sword"></p>
-      <p id="olive-armor"></p>
-      <div id="olive-items"></div>
+      <div class="top"><h3>Inventory</h3><button type="button" id="olive-close" class="close">Close</button></div>
+      <p id="olive-coins" class="purse"></p>
+      <div class="sheet">
+        <div class="portrait" id="olive-portrait"><img id="olive-fig" alt="" draggable="false" /></div>
+        <div class="stats">
+          <div class="stat"><span>Level</span><b id="olive-level"></b></div>
+          <div class="stat"><span>Health</span><b id="olive-health"></b></div>
+          <div class="stat"><span>Strike</span><b id="olive-strike"></b></div>
+          <div class="stat"><span>Experience</span><b id="olive-xp"></b></div>
+          <div class="fig-bag">
+            <h4>Your items</h4>
+            <div class="plum-row" id="olive-items"></div>
+          </div>
+          <div class="slot" id="olive-sword" data-slot="sword">
+            <div><div class="kind">Sword</div><div class="what" data-field="name"></div></div>
+            <div class="dropword" data-field="drop" hidden>Drop to equip</div>
+            <b data-field="bonus"></b>
+          </div>
+          <p id="olive-hint" class="mango" hidden></p>
+          <div class="slot" id="olive-armor" data-slot="armor">
+            <div><div class="kind">Armor</div><div class="what" data-field="name"></div></div>
+            <div class="dropword" data-field="drop" hidden>Drop to equip</div>
+            <b data-field="bonus"></b>
+          </div>
+          <p class="note">Drag an item onto its slot to equip it. Drag a worn item back to Your items to unequip it. Clicking works too.</p>
+        </div>
+      </div>
     </section>
     <section id="plum-duel" hidden>
       <p id="plum-offer"></p>

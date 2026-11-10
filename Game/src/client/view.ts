@@ -23,7 +23,7 @@ import {
   type Point,
 } from '../rules/regions';
 import { CANVAS_WIDTH, mapToCanvas, type PeachView } from './camera';
-import { strike, type Hero } from '../rules/logic';
+import { clampHealth, maxHealth, strike, type Hero } from '../rules/logic';
 import { mangoGearRows, papayaLevelRows, pearTimings, type ZoneName } from '../rules/tables';
 import {
   COIN_DRAW_PX,
@@ -600,12 +600,29 @@ export function gearLabel(id: string | null): string {
   return GEAR_LABEL[id] ?? id;
 }
 
+// Bonus line on a grape tile or a worn slot, such as "+4 strike".
+export function gearBonus(id: string | null): string {
+  if (id === null || id.length === 0) return '';
+  const row = mangoGearRows.find((candidate) => candidate.id === id);
+  if (row === undefined) return '';
+  return row.effect === 'strike' ? `+${row.amount} strike` : `+${row.amount} max HP`;
+}
+
 // Bag tile text, such as "Long sword +4 strike".
 export function ownedItemLabel(id: string): string {
-  const row = mangoGearRows.find((candidate) => candidate.id === id);
   const name = gearLabel(id);
-  if (row === undefined) return name;
-  return row.effect === 'strike' ? `${name} +${row.amount} strike` : `${name} +${row.amount} max HP`;
+  const bonus = gearBonus(id);
+  return bonus.length === 0 ? name : `${name} ${bonus}`;
+}
+
+export function gearSlotOf(id: string): 'sword' | 'armor' | null {
+  const row = mangoGearRows.find((candidate) => candidate.id === id);
+  return row === undefined ? null : row.slot;
+}
+
+// Stand still for the olive portrait. A missing gender keeps the woman fig.
+export function figStandSrc(gender: Gender | undefined): string {
+  return figSrc(gender, 'stand');
 }
 
 // A quince row is one forge item. `owned` means it is already in the bag.
@@ -663,16 +680,55 @@ export interface InventoryFacts {
   readonly maxHp: number;
   readonly xp: number;
   readonly place: ZoneName;
+  readonly items: readonly string[];
+  readonly gender: Gender | undefined;
+}
+
+export interface BagTile {
+  readonly id: string;
+  readonly name: string;
+  readonly bonus: string;
+  readonly label: string;
+  readonly worn: boolean;
+  readonly slot: 'sword' | 'armor';
 }
 
 export interface InventorySheet {
   readonly coins: number;
   readonly sword: string;
   readonly armor: string;
+  readonly swordBonus: string;
+  readonly armorBonus: string;
   readonly level: number;
   readonly health: string;
   readonly strike: number;
   readonly experience: string;
+  readonly tiles: readonly BagTile[];
+  readonly portrait: string;
+}
+
+// One grape per owned quince, in bag order. A worn quince keeps its seal.
+export function bagTiles(
+  items: readonly string[],
+  sword: string | null,
+  armor: string | null,
+): BagTile[] {
+  const tiles: BagTile[] = [];
+  for (const id of items) {
+    const slot = gearSlotOf(id);
+    if (slot === null) continue;
+    const name = gearLabel(id);
+    const bonus = gearBonus(id);
+    tiles.push({
+      id,
+      name,
+      bonus,
+      label: bonus.length === 0 ? name : `${name} ${bonus}`,
+      worn: id === sword || id === armor,
+      slot,
+    });
+  }
+  return tiles;
 }
 
 // Bare xp once the papaya row has no next cost (the level cap). Otherwise "now / next".
@@ -696,11 +752,156 @@ export function inventorySheet(facts: InventoryFacts): InventorySheet {
     coins: facts.coins,
     sword: gearLabel(facts.sword),
     armor: gearLabel(facts.armor),
+    swordBonus: gearBonus(facts.sword),
+    armorBonus: gearBonus(facts.armor),
     level: facts.level,
     health: `${facts.hp} / ${facts.maxHp}`,
     strike: strike(hero),
     experience: papayaXpText(facts.level, facts.xp),
+    tiles: bagTiles(facts.items, facts.sword, facts.armor),
+    portrait: figStandSrc(facts.gender),
   };
+}
+
+export interface OliveCarry {
+  readonly from: 'tile' | 'slot';
+  readonly itemId: string;
+  readonly slot: 'sword' | 'armor';
+}
+
+export type OliveTarget =
+  | { readonly kind: 'slot'; readonly slot: 'sword' | 'armor' }
+  | { readonly kind: 'row' };
+
+export type OliveAction =
+  | { readonly type: 'equip'; readonly itemId: string }
+  | { readonly type: 'unequip'; readonly slot: 'sword' | 'armor' };
+
+export type OliveMood = 'lime' | 'peach' | 'rest';
+
+export interface OliveDragFace {
+  readonly sword: OliveMood;
+  readonly armor: OliveMood;
+  readonly row: 'lime' | 'rest';
+  readonly hint: string;
+}
+
+function heroWearing(facts: InventoryFacts, sword: string | null, armor: string | null): Hero {
+  return {
+    level: facts.level,
+    xp: facts.xp,
+    health: facts.hp,
+    coins: facts.coins,
+    sword,
+    armor,
+    place: facts.place,
+  };
+}
+
+// The mango line under a drag: the stat that would change, or "" when nothing moves.
+export function oliveHint(facts: InventoryFacts, sword: string | null, armor: string | null): string {
+  const beforeStrike = strike(heroWearing(facts, facts.sword, facts.armor));
+  const afterStrike = strike(heroWearing(facts, sword, armor));
+  if (beforeStrike !== afterStrike) return `Strike ${beforeStrike} becomes ${afterStrike}`;
+  const afterMax = maxHealth(heroWearing(facts, sword, armor));
+  if (facts.maxHp !== afterMax) {
+    const afterHp = clampHealth(facts.hp, afterMax);
+    return `Health ${facts.hp} / ${facts.maxHp} becomes ${afterHp} / ${afterMax}`;
+  }
+  return '';
+}
+
+export function oliveCarryText(carry: OliveCarry): string {
+  return JSON.stringify({ from: carry.from, itemId: carry.itemId, slot: carry.slot });
+}
+
+export function oliveCarryFromText(raw: string): OliveCarry | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const row = parsed as Record<string, unknown>;
+  if (row.from !== 'tile' && row.from !== 'slot') return null;
+  if (typeof row.itemId !== 'string' || row.itemId.length === 0) return null;
+  if (row.slot !== 'sword' && row.slot !== 'armor') return null;
+  if (gearSlotOf(row.itemId) !== row.slot) return null;
+  return { from: row.from, itemId: row.itemId, slot: row.slot };
+}
+
+// A grape on its own slot equips. A worn quince dragged out of its slot onto the row unequips.
+// A quince on the wrong slot, or a tile dropped back on the row, is ignored.
+export function oliveDrop(
+  carry: OliveCarry,
+  target: OliveTarget,
+  worn: { readonly sword: string | null; readonly armor: string | null },
+): OliveAction | null {
+  if (gearSlotOf(carry.itemId) !== carry.slot) return null;
+  if (carry.from === 'tile' && target.kind === 'slot') {
+    if (target.slot !== carry.slot) return null;
+    const current = carry.slot === 'sword' ? worn.sword : worn.armor;
+    if (current === carry.itemId) return null;
+    return { type: 'equip', itemId: carry.itemId };
+  }
+  if (carry.from === 'slot' && target.kind === 'row') {
+    const current = carry.slot === 'sword' ? worn.sword : worn.armor;
+    if (current === null || current.length === 0) return null;
+    return { type: 'unequip', slot: carry.slot };
+  }
+  return null;
+}
+
+// Lime is the slot that can take this quince. Peach is the other slot, dimmed.
+export function oliveDragFace(facts: InventoryFacts, carry: OliveCarry): OliveDragFace {
+  if (carry.from === 'slot') {
+    const nextSword = carry.slot === 'sword' ? null : facts.sword;
+    const nextArmor = carry.slot === 'armor' ? null : facts.armor;
+    return { sword: 'rest', armor: 'rest', row: 'lime', hint: oliveHint(facts, nextSword, nextArmor) };
+  }
+  const current = carry.slot === 'sword' ? facts.sword : facts.armor;
+  if (current === carry.itemId) return { sword: 'rest', armor: 'rest', row: 'rest', hint: '' };
+  const nextSword = carry.slot === 'sword' ? carry.itemId : facts.sword;
+  const nextArmor = carry.slot === 'armor' ? carry.itemId : facts.armor;
+  return {
+    sword: carry.slot === 'sword' ? 'lime' : 'peach',
+    armor: carry.slot === 'armor' ? 'lime' : 'peach',
+    row: 'rest',
+    hint: oliveHint(facts, nextSword, nextArmor),
+  };
+}
+
+// The olive panel is a centered fig. These match the #olive-sheet rule in index.html.
+export const OLIVE_PANEL_MAX_PX = 860;
+export const OLIVE_PANEL_VIEW_SHARE = 0.94;
+
+export interface PapayaRect {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+export function olivePanelBox(viewportWidth: number, viewportHeight: number, contentHeight: number): PapayaRect {
+  const width = Math.min(OLIVE_PANEL_MAX_PX, OLIVE_PANEL_VIEW_SHARE * viewportWidth);
+  const height = Math.min(Math.max(contentHeight, 0), OLIVE_PANEL_VIEW_SHARE * viewportHeight);
+  const left = (viewportWidth - width) / 2;
+  const top = (viewportHeight - height) / 2;
+  return { left, top, right: left + width, bottom: top + height };
+}
+
+// The kiwi rail sits on the right edge of the stage. rootPx is the page's rem.
+export function kiwiSliderBox(viewportWidth: number, stageHeight: number, rootPx = 16): PapayaRect {
+  const width = 2.4 * rootPx;
+  const right = viewportWidth - 0.35 * rootPx;
+  const top = stageHeight * 0.12;
+  const bottom = stageHeight * 0.92;
+  return { left: right - width, top, right, bottom };
+}
+
+export function papayaRectsOverlap(a: PapayaRect, b: PapayaRect): boolean {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 }
 
 export interface HudFacts {
@@ -738,9 +939,8 @@ export interface ScreenControl {
   readonly font: string;
 }
 
-// Lime thought over the fig smith. The old box was 220 by 64 and sat huge next to the smaller fig.
-// This one is about three fifths of that, and 14px ink keeps "Armor and weapons" on one line.
-export const LIME_BUBBLE_W = 140;
+// Lime thought over the fig smith. 156 by 42 keeps "Armor and weapons" off the box edges.
+export const LIME_BUBBLE_W = 156;
 export const LIME_BUBBLE_H = 42;
 export const LIME_BUBBLE_FONT = '800 14px system-ui, Arial, sans-serif';
 

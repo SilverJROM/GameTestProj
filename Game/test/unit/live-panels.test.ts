@@ -21,6 +21,8 @@ interface FakeEl {
   type: string;
   className: string;
   tagName: string;
+  src: string;
+  draggable: boolean;
   dataset: Record<string, string>;
   writes: number;
   listeners: Record<string, Array<(event: FakeEvent) => void>>;
@@ -29,9 +31,17 @@ interface FakeEl {
   addEventListener(type: string, listener: (event: FakeEvent) => void): void;
   appendChild(child: FakeEl): void;
   replaceChild(next: FakeEl, prev: FakeEl): void;
+  removeChild(child: FakeEl): void;
   getContext(): unknown;
   getBoundingClientRect(): { left: number; top: number; width: number; height: number };
   textContent: string;
+}
+
+interface FakeTransfer {
+  effectAllowed: string;
+  dropEffect: string;
+  setData(type: string, value: string): void;
+  getData(type: string): string;
 }
 
 interface FakeEvent {
@@ -41,6 +51,8 @@ interface FakeEvent {
   key?: string;
   target?: unknown;
   stopped: boolean;
+  defaultPrevented: boolean;
+  dataTransfer?: FakeTransfer;
   preventDefault(): void;
   stopPropagation(): void;
 }
@@ -65,6 +77,8 @@ function fakeEl(id: string): FakeEl {
     type: '',
     className: '',
     tagName: id.toUpperCase(),
+    src: '',
+    draggable: false,
     dataset: {},
     writes: 0,
     listeners: {},
@@ -83,6 +97,11 @@ function fakeEl(id: string): FakeEl {
       prev.parent = null;
       next.parent = el;
       children[index] = next;
+    },
+    removeChild(child) {
+      const index = children.indexOf(child);
+      if (index >= 0) children.splice(index, 1);
+      child.parent = null;
     },
     getContext() {
       return null;
@@ -109,7 +128,10 @@ function press(canvas: FakeEl, x: number, y: number): void {
     clientY: y,
     target: canvas,
     stopped: false,
-    preventDefault() {},
+    defaultPrevented: false,
+    preventDefault() {
+      event.defaultPrevented = true;
+    },
     stopPropagation() {
       event.stopped = true;
     },
@@ -122,12 +144,70 @@ function click(el: FakeEl): void {
     button: 0,
     target: el,
     stopped: false,
-    preventDefault() {},
+    defaultPrevented: false,
+    preventDefault() {
+      event.defaultPrevented = true;
+    },
     stopPropagation() {
       event.stopped = true;
     },
   };
   for (const listener of el.listeners.click ?? []) listener(event);
+}
+
+function grapeTransfer(): FakeTransfer {
+  const store = new Map<string, string>();
+  return {
+    effectAllowed: '',
+    dropEffect: '',
+    setData(type, value) {
+      store.set(type, value);
+    },
+    getData(type) {
+      return store.get(type) ?? '';
+    },
+  };
+}
+
+function fireDrag(el: FakeEl, type: string, transfer: FakeTransfer): FakeEvent {
+  const event: FakeEvent = {
+    target: el,
+    stopped: false,
+    defaultPrevented: false,
+    dataTransfer: transfer,
+    preventDefault() {
+      event.defaultPrevented = true;
+    },
+    stopPropagation() {
+      event.stopped = true;
+    },
+  };
+  for (const listener of el.listeners[type] ?? []) listener(event);
+  return event;
+}
+
+function fieldText(root: FakeEl, field: string): string {
+  const walk = (node: FakeEl): string | null => {
+    if (node.dataset.field === field) return node.textContent;
+    for (const child of node.children) {
+      const found = walk(child);
+      if (found !== null) return found;
+    }
+    return null;
+  };
+  const found = walk(root);
+  if (found === null) throw new Error(`missing ${field}`);
+  return found;
+}
+
+function grapeFace(tile: FakeEl): { name: string; bonus: string; worn: boolean; seal: string } {
+  const named = (className: string) => tile.children.find((child) => child.className === className);
+  return {
+    name: named('nm')?.textContent ?? '',
+    bonus: named('bn')?.textContent ?? '',
+    worn: tile.className.split(' ').includes('worn'),
+    seal: named('seal')?.textContent ?? '',
+  };
 }
 
 class FakeSocket {
@@ -198,7 +278,10 @@ describe('panel close markup', () => {
     const oliveStart = pageHtml.indexOf('id="olive-sheet"');
     const oliveNext = pageHtml.indexOf('<section', oliveStart + 1);
     const olive = pageHtml.slice(oliveStart, oliveNext === -1 ? undefined : oliveNext);
-    expect(olive).toContain('<button type="button" id="olive-close">Close</button>');
+    expect(olive).toMatch(/<button type="button" id="olive-close"[^>]*>Close<\/button>/);
+    expect(olive).toContain('<h3>Inventory</h3>');
+    expect(olive).toContain('id="olive-items"');
+    expect(olive).toContain('Drag an item onto its slot to equip it.');
 
     const smithStart = pageHtml.indexOf('id="quince-smith"');
     const smithNext = pageHtml.indexOf('<section', smithStart + 1);
@@ -227,10 +310,27 @@ describe('panel close markup', () => {
     expect(pageHtml).toContain('background: #2d8a3e');
     expect(pageHtml).toContain('background: #4a4036');
     expect(pageHtml).toContain('color: #8a7e70');
-    expect(pageHtml).toContain('#plum-duel, #olive-sheet');
-    const corner = pageHtml.slice(pageHtml.indexOf('#plum-duel, #olive-sheet'), pageHtml.indexOf('#plum-duel button'));
+    const corner = pageHtml.slice(pageHtml.indexOf('#plum-duel {'), pageHtml.indexOf('#plum-duel button'));
     expect(corner).toContain('top: 1rem');
     expect(corner).toContain('right: 1rem');
+    expect(corner).not.toContain('#olive-sheet');
+  });
+
+  it('centers the bag and keeps it off the zoom slider', () => {
+    const ruleStart = pageHtml.indexOf('#olive-sheet {');
+    const ruleEnd = pageHtml.indexOf('#olive-sheet .top');
+    const rule = pageHtml.slice(ruleStart, ruleEnd);
+    expect(rule).toContain('position: fixed');
+    expect(rule).toContain('left: 50%');
+    expect(rule).toContain('top: 50%');
+    expect(rule).toContain('translate(-50%, -50%)');
+    expect(rule).toContain('min(860px, 94vw)');
+    expect(rule).toContain('max-height: 94vh');
+    expect(rule).toContain('overflow: auto');
+    expect(rule).not.toContain('right: 1rem');
+    expect(pageHtml).toContain('background: #16130f');
+    expect(pageHtml).toContain('border-color: #e6c36a');
+    expect(pageHtml).toContain('.slot.peach');
   });
 });
 
@@ -301,6 +401,8 @@ describe('live bag and blacksmith panels', () => {
       ['olive-sword', sword],
       ['olive-armor', fakeEl('olive-armor')],
       ['olive-items', fakeEl('olive-items')],
+      ['olive-hint', fakeEl('olive-hint')],
+      ['olive-fig', fakeEl('olive-fig')],
       ['quince-smith', smith],
       ['quince-close', quinceClose],
       ['quince-purse', purse],
@@ -346,14 +448,15 @@ describe('live bag and blacksmith panels', () => {
 
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(false);
-    expect(xp.textContent).toBe('Experience 0 / 10');
+    expect(xp.textContent).toBe('0 / 10');
     expect(coins.textContent).toBe('Coins: 0');
-    expect(sword.textContent).toBe('Nothing worn');
+    expect(fieldText(sword, 'name')).toBe('Nothing worn');
+    expect((elements.get('olive-fig') as FakeEl).src).toBe('/avatars/warrior-f/stand.png');
 
     deliver(figSnapshot(rich));
 
     expect(sheet.hidden).toBe(false);
-    expect(xp.textContent).toBe('Experience 2 / 10');
+    expect(xp.textContent).toBe('2 / 10');
     expect(coins.textContent).toBe('Coins: 200');
     const xpWrites = xp.writes;
     const coinWrites = coins.writes;
@@ -362,7 +465,7 @@ describe('live bag and blacksmith panels', () => {
     expect(xp.writes).toBe(xpWrites);
     expect(coins.writes).toBe(coinWrites);
     expect(sword.writes).toBe(swordWrites);
-    expect(xp.textContent).toBe('Experience 2 / 10');
+    expect(xp.textContent).toBe('2 / 10');
 
     const lv = painted.filter((mark) => mark.text === 'Lv 1');
     const xpLine = painted.filter((mark) => mark.text === 'XP 2 / 10');
@@ -379,7 +482,7 @@ describe('live bag and blacksmith panels', () => {
     const bubbleInk = painted.filter((mark) => mark.text === 'Armor and weapons');
     expect(bubbleInk.length).toBeGreaterThan(0);
     expect(bubbleInk[0]!.font).toContain('14px');
-    expect(bubble!.width).toBe(140);
+    expect(bubble!.width).toBe(156);
     expect(bubble!.height).toBe(42);
 
     press(canvas, bubble!.x + 4, bubble!.y + 4);
@@ -477,12 +580,12 @@ describe('live bag and blacksmith panels', () => {
 
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(false);
-    expect(xp.textContent).toBe('Experience 2 / 10');
+    expect(xp.textContent).toBe('2 / 10');
     expect(coins.textContent).toBe('Coins: 200');
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(true);
     deliver(figSnapshot({ ...rich, xp: 9, coins: 1 }));
-    expect(xp.textContent).toBe('Experience 2 / 10');
+    expect(xp.textContent).toBe('2 / 10');
     expect(coins.textContent).toBe('Coins: 200');
 
     press(canvas, bag!.x + 4, bag!.y + 4);

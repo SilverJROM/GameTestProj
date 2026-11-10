@@ -2,7 +2,7 @@
 
 Recovery file. If the session closes (out of memory, suspend, crash), read this first, then `docs/plan02.md` for the full plan. Update this file after every slice event: started, passed, failed.
 
-Last updated: 2026-11-10 09:10 UTC
+Last updated: 2026-11-10 09:37 UTC
 
 ## Where things stand
 
@@ -39,7 +39,7 @@ Status values: `done`, `in progress`, `pending`, `waiting for user`, `blocked`.
 | 9 | New mockup sections 12-14 (Blacksmith with Owned, inventory with item row, drag state) plus approval pictures | **done, waiting for user approval** | `0c3c1ce` | Pictures: `docs/mockups/screenshots/approval-shop-owned.png`, `approval-inventory-items.png`, `approval-inventory-drag.png`. **Slice 12 does not start until the user approves them.** |
 | 10 | Item bag data: `character_items`, buy-to-bag, equip, unequip (+ minimal click-to-equip in the plain Bag panel) | **done** | `0c3c1ce` | 351 tests pass. Checked in Chrome: buying Short sword and Leather puts them in the bag, coins 100 to 66, Strike stays 4; shop rows read `(Owned)`; click-equip Short sword gives Strike 6; equip Leather gives max HP 70 to 82 with HP staying 40; clicking the worn slot lines unequips (max HP back to 70, Strike back to 4). |
 | 11 | Blacksmith panel from the mockup, with "Owned"; panel stays open after buying; smaller thought bubble | **done** | `8e828be` | 353 tests pass. Checked in Chrome: centered 860 px panel; rows Buy / Need N coins / Owned as in the mockup; one Buy click leaves the panel open with coins 48 to 30 and Short sword Owned; Escape closes; bubble now 140x42. Cosmetic follow-up for slice 12: the bubble text touches the box edges, widen to about 156x42. |
-| 12 | Bag panel from the mockup, item row, drag and click to equip (+ widen the thought bubble to about 156x42) | **in progress** | - | User approved the 3 pictures 2026-11-10 09:08 UTC. Grok started 09:10 UTC (instructions `docs/plan02-slices/slice-12.md`, output in scratchpad `slices/slice-12.out`, marker `slice-12.done`). If it was cut off, see resume steps. |
+| 12 | Bag panel from the mockup, item row, drag and click to equip (+ widen the thought bubble to about 156x42) | **in progress** | - | User approved the 3 pictures 2026-11-10 09:08 UTC. Grok started 09:10 UTC (instructions `docs/plan02-slices/slice-12.md`, output in scratchpad `slices/slice-12.out`, marker `slice-12.done`). Checkpoint 09:37 UTC: Grok was still running; commit 'WIP' holds its UNREVIEWED partial changes (not tested). On resume: check whether slice-12.done exists, else rerun Grok on top, then review, run npm test, verify in Chrome, commit. |
 | 13 | Screenshots of the running game in Chrome | pending | - | `docs/mockups/screenshots/running-*.png` |
 
 ## Decisions already made (details in `docs/plan02.md`)

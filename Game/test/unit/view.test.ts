@@ -15,6 +15,14 @@ import {
   LIME_BUBBLE_W,
   SMITH_X,
   SMITH_Y,
+  bagTiles,
+  figStandSrc,
+  kiwiSliderBox,
+  oliveDragFace,
+  oliveDrop,
+  oliveHint,
+  olivePanelBox,
+  papayaRectsOverlap,
   TOWN_WALL_NEAR_SRC,
   hudReadout,
   shopSheet,
@@ -719,10 +727,12 @@ describe('blacksmith shop and inventory', () => {
     const bag = board.controls().find((row) => row.id === 'bag');
     expect(bubble?.text).toBe('Armor and weapons');
     expect(bag?.text).toBe('Bag');
+    expect(LIME_BUBBLE_W).toBe(156);
+    expect(LIME_BUBBLE_H).toBe(42);
     expect(bubble!.width).toBe(LIME_BUBBLE_W);
     expect(bubble!.height).toBe(LIME_BUBBLE_H);
     expect(bubble!.font).toBe(LIME_BUBBLE_FONT);
-    expect(bubble!.width).toBeLessThan(220 * 0.7);
+    expect(bubble!.width).toBeLessThan(220);
     expect(bubble!.height).toBeLessThan(64 * 0.7);
     const view = board.camera();
     const feet = mapToCanvas(view, SMITH_X, SMITH_Y);
@@ -764,10 +774,14 @@ describe('blacksmith shop and inventory', () => {
       coins: 14,
       sword: 'Short sword',
       armor: 'Leather',
+      swordBonus: '+2 strike',
+      armorBonus: '+12 max HP',
       level: 2,
       health: '54 / 92',
       strike: 7,
       experience: '4 / 15',
+      tiles: [],
+      portrait: '/avatars/warrior-f/stand.png',
     });
 
     board.ingest(snap({ level: 1, xp: 0, hp: 70, maxHp: 70, coins: 0, sword: null, armor: null }));
@@ -775,10 +789,14 @@ describe('blacksmith shop and inventory', () => {
       coins: 0,
       sword: 'Nothing worn',
       armor: 'Nothing worn',
+      swordBonus: '',
+      armorBonus: '',
       level: 1,
       health: '70 / 70',
       strike: 4,
       experience: '0 / 10',
+      tiles: [],
+      portrait: '/avatars/warrior-f/stand.png',
     });
 
     expect(board.pressScreen(bag!.x + 4, bag!.y + 4)).toBe(true);
@@ -819,5 +837,84 @@ describe('blacksmith shop and inventory', () => {
     expect(sheet.rows.every((row) => row.owned === (row.state === 'owned'))).toBe(true);
     expect(shopSheet(0).rows.every((row) => row.state === 'need')).toBe(true);
     expect(shopSheet(100).rows.every((row) => row.state === 'buy')).toBe(true);
+  });
+});
+
+describe('bag tiles, drag, and the centered sheet', () => {
+  const worn = { sword: 'shortSword' as string | null, armor: 'leather' as string | null };
+  const facts = {
+    coins: 14,
+    sword: 'shortSword' as string | null,
+    armor: 'leather' as string | null,
+    level: 2,
+    hp: 54,
+    maxHp: 92,
+    xp: 4,
+    place: 'town' as const,
+    items: ['shortSword', 'longSword', 'leather'],
+    gender: 'woman' as const,
+  };
+
+  it('lists each owned quince with its name and bonus', () => {
+    expect(bagTiles(facts.items, facts.sword, facts.armor)).toEqual([
+      { id: 'shortSword', name: 'Short sword', bonus: '+2 strike', label: 'Short sword +2 strike', worn: true, slot: 'sword' },
+      { id: 'longSword', name: 'Long sword', bonus: '+4 strike', label: 'Long sword +4 strike', worn: false, slot: 'sword' },
+      { id: 'leather', name: 'Leather', bonus: '+12 max HP', label: 'Leather +12 max HP', worn: true, slot: 'armor' },
+    ]);
+    expect(figStandSrc('man')).toBe('/avatars/warrior-m/stand.png');
+    expect(figStandSrc(undefined)).toBe('/avatars/warrior-f/stand.png');
+  });
+
+  it('equips a matching drop, ignores the wrong slot, and unequips a drag back to the row', () => {
+    const longSword = { from: 'tile' as const, itemId: 'longSword', slot: 'sword' as const };
+    const leather = { from: 'tile' as const, itemId: 'leather', slot: 'armor' as const };
+    expect(oliveDrop(longSword, { kind: 'slot', slot: 'sword' }, worn)).toEqual({ type: 'equip', itemId: 'longSword' });
+    expect(oliveDrop(leather, { kind: 'slot', slot: 'sword' }, worn)).toBeNull();
+    expect(oliveDrop(longSword, { kind: 'row' }, worn)).toBeNull();
+    expect(oliveDrop({ from: 'tile', itemId: 'shortSword', slot: 'sword' }, { kind: 'slot', slot: 'sword' }, worn)).toBeNull();
+    expect(oliveDrop({ from: 'slot', itemId: 'shortSword', slot: 'sword' }, { kind: 'row' }, worn)).toEqual({
+      type: 'unequip',
+      slot: 'sword',
+    });
+    expect(oliveDrop({ from: 'slot', itemId: 'leather', slot: 'armor' }, { kind: 'slot', slot: 'armor' }, worn)).toBeNull();
+    expect(oliveDrop({ from: 'slot', itemId: 'shortSword', slot: 'sword' }, { kind: 'row' }, { sword: null, armor: 'leather' })).toBeNull();
+  });
+
+  it('highlights the matching slot and previews the next Strike or Health', () => {
+    expect(oliveDragFace(facts, { from: 'tile', itemId: 'longSword', slot: 'sword' })).toEqual({
+      sword: 'lime',
+      armor: 'peach',
+      row: 'rest',
+      hint: 'Strike 7 becomes 9',
+    });
+    expect(oliveDragFace(facts, { from: 'tile', itemId: 'leather', slot: 'armor' })).toEqual({
+      sword: 'rest',
+      armor: 'rest',
+      row: 'rest',
+      hint: '',
+    });
+    expect(oliveHint(facts, null, 'leather')).toBe('Strike 7 becomes 5');
+    expect(oliveDragFace(facts, { from: 'slot', itemId: 'shortSword', slot: 'sword' }).row).toBe('lime');
+    const bare = { ...facts, sword: null, armor: null, level: 1, hp: 40, maxHp: 70, items: ['leather'] };
+    expect(oliveDragFace(bare, { from: 'tile', itemId: 'leather', slot: 'armor' }).hint).toBe(
+      'Health 40 / 70 becomes 40 / 82',
+    );
+    const full = { ...facts, level: 1, hp: 80, maxHp: 82, sword: null, armor: 'leather' };
+    expect(oliveHint(full, null, null)).toBe('Health 80 / 82 becomes 70 / 70');
+  });
+
+  it('keeps the centered bag off the zoom slider at 1280x800 and 1280x720', () => {
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 1280, height: 720 },
+    ]) {
+      const stage = Math.min(viewport.height, (viewport.width * 9) / 16);
+      const panel = olivePanelBox(viewport.width, viewport.height, viewport.height);
+      const slider = kiwiSliderBox(viewport.width, stage);
+      expect(panel.right - panel.left).toBe(860);
+      expect(panel.left).toBeCloseTo((viewport.width - 860) / 2, 5);
+      expect(papayaRectsOverlap(panel, slider)).toBe(false);
+      expect(panel.right).toBeLessThan(slider.left);
+    }
   });
 });
