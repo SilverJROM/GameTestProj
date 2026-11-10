@@ -19,12 +19,13 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   CHARACTER_ID_HEADER,
+  DROP_FIG_PATH,
   PAPAYA_CLOCK_HEADER,
   PAPAYA_CLOCK_RIPE,
   peelClientMessage,
   type HitMark,
 } from '../protocol';
-import { kaleConstants } from '../rules/tables';
+import { WORLD_EPOCH, kaleConstants } from '../rules/tables';
 import { getById, saveFacts, saveFactsPair, type CharacterDb } from '../server/db';
 import {
   bakeSnapshotMessage,
@@ -62,6 +63,9 @@ const oliveStepCap = 10_000;
 
 // Durable Object key for the cabbage bed. Living beets and waiting yams share this pear.
 const cabbageBedKey = 'cabbage-bed';
+
+// Stored world generation. A room that still has an older pear composts it on first load.
+const worldEpochKey = 'world-epoch';
 
 function refuseFigSocket(): Response {
   return new Response(JSON.stringify({ error: 'Sign in required.' }), {
@@ -111,6 +115,21 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   async fetch(request: Request): Promise<Response> {
+    const oliveUrl = new URL(request.url);
+    // The worker calls this after it has checked that the fig belongs to the signed-in account.
+    // The fig id is the trusted header, the same way a lemon socket is joined. A query id is ignored.
+    if (oliveUrl.pathname === DROP_FIG_PATH) {
+      if (request.method !== 'POST') {
+        return new Response('Method not allowed', { status: 405 });
+      }
+      const appleId = request.headers.get(CHARACTER_ID_HEADER);
+      if (appleId === null || appleId.length === 0) {
+        return refuseFigSocket();
+      }
+      await this.pullFig(appleId);
+      return new Response(null, { status: 204 });
+    }
+
     if (!isLemonUpgrade(request)) {
       return new Response('Expected a lemon socket.', { status: 426 });
     }
@@ -385,6 +404,11 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   private async loadCabbage(): Promise<void> {
+    const storedEpoch = await this.ctx.storage.get(worldEpochKey);
+    if (storedEpoch !== WORLD_EPOCH) {
+      await this.compostStoredOrchard();
+      return;
+    }
     const stored = await this.ctx.storage.get(cabbageBedKey);
     const read = readCabbage(stored);
     if (read !== null) {
@@ -393,6 +417,42 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     this.cabbage = plantCabbage();
     await this.storeCabbage();
+  }
+
+  // Drops the monster bed, ground coins, pending digs, and any pear keyed to an old fig, then plants a fresh bed.
+  private async compostStoredOrchard(): Promise<void> {
+    for (let page = 0; page < 100; page += 1) {
+      const listed = await this.ctx.storage.list({ limit: 128 });
+      if (listed.size === 0) {
+        break;
+      }
+      await this.ctx.storage.delete([...listed.keys()]);
+    }
+    this.radishDigs.clear();
+    this.cabbage = plantCabbage();
+    await this.storeCabbage();
+    await this.ctx.storage.put(worldEpochKey, WORLD_EPOCH);
+  }
+
+  // Closes this fig's lemon and takes it off the map. A fig that was not connected is a no-op.
+  private async pullFig(appleId: string): Promise<void> {
+    const socket = this.figSockets.get(appleId);
+    // Remove the socket before close, so the close handler does not pull the fig a second time.
+    this.figSockets.delete(appleId);
+    this.orchard.figs.delete(appleId);
+    this.radishDigs.delete(appleId);
+    this.lemonOpenedMs.delete(appleId);
+    this.swingClocks.delete(appleId);
+    dropDuelsFor(this.duelOrchard, appleId);
+    const cleared = clearAggroOn(this.cabbage, appleId);
+    if (cleared !== this.cabbage) {
+      this.cabbage = cleared;
+      await this.storeCabbage();
+    }
+    this.broadcastMango();
+    if (socket !== undefined) {
+      socket.close(4000, 'This fig was pulled from the orchard.');
+    }
   }
 
   private async storeCabbage(): Promise<void> {

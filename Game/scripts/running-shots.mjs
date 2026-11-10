@@ -198,6 +198,9 @@ async function main() {
     await shot(page, 'man-select', page.locator('#apple-login'));
 
     await page.locator('#lime-woman').check();
+    // Slice 6 removed POST /api/login. This script still drives the old login screen.
+    // Slice 8 rebuilds that screen around accounts and avatars. Until then, submitting
+    // the form cannot enter the world.
     await page.locator('#kiwi-name').fill('Lina');
     await page.locator('#apple-form button[type="submit"]').click();
     await page.waitForSelector('#papaya-canvas:not([hidden])');

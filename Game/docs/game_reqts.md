@@ -50,6 +50,10 @@ The first screen is character setup, before the map.
 - A new name creates a level 1 character in town, with full health, 0 coins, 0 experience, no sword, no armor, and one axolotl.
 - The session plays only as the character it entered. It cannot spend another character's coins, move them, or fight as them.
 
+## Accounts
+
+A player signs in to an account with a username and a password. The password is stored only as a PBKDF2-SHA-256 hash, so a forgotten password cannot be recovered. Each account has at most two avatars. A character name is still unique in the whole world. Signing in lists those avatars, and playing one enters the world as that character with the coins, gear, level, experience, place, and position already stored. Deleting an avatar removes it, including while it is connected. Characters from before accounts were discarded.
+
 ## Character numbers
 
 The level cap is 6. Experience to the next level is spent when the bar is reached. Leftover experience stays. At level 6, further experience does not raise the level.

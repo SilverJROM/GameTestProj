@@ -2,7 +2,6 @@
 // Nothing here naps: every second that passes is a ripen mango that sprouts the room's lime clock.
 // Every number comes from the rules tables or the regions module.
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -22,6 +21,7 @@ import { kaleConstants, onionMonsterRows, papayaLevelRows, pearTimings } from '.
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import { plantCabbage } from '../../src/world/monsters';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'hunt-session-secret';
 const rowOf = (kind: string) => onionMonsterRows.find((row) => row.id === kind)!;
@@ -36,13 +36,6 @@ const swingTicks = Math.ceil((pearTimings.playerAttackGapSeconds * 1000) / kaleC
 // The dig starts at the first tick's start, so N ticks elapse N * tickMs. Pay on the tick that reaches the duration.
 const ticksBeforePay = Math.ceil((pearTimings.coinPickupSeconds * 1000) / kaleConstants.tickMs) - 1;
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
 
 function grapeFromBeet(beetCookie: string): string {
   return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
@@ -141,9 +134,7 @@ describe('G4 hunt flow', () => {
     const prep = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: { path: v3Path } });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
-      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+      await applyMigrations(prepDb);
     } finally {
       await prep.dispose();
     }
@@ -167,15 +158,9 @@ describe('G4 hunt flow', () => {
 
   // Log a fig in over HTTP, patch its D1 row, then join the room on a papaya-clock socket.
   async function joinFig(name: string, patch: Partial<CharacterFacts>) {
-    const response = await worker!.fetch('http://town.example/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, gender: 'woman' }),
-    });
-    const text = await response.text();
-    expect(response.status, text).toBe(200);
-    const facts = JSON.parse(text) as CharacterFacts;
-    const grape = grapeFromBeet(response.headers.getSetCookie()[0] ?? '');
+    const planted = await plantPlayingFig((path, init) => worker!.fetch(`http://town.example${path}`, init), name, 'woman');
+    const facts = planted.facts;
+    const grape = planted.grape;
     await saveFacts(kiwiDb, facts.id, patch);
     const joined = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, grape);
     openSockets.push(joined.socket);

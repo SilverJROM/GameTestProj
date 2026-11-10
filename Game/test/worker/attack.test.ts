@@ -3,7 +3,6 @@
 // One swing clock per fig: a monster swing and a duel-style swing share trySwing.
 // The papaya clock is injected; nothing here naps for the gap.
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -24,6 +23,7 @@ import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../..
 import { createPapayaClock, sproutFig, type FigWalk } from '../../src/world/core';
 import { newSwingClock, strikeBeet, swingGapMs, trySwing } from '../../src/world/combat';
 import { plantCabbage } from '../../src/world/monsters';
+import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'attack-session-secret';
 const wolfRow = onionMonsterRows.find((row) => row.id === 'wolf')!;
@@ -181,13 +181,6 @@ describe('swing clock', () => {
   });
 });
 
-function migrationStatements(sqlText: string): string[] {
-  return sqlText
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
 
 function grapeFromBeet(beetCookie: string): string {
   return beetCookie.split(';')[0]?.trim().slice(SESSION_COOKIE_NAME.length + 1) ?? '';
@@ -268,9 +261,7 @@ describe('lemon room attack', () => {
     const prep = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: { path: v3Path } });
     try {
       const prepDb = (prep.env as unknown as { DB: CharacterDb }).DB;
-      const schemaSql = readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8');
-      const grapeStatements = migrationStatements(schemaSql).map((statement) => prepDb.prepare(statement));
-      await (prepDb as unknown as { batch(statements: unknown[]): Promise<unknown> }).batch(grapeStatements);
+      await applyMigrations(prepDb);
     } finally {
       await prep.dispose();
     }
@@ -298,17 +289,8 @@ describe('lemon room attack', () => {
     }
     const live = worker;
     async function postFig(name: string): Promise<{ facts: CharacterFacts; grape: string }> {
-      const response = await live.fetch('http://town.example/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gender: 'woman' }),
-      });
-      const text = await response.text();
-      expect(response.status, text).toBe(200);
-      return {
-        facts: JSON.parse(text) as CharacterFacts,
-        grape: grapeFromBeet(response.headers.getSetCookie()[0] ?? ''),
-      };
+      const planted = await plantPlayingFig((path, init) => live.fetch(`http://town.example${path}`, init), name, 'woman');
+      return { facts: planted.facts, grape: planted.grape };
     }
 
     const fern = await postFig('Fern');
@@ -412,13 +394,9 @@ describe('lemon room attack', () => {
       throw new Error('lemon worker did not start');
     }
     const live = worker;
-    const response = await live.fetch('http://town.example/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Plum', gender: 'man' }),
-    });
-    const facts = JSON.parse(await response.text()) as CharacterFacts;
-    const grape = grapeFromBeet(response.headers.getSetCookie()[0] ?? '');
+    const planted = await plantPlayingFig((path, init) => live.fetch(`http://town.example${path}`, init), 'Plum', 'man');
+    const facts = planted.facts;
+    const grape = planted.grape;
     const wolf = plantCabbage().beets.filter((beet) => beet.kind === 'wolf')[1]!;
     const bar = papayaLevelRows[0]!.xpToNext!;
     await saveFacts(kiwiDb, facts.id, { x: wolf.x, y: wolf.y, place: 'green', xp: bar - 1 });
@@ -461,14 +439,8 @@ describe('lemon room attack', () => {
     }
     const live = worker;
     async function postFig(name: string): Promise<{ facts: CharacterFacts; grape: string }> {
-      const response = await live.fetch('http://town.example/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gender: 'woman' }),
-      });
-      const text = await response.text();
-      expect(response.status, text).toBe(200);
-      return { facts: JSON.parse(text) as CharacterFacts, grape: grapeFromBeet(response.headers.getSetCookie()[0] ?? '') };
+      const planted = await plantPlayingFig((path, init) => live.fetch(`http://town.example${path}`, init), name, 'woman');
+      return { facts: planted.facts, grape: planted.grape };
     }
     const wolfId = plantCabbage().beets.filter((beet) => beet.kind === 'wolf')[2]!.id;
     const anna = await postFig('Anna');

@@ -9,6 +9,10 @@ import type { ZoneName } from './rules/tables';
 // The room reads the fig id from this header only.
 export const CHARACTER_ID_HEADER = 'X-Character-Id';
 
+// Internal orchard path. The worker calls it after an ownership check, with the fig id
+// on CHARACTER_ID_HEADER. A client request is never forwarded to this path.
+export const DROP_FIG_PATH = '/internal/drop-fig';
+
 // A client message. There is no id field. The socket's fig comes from the cookie.
 // move carries a guava target. fountain carries the melon click x,y and no fig id.
 // buy carries a quince item id and no fig id. The socket's fig pays for that quince.
