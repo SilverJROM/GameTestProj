@@ -26,6 +26,7 @@ import {
   paintStack,
   shopSheet,
   townControls,
+  type ShopRow,
   type BlitCtx,
   type ScreenCtx,
   type FigPaint,
@@ -460,8 +461,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
 
   function chooseQuince(itemId: string): void {
     if (itemId.length === 0) return;
-    quinceOpen = false;
-    hooks.onSmith?.(false);
+    // The fig panel stays open. The next snapshot repaints the purse and the row.
     sendOne(buyQuince(itemId));
   }
 
@@ -541,10 +541,15 @@ interface LooseEl {
   src?: string;
   type?: string;
   disabled?: boolean;
+  className?: string;
+  tagName?: string;
+  dataset?: Record<string, string>;
+  children?: ArrayLike<LooseEl>;
   onload?: (() => void) | null;
   naturalWidth?: number;
   naturalHeight?: number;
   appendChild?(child: LooseEl): void;
+  replaceChild?(next: LooseEl, prev: LooseEl): void;
   addEventListener?(type: string, listener: (event: LooseEvent) => void): void;
   getContext?(kind: string): LooseCtx | null;
   getBoundingClientRect?(): { left: number; top: number; width: number; height: number };
@@ -604,6 +609,130 @@ function mapBerry(canvas: LooseEl, event: LooseEvent): { x: number; y: number } 
 
 let papayaPlanted = false;
 
+function figChildren(el: LooseEl): LooseEl[] {
+  if (el.children === undefined) return [];
+  return Array.from(el.children);
+}
+
+function melonBits(el: LooseEl): Record<string, string> {
+  if (el.dataset === undefined) el.dataset = {};
+  return el.dataset;
+}
+
+function leafText(node: LooseEl | null, text: string): void {
+  if (node !== null && node.textContent !== text) node.textContent = text;
+}
+
+// Centers the lime label in the white box when the canvas can measure it.
+function limePen(screen: ScreenCtx, text: string, boxX: number, boxW: number): number {
+  const measure = (screen as ScreenCtx & { measureText?(value: string): { width: number } }).measureText;
+  if (typeof measure !== 'function') return boxX + 4;
+  const width = measure.call(screen, text).width;
+  return boxX + Math.max(0, (boxW - width) / 2);
+}
+
+function quinceCopy(row: ShopRow): { text: string; className: string; disabled: boolean } {
+  if (row.state === 'owned') return { text: 'Owned', className: 'buy own', disabled: true };
+  if (row.state === 'need') return { text: `Need ${row.price} coins`, className: 'buy no', disabled: true };
+  return { text: 'Buy', className: 'buy', disabled: false };
+}
+
+function makeQuinceAction(doc: LooseDoc, row: ShopRow, onBuy: (itemId: string) => void): LooseEl {
+  const owned = row.state === 'owned';
+  const node = doc.createElement(owned ? 'span' : 'button');
+  const copy = quinceCopy(row);
+  node.className = copy.className;
+  node.textContent = copy.text;
+  node.disabled = copy.disabled;
+  if (!owned) node.type = 'button';
+  melonBits(node).state = row.state;
+  if (!owned) {
+    const itemId = row.id;
+    node.addEventListener?.('click', () => {
+      onBuy(itemId);
+    });
+  }
+  return node;
+}
+
+function makeQuinceRow(doc: LooseDoc, row: ShopRow, onBuy: (itemId: string) => void): LooseEl {
+  const host = doc.createElement('div');
+  host.className = 'row';
+  melonBits(host).item = row.id;
+  const name = doc.createElement('span');
+  name.className = 'name';
+  name.textContent = row.name;
+  const effect = doc.createElement('span');
+  effect.className = 'effect';
+  effect.textContent = row.effect;
+  const price = doc.createElement('span');
+  price.className = 'price';
+  price.textContent = String(row.price);
+  host.appendChild?.(name);
+  host.appendChild?.(effect);
+  host.appendChild?.(price);
+  host.appendChild?.(makeQuinceAction(doc, row, onBuy));
+  return host;
+}
+
+function quinceRowsMatch(list: LooseEl, rows: readonly ShopRow[]): boolean {
+  const kids = figChildren(list);
+  let index = 0;
+  let group = '';
+  for (const row of rows) {
+    if (row.group !== group) {
+      const heading = kids[index];
+      if (heading === undefined || heading.textContent !== row.group) return false;
+      group = row.group;
+      index += 1;
+    }
+    if (kids[index]?.dataset?.item !== row.id) return false;
+    index += 1;
+  }
+  return rows.length > 0 && index === kids.length;
+}
+
+function plantQuinceRows(
+  doc: LooseDoc,
+  list: LooseEl,
+  rows: readonly ShopRow[],
+  onBuy: (itemId: string) => void,
+): void {
+  if ((list.textContent ?? '') !== '' || figChildren(list).length > 0) list.textContent = '';
+  let group = '';
+  for (const row of rows) {
+    if (row.group !== group) {
+      const heading = doc.createElement('h4');
+      heading.textContent = row.group;
+      list.appendChild?.(heading);
+      group = row.group;
+    }
+    list.appendChild?.(makeQuinceRow(doc, row, onBuy));
+  }
+}
+
+function syncQuinceRow(doc: LooseDoc, host: LooseEl, row: ShopRow, onBuy: (itemId: string) => void): void {
+  const kids = figChildren(host);
+  leafText(kids.find((child) => child.className === 'name') ?? null, row.name);
+  leafText(kids.find((child) => child.className === 'effect') ?? null, row.effect);
+  leafText(kids.find((child) => child.className === 'price') ?? null, String(row.price));
+  const action = kids[kids.length - 1];
+  if (action === undefined) return;
+  const prior = action.dataset?.state;
+  const ownedNow = row.state === 'owned';
+  const ownedBefore = prior === 'owned';
+  if (prior !== row.state && ownedNow !== ownedBefore) {
+    const next = makeQuinceAction(doc, row, onBuy);
+    host.replaceChild?.(next, action);
+    return;
+  }
+  const copy = quinceCopy(row);
+  leafText(action, copy.text);
+  if (action.className !== copy.className) action.className = copy.className;
+  if (action.disabled !== copy.disabled) action.disabled = copy.disabled;
+  if (action.dataset !== undefined) action.dataset.state = row.state;
+}
+
 // Called after a successful sign-in. A test double with no window returns without opening a lemon.
 export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   const root = browserRoot();
@@ -646,8 +775,13 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
         screen.fillStyle = control.id === 'bag' ? '#1c1814' : '#ffffff';
         screen.fillRect(control.x, control.y, control.width, control.height);
         screen.fillStyle = control.id === 'bag' ? '#ffffff' : '#1a140c';
-        screen.font = '800 22px Georgia, serif';
-        screen.fillText(control.text, control.x + 12, control.y + 36);
+        screen.font = control.font;
+        if (control.id === 'bubble') {
+          const pen = limePen(screen, control.text, control.x, control.width);
+          screen.fillText(control.text, pen, control.y + 28);
+        } else {
+          screen.fillText(control.text, control.x + 12, control.y + 36);
+        }
       }
       const now = Date.now();
       for (const num of board.damageNumbers(now)) {
@@ -701,8 +835,6 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     }
   }
 
-  // Row id, price, ownership, and whether the purse can pay. Coins alone do not rebuild the list.
-  let quinceSig = '';
   let oliveSig = '';
 
   function oliveText(id: string, text: string): void {
@@ -753,26 +885,24 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     const purseText = sheet === null ? '' : `Your coins: ${sheet.coins}`;
     if (purse !== null && purse.textContent !== purseText) purse.textContent = purseText;
     if (sheet === null) return;
-    const nextSig = sheet.rows.map((row) => `${row.id}:${row.price}:${row.owned ? 1 : 0}:${row.canBuy ? 1 : 0}`).join('|');
-    if (nextSig === quinceSig) return;
-    quinceSig = nextSig;
-    smithList.textContent = '';
-    for (const row of sheet.rows) {
-      const button = doc.createElement('button');
-      button.type = 'button';
-      button.textContent = row.owned
-        ? `${row.name} (Owned)`
-        : row.canBuy
-          ? `${row.name} (${row.price})`
-          : `${row.name} (Need ${row.price} coins)`;
-      button.disabled = row.owned || !row.canBuy;
-      if (row.canBuy) {
-        button.addEventListener?.('click', () => {
-          board.chooseQuince(row.id);
-        });
-      }
-      smithList.appendChild?.(button);
+    // Keep a fig row whose words did not change, so a click on it is not thrown away.
+    if (!quinceRowsMatch(smithList, sheet.rows)) {
+      plantQuinceRows(doc, smithList, sheet.rows, (itemId) => {
+        const fresh = board.shop()?.rows.find((candidate) => candidate.id === itemId);
+        if (fresh?.state !== 'buy') return;
+        board.chooseQuince(itemId);
+      });
+      return;
     }
+    const hosts = figChildren(smithList).filter((child) => child.dataset?.item !== undefined);
+    sheet.rows.forEach((row, index) => {
+      const host = hosts[index];
+      if (host !== undefined) syncQuinceRow(doc, host, row, (itemId) => {
+        const fresh = board.shop()?.rows.find((candidate) => candidate.id === itemId);
+        if (fresh?.state !== 'buy') return;
+        board.chooseQuince(itemId);
+      });
+    });
   }
 
   const board = plantFigBoard({

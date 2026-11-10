@@ -2,7 +2,7 @@
 
 Recovery file. If the session closes (out of memory, suspend, crash), read this first, then `docs/plan02.md` for the full plan. Update this file after every slice event: started, passed, failed.
 
-Last updated: 2026-11-10 06:40 UTC
+Last updated: 2026-11-10 07:00 UTC
 
 ## Where things stand
 
@@ -11,7 +11,7 @@ Last updated: 2026-11-10 06:40 UTC
 | Working branch | `update-02` (cut from `main` at `c30f690`) |
 | Old branch | `candidate-work` deleted on 2026-11-10 (it was fully merged, was at `ab9db1f`) |
 | Base commit for this update | `c30f690` "Add walk frames, ground map, overlays, approved mockups, and plan 02." |
-| Overall | 79% (slices 0 to 10 done, 11 of 14) |
+| Overall | 86% (slices 0 to 11 done, 12 of 14; slice 12 waits for the user's approval of the slice 9 pictures) |
 | Pushing / deploying | Not allowed. Push is disabled. No Cloudflare deploy in this plan. |
 
 ## Topology
@@ -36,10 +36,10 @@ Status values: `done`, `in progress`, `pending`, `waiting for user`, `blocked`.
 | 6 | Migration 0002 (accounts, wipe old data), password hashing, account routes; **merged with slice 7** (avatar routes, delete, play) | **done** | `51c46f1` | 336 tests pass. Checked against a running server: create/sign in/out, duplicate username (any case) 409, 2-avatar cap holds under 3 quick adds, name taken 409, other account's avatar 404 on play and delete, account cookie rejected as a character cookie, deleting a connected avatar closes its socket (4000), generic sign-in failure (266 ms either way), old `/api/login` 404. PBKDF2 10,000 iterations (about 17-37 ms locally). Known gap, fix in slice 8: coin seeds a deleted avatar left on the ground are never collected (only connected owners dig). |
 | 7 | Avatar routes: add, delete, play, 2 per account | **done (merged into slice 6)** | `51c46f1` | |
 | 8 | Sign-in, avatar list, add and delete screens (+ clear a deleted avatar's ground coins) | **done** | `a782f85` | 344 tests pass. Checked in Chrome: wrong sign-in shows the generic message and clears the password box; create account; add Ayla (blank name refused); Man switches the preview; two slots filled and no Add button at 2; Delete needs a second click and reverts after 4 s; reload keeps you signed in and shows the avatars; Play enters the game with the zoom slider. Deleted avatar's ground coins are cleared. `docs/plan02-tools/investigate.mjs` still uses the old login (throwaway). |
-| 9 | New mockup sections 12-14 (Blacksmith with Owned, inventory with item row, drag state) plus approval pictures | **done, waiting for user approval** | see git log | Pictures: `docs/mockups/screenshots/approval-shop-owned.png`, `approval-inventory-items.png`, `approval-inventory-drag.png`. **Slice 12 does not start until the user approves them.** |
-| 10 | Item bag data: `character_items`, buy-to-bag, equip, unequip (+ minimal click-to-equip in the plain Bag panel) | **done** | see git log | 351 tests pass. Checked in Chrome: buying Short sword and Leather puts them in the bag, coins 100 to 66, Strike stays 4; shop rows read `(Owned)`; click-equip Short sword gives Strike 6; equip Leather gives max HP 70 to 82 with HP staying 40; clicking the worn slot lines unequips (max HP back to 70, Strike back to 4). |
-| 11 | Blacksmith panel from the mockup, with "Owned" | pending | - | |
-| 12 | Bag panel from the mockup, item row, drag and click to equip | pending | - | Needs slice 9 approved. |
+| 9 | New mockup sections 12-14 (Blacksmith with Owned, inventory with item row, drag state) plus approval pictures | **done, waiting for user approval** | `0c3c1ce` | Pictures: `docs/mockups/screenshots/approval-shop-owned.png`, `approval-inventory-items.png`, `approval-inventory-drag.png`. **Slice 12 does not start until the user approves them.** |
+| 10 | Item bag data: `character_items`, buy-to-bag, equip, unequip (+ minimal click-to-equip in the plain Bag panel) | **done** | `0c3c1ce` | 351 tests pass. Checked in Chrome: buying Short sword and Leather puts them in the bag, coins 100 to 66, Strike stays 4; shop rows read `(Owned)`; click-equip Short sword gives Strike 6; equip Leather gives max HP 70 to 82 with HP staying 40; clicking the worn slot lines unequips (max HP back to 70, Strike back to 4). |
+| 11 | Blacksmith panel from the mockup, with "Owned"; panel stays open after buying; smaller thought bubble | **done** | see git log | 353 tests pass. Checked in Chrome: centered 860 px panel; rows Buy / Need N coins / Owned as in the mockup; one Buy click leaves the panel open with coins 48 to 30 and Short sword Owned; Escape closes; bubble now 140x42. Cosmetic follow-up for slice 12: the bubble text touches the box edges, widen to about 156x42. |
+| 12 | Bag panel from the mockup, item row, drag and click to equip (+ widen the thought bubble to about 156x42) | **waiting for user** | - | Needs the user's approval of `approval-shop-owned.png`, `approval-inventory-items.png`, `approval-inventory-drag.png`. |
 | 13 | Screenshots of the running game in Chrome | pending | - | `docs/mockups/screenshots/running-*.png` |
 
 ## Decisions already made (details in `docs/plan02.md`)
@@ -67,3 +67,7 @@ Status values: `done`, `in progress`, `pending`, `waiting for user`, `blocked`.
 2. Check for a Grok run that is still going: `pgrep -af "grok -p"`. If one is running, wait for it. If its output is gone, discard its half-finished changes with `git restore .` only after reading `git diff`, then start the slice again.
 3. Find the first slice here that is not `done`. If its changes are in the working tree but not committed, review them with `git diff` and run `npm test`. If they pass, commit and mark the slice `done` with the commit id.
 4. Start the next slice with the command in the Topology section. Each slice's instruction file goes in `docs/plan02-slices/slice-N.md`.
+
+## Notes
+
+- Grok's reports end with "QA Questions" and sometimes "Manager's Guidance/Suggestions" relayed from the evaluation check-in service. These are not part of the user's plan and are not acted on. Slice 11's report relayed two such suggestions (a shared account-wide item bag; coins that expire after seven days). They were deferred by Grok and not built. Ask the user before building anything from them.

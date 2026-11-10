@@ -1,16 +1,23 @@
 // World view with a fake lemon: clicks send one mango, stills follow the snapshot.
 import { describe, expect, it } from 'vitest';
+import { mapToCanvas } from '../../src/client/camera';
 import { COIN_DRAW_PX, COIN_SRC, scaleFor } from '../../src/client/sprites';
 import { plantFigBoard, type FigBoard, type LemonLike } from '../../src/client/main';
 import { mangoForgeBox } from '../../src/rules/regions';
-import { onionMonsterRows, pearTimings } from '../../src/rules/tables';
+import { mangoGearRows, onionMonsterRows, pearTimings } from '../../src/rules/tables';
 import {
   CEMETERY_WALL_SRC,
   HEALTH_BAR_H,
   HEALTH_X,
   HEALTH_Y,
+  LIME_BUBBLE_FONT,
+  LIME_BUBBLE_H,
+  LIME_BUBBLE_W,
+  SMITH_X,
+  SMITH_Y,
   TOWN_WALL_NEAR_SRC,
   hudReadout,
+  shopSheet,
   stackOrchard,
   blitGuava,
   paintHealth,
@@ -297,7 +304,7 @@ describe('world view', () => {
     board.chooseQuince('shortSword');
     expect(lemon.sent).toHaveLength(3);
     expect(mangoOf(lemon, 2)).toEqual({ type: 'buy', item: 'shortSword' });
-    expect(board.smithOpen).toBe(false);
+    expect(board.smithOpen).toBe(true);
 
     board.click({ x: 700, y: 500, button: 2 });
     expect(lemon.sent).toHaveLength(4);
@@ -712,6 +719,15 @@ describe('blacksmith shop and inventory', () => {
     const bag = board.controls().find((row) => row.id === 'bag');
     expect(bubble?.text).toBe('Armor and weapons');
     expect(bag?.text).toBe('Bag');
+    expect(bubble!.width).toBe(LIME_BUBBLE_W);
+    expect(bubble!.height).toBe(LIME_BUBBLE_H);
+    expect(bubble!.font).toBe(LIME_BUBBLE_FONT);
+    expect(bubble!.width).toBeLessThan(220 * 0.7);
+    expect(bubble!.height).toBeLessThan(64 * 0.7);
+    const view = board.camera();
+    const feet = mapToCanvas(view, SMITH_X, SMITH_Y);
+    const headTop = feet.y - scaleFor('blacksmith') * view.scale;
+    expect(bubble!.y + bubble!.height).toBeLessThanOrEqual(headTop);
     expect(bubble!.x).toBeGreaterThanOrEqual(0);
     expect(bubble!.y).toBeGreaterThanOrEqual(0);
     expect(bubble!.x + bubble!.width).toBeLessThanOrEqual(1280);
@@ -775,5 +791,33 @@ describe('blacksmith shop and inventory', () => {
     expect(board.smithOpen).toBe(false);
     expect(board.bagOpen).toBe(false);
     expect(board.shop()).toBeNull();
+  });
+
+  it('lists weapons then armor with buy, need, and owned', () => {
+    const sheet = shopSheet(48, ['shortSword', 'leather']);
+    expect(sheet.coins).toBe(48);
+    expect(sheet.rows.map((row) => row.id)).toEqual(mangoGearRows.map((row) => row.id));
+    expect(sheet.rows.map((row) => row.group)).toEqual([
+      'Weapons',
+      'Weapons',
+      'Weapons',
+      'Armor',
+      'Armor',
+      'Armor',
+    ]);
+    expect(sheet.rows.map((row) => row.state)).toEqual(['owned', 'buy', 'need', 'owned', 'buy', 'need']);
+    expect(sheet.rows.map((row) => row.effect)).toEqual([
+      'Strike +2',
+      'Strike +4',
+      'Strike +7',
+      'Max HP +12',
+      'Max HP +24',
+      'Max HP +40',
+    ]);
+    expect(sheet.rows.map((row) => row.price)).toEqual(mangoGearRows.map((row) => row.price));
+    expect(sheet.rows.every((row) => row.canBuy === (row.state === 'buy'))).toBe(true);
+    expect(sheet.rows.every((row) => row.owned === (row.state === 'owned'))).toBe(true);
+    expect(shopSheet(0).rows.every((row) => row.state === 'need')).toBe(true);
+    expect(shopSheet(100).rows.every((row) => row.state === 'buy')).toBe(true);
   });
 });

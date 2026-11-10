@@ -608,6 +608,9 @@ export function ownedItemLabel(id: string): string {
   return row.effect === 'strike' ? `${name} +${row.amount} strike` : `${name} +${row.amount} max HP`;
 }
 
+// A quince row is one forge item. `owned` means it is already in the bag.
+export type ShopState = 'buy' | 'need' | 'owned';
+
 export interface ShopRow {
   readonly id: string;
   readonly name: string;
@@ -615,11 +618,19 @@ export interface ShopRow {
   readonly effect: string;
   readonly owned: boolean;
   readonly canBuy: boolean;
+  readonly state: ShopState;
+  readonly group: 'Weapons' | 'Armor';
 }
 
 export interface ShopSheet {
   readonly coins: number;
   readonly rows: readonly ShopRow[];
+}
+
+function quinceState(already: boolean, coins: number, price: number): ShopState {
+  if (already) return 'owned';
+  if (coins >= price) return 'buy';
+  return 'need';
 }
 
 export function shopSheet(coins: number, ownedIds: readonly string[] = []): ShopSheet {
@@ -628,13 +639,16 @@ export function shopSheet(coins: number, ownedIds: readonly string[] = []): Shop
     coins,
     rows: mangoGearRows.map((row) => {
       const already = owned.has(row.id);
+      const state = quinceState(already, coins, row.price);
       return {
         id: row.id,
         name: gearLabel(row.id),
         price: row.price,
         effect: row.effect === 'strike' ? `Strike +${row.amount}` : `Max HP +${row.amount}`,
         owned: already,
-        canBuy: !already && coins >= row.price,
+        canBuy: state === 'buy',
+        state,
+        group: row.slot === 'sword' ? 'Weapons' : 'Armor',
       };
     }),
   };
@@ -721,14 +735,21 @@ export interface ScreenControl {
   readonly y: number;
   readonly width: number;
   readonly height: number;
+  readonly font: string;
 }
+
+// Lime thought over the fig smith. The old box was 220 by 64 and sat huge next to the smaller fig.
+// This one is about three fifths of that, and 14px ink keeps "Armor and weapons" on one line.
+export const LIME_BUBBLE_W = 140;
+export const LIME_BUBBLE_H = 42;
+export const LIME_BUBBLE_FONT = '800 14px system-ui, Arial, sans-serif';
 
 // Thought bubble over the blacksmith, and the Bag control at the top right. Both are screen space.
 export function townControls(view: PeachView): ScreenControl[] {
   const feet = mapToCanvas(view, SMITH_X, SMITH_Y);
   const headTop = feet.y - scaleFor('blacksmith') * view.scale;
-  const bubbleWidth = 220;
-  const bubbleHeight = 64;
+  const bubbleWidth = LIME_BUBBLE_W;
+  const bubbleHeight = LIME_BUBBLE_H;
   let bubbleY = headTop - 8 - bubbleHeight;
   if (bubbleY < 8) bubbleY = 8;
   let bubbleX = feet.x - bubbleWidth / 2;
@@ -742,8 +763,17 @@ export function townControls(view: PeachView): ScreenControl[] {
       y: bubbleY,
       width: bubbleWidth,
       height: bubbleHeight,
+      font: LIME_BUBBLE_FONT,
     },
-    { id: 'bag', text: 'Bag', x: CANVAS_WIDTH - 24 - 92, y: 24, width: 92, height: 44 },
+    {
+      id: 'bag',
+      text: 'Bag',
+      x: CANVAS_WIDTH - 24 - 92,
+      y: 24,
+      width: 92,
+      height: 44,
+      font: '800 22px Georgia, serif',
+    },
   ];
 }
 

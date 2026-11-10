@@ -19,12 +19,16 @@ interface FakeEl {
   height: number;
   disabled: boolean;
   type: string;
+  className: string;
+  tagName: string;
+  dataset: Record<string, string>;
   writes: number;
   listeners: Record<string, Array<(event: FakeEvent) => void>>;
   parent: FakeEl | null;
   children: FakeEl[];
   addEventListener(type: string, listener: (event: FakeEvent) => void): void;
   appendChild(child: FakeEl): void;
+  replaceChild(next: FakeEl, prev: FakeEl): void;
   getContext(): unknown;
   getBoundingClientRect(): { left: number; top: number; width: number; height: number };
   textContent: string;
@@ -45,6 +49,7 @@ interface PaintMark {
   text: string;
   x: number;
   y: number;
+  font: string;
 }
 
 function fakeEl(id: string): FakeEl {
@@ -58,6 +63,9 @@ function fakeEl(id: string): FakeEl {
     height: 720,
     disabled: false,
     type: '',
+    className: '',
+    tagName: id.toUpperCase(),
+    dataset: {},
     writes: 0,
     listeners: {},
     parent: null,
@@ -68,6 +76,13 @@ function fakeEl(id: string): FakeEl {
     appendChild(child) {
       child.parent = el;
       children.push(child);
+    },
+    replaceChild(next, prev) {
+      const index = children.indexOf(prev);
+      if (index < 0) throw new Error('missing fig child');
+      prev.parent = null;
+      next.parent = el;
+      children[index] = next;
     },
     getContext() {
       return null;
@@ -150,19 +165,72 @@ function figSnapshot(character: Record<string, unknown>): unknown {
   };
 }
 
-function buttonState(buttons: readonly FakeEl[]): Array<{ text: string; disabled: boolean }> {
-  return buttons.map((button) => ({ text: button.textContent, disabled: button.disabled }));
+function shopRows(list: FakeEl): FakeEl[] {
+  return list.children.filter((child) => child.className === 'row');
+}
+
+function actionOf(row: FakeEl): FakeEl {
+  const action = row.children[row.children.length - 1];
+  if (action === undefined) throw new Error('quince row has no action');
+  return action;
+}
+
+function rowState(row: FakeEl): { name: string; effect: string; price: string; action: string; disabled: boolean; className: string; tag: string } {
+  const named = (className: string): FakeEl => {
+    const found = row.children.find((child) => child.className === className);
+    if (found === undefined) throw new Error(`missing ${className}`);
+    return found;
+  };
+  const action = actionOf(row);
+  return {
+    name: named('name').textContent,
+    effect: named('effect').textContent,
+    price: named('price').textContent,
+    action: action.textContent,
+    disabled: action.disabled,
+    className: action.className,
+    tag: action.tagName,
+  };
 }
 
 describe('panel close markup', () => {
   it('puts a Close button on the bag and the blacksmith', () => {
-    for (const id of ['olive-close', 'quince-close']) {
-      const sectionId = id === 'olive-close' ? 'olive-sheet' : 'quince-smith';
-      const start = pageHtml.indexOf(`id="${sectionId}"`);
-      const next = pageHtml.indexOf('<section', start + 1);
-      const section = pageHtml.slice(start, next === -1 ? undefined : next);
-      expect(section).toContain(`<button type="button" id="${id}">Close</button>`);
-    }
+    const oliveStart = pageHtml.indexOf('id="olive-sheet"');
+    const oliveNext = pageHtml.indexOf('<section', oliveStart + 1);
+    const olive = pageHtml.slice(oliveStart, oliveNext === -1 ? undefined : oliveNext);
+    expect(olive).toContain('<button type="button" id="olive-close">Close</button>');
+
+    const smithStart = pageHtml.indexOf('id="quince-smith"');
+    const smithNext = pageHtml.indexOf('<section', smithStart + 1);
+    const smith = pageHtml.slice(smithStart, smithNext === -1 ? undefined : smithNext);
+    expect(smith).toContain('<h3>Blacksmith</h3>');
+    expect(smith).toMatch(/<button type="button" id="quince-close"[^>]*>Close<\/button>/);
+    expect(smith).toContain('id="quince-purse"');
+    expect(smith).toContain('Buying puts the item in your bag. Equip it from the Bag.');
+  });
+
+  it('centers the blacksmith panel and copies the shop mockup colors', () => {
+    const ruleStart = pageHtml.indexOf('#quince-smith {');
+    const ruleEnd = pageHtml.indexOf('#quince-smith .top');
+    const rule = pageHtml.slice(ruleStart, ruleEnd);
+    expect(rule).toContain('position: fixed');
+    expect(rule).toContain('left: 50%');
+    expect(rule).toContain('top: 50%');
+    expect(rule).toContain('translate(-50%, -50%)');
+    expect(rule).toContain('min(860px, 94vw)');
+    expect(rule).toContain('max-height: 94vh');
+    expect(rule).toContain('overflow: auto');
+    expect(rule).not.toContain('right: 1rem');
+    expect(pageHtml).toContain('background: #221c16');
+    expect(pageHtml).toContain('border: 2px solid #6b5433');
+    expect(pageHtml).toContain('color: #f2c200');
+    expect(pageHtml).toContain('background: #2d8a3e');
+    expect(pageHtml).toContain('background: #4a4036');
+    expect(pageHtml).toContain('color: #8a7e70');
+    expect(pageHtml).toContain('#plum-duel, #olive-sheet');
+    const corner = pageHtml.slice(pageHtml.indexOf('#plum-duel, #olive-sheet'), pageHtml.indexOf('#plum-duel button'));
+    expect(corner).toContain('top: 1rem');
+    expect(corner).toContain('right: 1rem');
   });
 });
 
@@ -179,16 +247,22 @@ describe('live bag and blacksmith panels', () => {
     });
 
     const painted: PaintMark[] = [];
+    let ink = '';
     const canvas = fakeEl('papaya-canvas');
     canvas.getContext = () => ({
       fillStyle: '',
-      font: '',
+      get font() {
+        return ink;
+      },
+      set font(value: string) {
+        ink = value;
+      },
       shadowColor: '',
       shadowBlur: 0,
       clearRect() {},
       fillRect() {},
       fillText(text: string, x: number, y: number) {
-        painted.push({ text, x, y });
+        painted.push({ text, x, y, font: ink });
       },
       save() {},
       restore() {},
@@ -302,63 +376,88 @@ describe('live bag and blacksmith panels', () => {
     expect(xpLine[0]!.y).toBeGreaterThan(lv[0]!.y);
     expect(coinLine[0]?.x).toBe(HEALTH_X);
     expect(coinLine[0]!.y).toBeGreaterThan(xpLine[0]!.y);
+    const bubbleInk = painted.filter((mark) => mark.text === 'Armor and weapons');
+    expect(bubbleInk.length).toBeGreaterThan(0);
+    expect(bubbleInk[0]!.font).toContain('14px');
+    expect(bubble!.width).toBe(140);
+    expect(bubble!.height).toBe(42);
 
     press(canvas, bubble!.x + 4, bubble!.y + 4);
     expect(smith.hidden).toBe(false);
     expect(sheet.hidden).toBe(true);
     expect(purse.textContent).toBe('Your coins: 200');
-    expect(buttonState(list.children)).toEqual([
-      { text: 'Short sword (18)', disabled: false },
-      { text: 'Long sword (40)', disabled: false },
-      { text: 'Great sword (70)', disabled: false },
-      { text: 'Leather (16)', disabled: false },
-      { text: 'Chain (36)', disabled: false },
-      { text: 'Plate (64)', disabled: false },
+    expect(list.children.map((child) => child.textContent).filter((text) => text === 'Weapons' || text === 'Armor')).toEqual([
+      'Weapons',
+      'Armor',
     ]);
-    const keptButtons = [...list.children];
+    expect(shopRows(list).map(rowState)).toEqual([
+      { name: 'Short sword', effect: 'Strike +2', price: '18', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
+      { name: 'Long sword', effect: 'Strike +4', price: '40', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
+      { name: 'Great sword', effect: 'Strike +7', price: '70', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
+      { name: 'Leather', effect: 'Max HP +12', price: '16', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
+      { name: 'Chain', effect: 'Max HP +24', price: '36', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
+      { name: 'Plate', effect: 'Max HP +40', price: '64', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
+    ]);
+    const keptRows = shopRows(list);
+    const keptActions = keptRows.map(actionOf);
     const listWrites = list.writes;
+    expect(listWrites).toBe(0);
 
     deliver(figSnapshot({ ...rich, coins: 100 }));
     expect(smith.hidden).toBe(false);
     expect(purse.textContent).toBe('Your coins: 100');
     expect(list.writes).toBe(listWrites);
-    expect(list.children[0]).toBe(keptButtons[0]);
-    expect(list.children[5]).toBe(keptButtons[5]);
-    expect(buttonState(list.children)[0]).toEqual({ text: 'Short sword (18)', disabled: false });
+    expect(shopRows(list)[0]).toBe(keptRows[0]);
+    expect(shopRows(list)[5]).toBe(keptRows[5]);
+    expect(actionOf(shopRows(list)[0]!)).toBe(keptActions[0]);
+    expect(rowState(shopRows(list)[0]!).action).toBe('Buy');
 
     deliver(figSnapshot({ ...rich, coins: 30 }));
     expect(smith.hidden).toBe(false);
     expect(purse.textContent).toBe('Your coins: 30');
-    expect(list.writes).toBe(listWrites + 1);
-    expect(list.children[0]).not.toBe(keptButtons[0]);
-    expect(buttonState(list.children)).toEqual([
-      { text: 'Short sword (18)', disabled: false },
-      { text: 'Long sword (Need 40 coins)', disabled: true },
-      { text: 'Great sword (Need 70 coins)', disabled: true },
-      { text: 'Leather (16)', disabled: false },
-      { text: 'Chain (Need 36 coins)', disabled: true },
-      { text: 'Plate (Need 64 coins)', disabled: true },
+    expect(list.writes).toBe(listWrites);
+    expect(shopRows(list)[0]).toBe(keptRows[0]);
+    expect(actionOf(shopRows(list)[0]!)).toBe(keptActions[0]);
+    expect(actionOf(shopRows(list)[1]!)).toBe(keptActions[1]);
+    expect(shopRows(list).map(rowState).map((row) => ({ action: row.action, disabled: row.disabled, className: row.className }))).toEqual([
+      { action: 'Buy', disabled: false, className: 'buy' },
+      { action: 'Need 40 coins', disabled: true, className: 'buy no' },
+      { action: 'Need 70 coins', disabled: true, className: 'buy no' },
+      { action: 'Buy', disabled: false, className: 'buy' },
+      { action: 'Need 36 coins', disabled: true, className: 'buy no' },
+      { action: 'Need 64 coins', disabled: true, className: 'buy no' },
     ]);
-    const rebuilt = [...list.children];
     const purseWrites = purse.writes;
+    const shortWrites = actionOf(shopRows(list)[0]!).writes;
+    const longWrites = actionOf(shopRows(list)[1]!).writes;
     deliver(figSnapshot({ ...rich, coins: 30 }));
     expect(purse.writes).toBe(purseWrites);
-    expect(list.writes).toBe(listWrites + 1);
-    expect(list.children[0]).toBe(rebuilt[0]);
-    expect(list.children[1]).toBe(rebuilt[1]);
+    expect(list.writes).toBe(listWrites);
+    expect(actionOf(shopRows(list)[0]!).writes).toBe(shortWrites);
+    expect(actionOf(shopRows(list)[1]!).writes).toBe(longWrites);
+    expect(shopRows(list)[1]).toBe(keptRows[1]);
 
-    click(list.children[0]!);
-    expect(smith.hidden).toBe(true);
+    click(actionOf(shopRows(list)[0]!));
+    expect(smith.hidden).toBe(false);
     const bought = JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null') as { type: string; item: string };
     expect(bought).toEqual({ type: 'buy', item: 'shortSword' });
     expect(purse.textContent).toBe('Your coins: 30');
 
-    deliver(figSnapshot({ ...rich, coins: 200 }));
-    expect(purse.textContent).toBe('Your coins: 30');
-    press(canvas, bubble!.x + 4, bubble!.y + 4);
+    const leatherAction = actionOf(shopRows(list)[3]!);
+    deliver(figSnapshot({ ...rich, coins: 12, items: ['shortSword'] }));
     expect(smith.hidden).toBe(false);
-    expect(purse.textContent).toBe('Your coins: 200');
-    expect(list.children.every((button) => button.disabled === false)).toBe(true);
+    expect(purse.textContent).toBe('Your coins: 12');
+    expect(shopRows(list)[0]).toBe(keptRows[0]);
+    expect(actionOf(shopRows(list)[0]!).textContent).toBe('Owned');
+    expect(actionOf(shopRows(list)[0]!).tagName).toBe('SPAN');
+    expect(actionOf(shopRows(list)[0]!).className).toBe('buy own');
+    expect(actionOf(shopRows(list)[3]!)).toBe(leatherAction);
+    expect(rowState(shopRows(list)[3]!)).toMatchObject({ action: 'Need 16 coins', disabled: true, className: 'buy no' });
+    const sentAfterBuy = FakeSocket.open?.sent.length ?? 0;
+    click(actionOf(shopRows(list)[0]!));
+    click(leatherAction);
+    expect(FakeSocket.open?.sent.length).toBe(sentAfterBuy);
+    expect(smith.hidden).toBe(false);
 
     const key = (name: string): void => {
       const event: FakeEvent = {
@@ -374,6 +473,7 @@ describe('live bag and blacksmith panels', () => {
     key('Escape');
     expect(smith.hidden).toBe(true);
     expect(sheet.hidden).toBe(true);
+    deliver(figSnapshot({ ...rich, items: [] }));
 
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(false);
@@ -414,22 +514,28 @@ describe('live bag and blacksmith panels', () => {
     deliver(figSnapshot(owned));
     press(canvas, bubble!.x + 4, bubble!.y + 4);
     expect(smith.hidden).toBe(false);
-    expect(buttonState(list.children)).toEqual([
-      { text: 'Short sword (Owned)', disabled: true },
-      { text: 'Long sword (40)', disabled: false },
-      { text: 'Great sword (70)', disabled: false },
-      { text: 'Leather (Owned)', disabled: true },
-      { text: 'Chain (36)', disabled: false },
-      { text: 'Plate (64)', disabled: false },
+    expect(list.children.filter((child) => child.tagName === 'H4').map((child) => child.textContent)).toEqual([
+      'Weapons',
+      'Armor',
     ]);
+    expect(shopRows(list).map((row) => rowState(row).action)).toEqual([
+      'Owned',
+      'Buy',
+      'Buy',
+      'Owned',
+      'Buy',
+      'Buy',
+    ]);
+    expect(actionOf(shopRows(list)[0]!).tagName).toBe('SPAN');
+    expect(actionOf(shopRows(list)[3]!).tagName).toBe('SPAN');
     const sentBeforeOwned = FakeSocket.open?.sent.length ?? 0;
-    click(list.children[0]!);
-    click(list.children[3]!);
+    click(actionOf(shopRows(list)[0]!));
+    click(actionOf(shopRows(list)[3]!));
     expect(FakeSocket.open?.sent.length).toBe(sentBeforeOwned);
     expect(smith.hidden).toBe(false);
 
-    click(list.children[1]!);
-    expect(smith.hidden).toBe(true);
+    click(actionOf(shopRows(list)[1]!));
+    expect(smith.hidden).toBe(false);
     expect(JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null')).toEqual({ type: 'buy', item: 'longSword' });
 
     press(canvas, bag!.x + 4, bag!.y + 4);
