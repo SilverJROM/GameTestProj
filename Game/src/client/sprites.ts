@@ -19,13 +19,14 @@ export interface CropRect {
 // One on-map height in pixels per sprite kind. Every still of a kind is drawn at this height,
 // so a warrior, a skeleton, and a blacksmith stand the same tall. Width follows each still's own
 // aspect ratio (see scaledSize). The axolotl is a small pet, so it gets the smallest slot.
+// Each height is round(the earlier height * 0.6), so kinds keep the same size against each other.
 export const APPLE_SCALE_PX: Record<SpriteKind, number> = {
-  player: 96,
-  axolotl: 40,
-  wolf: 56,
-  bear: 80,
-  skeleton: 96,
-  blacksmith: 96,
+  player: 58,
+  axolotl: 24,
+  wolf: 34,
+  bear: 48,
+  skeleton: 58,
+  blacksmith: 58,
 };
 
 export function scaleFor(kind: SpriteKind): number {
