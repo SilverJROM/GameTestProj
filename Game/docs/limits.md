@@ -4,7 +4,7 @@ Read with `docs/balance.md` (game balance limits) and `docs/security.md` (securi
 
 ## Verified and how
 
-- Automated tests: `npm test` (vitest, 608 tests across unit, worker and integration files). Last full run after plan 10: all pass. One test (`test/worker/duel-request.test.ts`) had a timing race (the offer message could arrive after the reply snapshot) and was made order-safe with a ping; it was seen failing once in a full run before that change.
+- Automated tests: `npm test` (vitest, 605 tests across unit, worker and integration files). Last full run after plan 10: all pass. One test (`test/worker/duel-request.test.ts`) had a timing race (the offer message could arrive after the reply snapshot) and was made order-safe with a ping; it was seen failing once in a full run before that change.
 - `npx tsc --noEmit`: the six type errors in `src/client/main.ts` and `src/server/password.ts` are fixed (plan 14). The command still reports many more in this checkout that are only missing environment packages (`@cloudflare/workers-types` for `src/world/room.ts`, `@types/node` and implicit `any` in tests); adding those packages is a separate, low-risk change that has not been made.
 - A real-browser check of the plan 09 death and duel flow is in `docs/plan05-tools/death-duel-check.mjs` (Playwright on installed Chrome).
 
