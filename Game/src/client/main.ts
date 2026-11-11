@@ -5,7 +5,7 @@
 import type { Gender } from '../server/db';
 import type { ClientMessage, HitMark } from '../protocol';
 import { ZOOM_CLOSE, ZOOM_FAR, kaleConstants, type ZoneName } from '../rules/tables';
-import { townSpawn } from '../rules/regions';
+import { townSpawn, zoneAt } from '../rules/regions';
 import { removeMagenta } from './sprites';
 import { glideCitrus } from './smooth';
 import { canvasToMap, mapToCanvas, viewBox, type PeachView } from './camera';
@@ -58,6 +58,10 @@ import {
   type BlitCtx,
   type RimCtx,
   type ScreenCtx,
+  GRAVE_LIFETIME_MS,
+  paintGraves,
+  type Grave,
+  type GraveCtx,
   type FigPaint,
   type GuavaStill,
   type HealthReadout,
@@ -103,6 +107,8 @@ export interface FigHooks {
   onMenu?: (open: boolean) => void;
   // The server closed this socket for inactivity (code 4001): no reconnect, show the reload message.
   onIdle?: () => void;
+  // This player was killed: show the death panel (the page also holds the camera on the spot and draws a cross).
+  onDeath?: () => void;
   onOffer?: (offer: { fromId: string; fromName: string } | null) => void;
   onSnapshot?: () => void;
   onPlace?: (place: ZoneName) => void;
@@ -155,6 +161,10 @@ export interface FigBoard {
   closePanels(): void;
   // Opens or closes the fig menu. Opening it closes the Bag and the Blacksmith.
   setMenu(open: boolean): void;
+  // Crosses where avatars were killed, drawn over the map.
+  paintGraves(ctx: GraveCtx, view: PeachView, nowMs: number): void;
+  // The death panel was dismissed (the player chose to respawn): the camera returns to the avatar.
+  endDeath(): void;
   // Stops the lemon from sprouting again, then closes it so the fig leaves the world.
   haltLemon(): void;
   readonly smithOpen: boolean;
@@ -487,6 +497,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       const melonId = `melon:${seed.id}`;
       if (seenHits.has(melonId)) continue;
       seenHits.add(melonId);
+      // The coin was taken (by walking onto it or by the pet): one coin sound.
+      figSfx.coin();
       const quinceValue = melonValue(seed);
       floats.push({
         id: melonId,
@@ -510,6 +522,15 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       if (hit.targetKind !== 'monster' && hit.targetKind !== 'player') continue;
       if (typeof hit.amount !== 'number' || typeof hit.x !== 'number' || typeof hit.y !== 'number') continue;
       seenHits.add(hit.id);
+      if (hit.fatal === true && hit.targetKind === 'player') {
+        // A kill: a cross where it happened; for this player also the death panel, with the camera held on the spot.
+        const place = zoneAt(hit.x, hit.y) ?? selfPlace;
+        graves.push({ x: hit.x, y: hit.y, at: now });
+        if (hit.targetId === selfId) {
+          deathHold = { x: hit.x, y: hit.y, place };
+          hooks.onDeath?.();
+        }
+      }
       floats.push({
         id: hit.id,
         targetKind: hit.targetKind,
@@ -606,6 +627,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   }
 
   function pressScreen(x: number, y: number): boolean {
+    if (deathHold !== null) return true;
     const hit = controlAt(controls(), x, y);
     if (hit === null) return false;
     if (hit.id === 'bubble') {
@@ -634,7 +656,25 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     return true;
   }
 
+  // Where this player died, while the death panel is open: the camera stays there and clicks are ignored.
+  let deathHold: { x: number; y: number; place: ZoneName } | null = null;
+  // Crosses where avatars were killed.
+  const graves: Grave[] = [];
+
+  function paintGravesOn(ctx: GraveCtx, view: PeachView, nowMs: number): void {
+    // Forget crosses that have run out, then draw the rest.
+    for (let i = graves.length - 1; i >= 0; i -= 1) {
+      if (nowMs - graves[i]!.at >= GRAVE_LIFETIME_MS) graves.splice(i, 1);
+    }
+    paintGraves(ctx, graves, view, nowMs);
+  }
+
+  function endDeath(): void {
+    deathHold = null;
+  }
+
   function camera(): PeachView {
+    if (deathHold !== null) return viewBox(deathHold.place, deathHold.x, deathHold.y, guavaZoom);
     const self = orchard.players.find((fig) => fig.id === selfId);
     const feet = self === undefined ? undefined : citrusShown.get(citrusKey('player', self.id));
     const spawn = townSpawn;
@@ -655,6 +695,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   }
 
   function click(berry: ClickBerry): void {
+    if (deathHold !== null) return;
     const stills = pose();
     const peeled = peelClick(berry, {
       selfId,
@@ -788,6 +829,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     inventory,
     closePanels,
     setMenu,
+    endDeath,
+    paintGraves: paintGravesOn,
     haltLemon,
     get smithOpen() {
       return quinceOpen;
@@ -922,10 +965,13 @@ const QUIET_MUSIC: MusicEngine = {
 };
 // The live music for the signed-in fig. Sign-in and the picker never start it.
 let figMusic: MusicEngine = QUIET_MUSIC;
+// After a death the Respawn button waits this long before the camera goes back to the avatar in town.
+const DEATH_RESPAWN_DELAY_MS = 1500;
 // The server closes a socket that sent nothing for 20 minutes with this code.
 const IDLE_CLOSE_CODE = 4001;
 const QUIET_SFX: SfxEngine = {
   frame() {},
+  coin() {},
   noteGesture() {},
   setCanvasVisible() {},
   dispose() {},
@@ -1328,6 +1374,9 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
       if (beet !== undefined) paintBeetRim(rim, beet.x, beet.y, beet.kind, beet.src, view);
     }
     const screen = ctx as BlitCtx & ScreenCtx;
+    if (typeof screen.fillRect === 'function') {
+      board.paintGraves(screen as unknown as GraveCtx, view, nowMs);
+    }
     if (typeof screen.fillRect === 'function' && typeof screen.fillText === 'function') {
       paintHealth(screen, board.health());
       paintHud(screen, board.hud());
@@ -1743,6 +1792,17 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
         if (open) hideSettings();
         if (open) paintOlive();
       },
+      onDeath() {
+        const panel = doc.getElementById('death-panel');
+        const respawn = doc.getElementById('death-respawn');
+        if (respawn !== null) {
+          respawn.disabled = false;
+          respawn.textContent = 'Respawn in town';
+        }
+        // Menus and the Bag close so the panel is the only thing to answer.
+        board.setMenu(false);
+        if (panel !== null) panel.hidden = false;
+      },
       onIdle() {
         const idle = doc.getElementById('idle-panel');
         if (idle !== null) idle.hidden = false;
@@ -2088,6 +2148,28 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   });
   doc.getElementById('idle-reload')?.addEventListener?.('click', () => {
     reloadFigPage();
+  });
+  // Death panel: Respawn waits a moment (so the death is seen), then the camera goes back to the avatar in town.
+  doc.getElementById('death-respawn')?.addEventListener?.('click', () => {
+    const respawn = doc.getElementById('death-respawn');
+    if (respawn === null || respawn.disabled === true) return;
+    respawn.disabled = true;
+    respawn.textContent = 'Respawning...';
+    setTimeout(() => {
+      const panel = doc.getElementById('death-panel');
+      if (panel !== null) panel.hidden = true;
+      board.endDeath();
+    }, DEATH_RESPAWN_DELAY_MS);
+  });
+  doc.getElementById('death-exit')?.addEventListener?.('click', () => {
+    const fetchFn = (globalThis as {
+      fetch?: (input: string, init?: { method: string; credentials: string }) => Promise<PearResponse>;
+    }).fetch;
+    if (typeof fetchFn !== 'function') {
+      reloadFigPage();
+      return;
+    }
+    void logOutFig((input, init) => fetchFn(input, init), reloadFigPage);
   });
   doc.getElementById('menu-close')?.addEventListener?.('click', () => {
     board.setMenu(false);

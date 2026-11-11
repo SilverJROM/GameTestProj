@@ -22,7 +22,7 @@ import {
   type Box,
   type Point,
 } from '../rules/regions';
-import { CANVAS_WIDTH, mapToCanvas, type PeachView } from './camera';
+import { CANVAS_HEIGHT, CANVAS_WIDTH, mapToCanvas, type PeachView } from './camera';
 import { clampHealth, maxHealth, strike, type Hero } from '../rules/logic';
 import { mangoGearRows, papayaLevelRows, pearTimings, type ZoneName } from '../rules/tables';
 import {
@@ -1313,4 +1313,44 @@ export function paintStack(
     }
   }
   ctx.restore();
+}
+
+
+// A cross where an avatar was killed. It stays for GRAVE_LIFETIME_MS. Screen space is derived from the map spot.
+export const GRAVE_LIFETIME_MS = 60_000;
+
+export interface Grave {
+  readonly x: number;
+  readonly y: number;
+  readonly at: number;
+}
+
+export interface GraveCtx {
+  fillStyle: string | CanvasGradient | CanvasPattern;
+  fillRect(x: number, y: number, w: number, h: number): void;
+}
+
+// Draws every grave still alive that falls inside the view: a pale cross with a dark edge, sized with the map scale.
+export function paintGraves(ctx: GraveCtx, graves: readonly Grave[], view: PeachView, nowMs: number): number {
+  let drawn = 0;
+  for (const grave of graves) {
+    if (nowMs - grave.at >= GRAVE_LIFETIME_MS) continue;
+    const spot = mapToCanvas(view, grave.x, grave.y);
+    const k = Math.max(0.6, view.scale);
+    const height = 34 * k;
+    const arm = 22 * k;
+    const bar = Math.max(4, 6 * k);
+    if (spot.x < -arm || spot.x > CANVAS_WIDTH + arm || spot.y < -height || spot.y > CANVAS_HEIGHT + height) continue;
+    const top = spot.y - height;
+    const left = spot.x - arm / 2;
+    // Edge first, then the pale cross on top: upright bar, then the cross arm a third of the way down.
+    ctx.fillStyle = '#1a140c';
+    ctx.fillRect(spot.x - bar / 2 - 2, top - 2, bar + 4, height + 4);
+    ctx.fillRect(left - 2, top + height * 0.28 - 2, arm + 4, bar + 4);
+    ctx.fillStyle = '#d9d2c2';
+    ctx.fillRect(spot.x - bar / 2, top, bar, height);
+    ctx.fillRect(left, top + height * 0.28, arm, bar);
+    drawn += 1;
+  }
+  return drawn;
 }

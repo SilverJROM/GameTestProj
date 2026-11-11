@@ -18,3 +18,8 @@ Notes
 - The sword and stab sounds are the closest in the Kenney RPG pack (knife slice, chop); Kenney's Impact Sounds pack could give better ones.
 - The bear file is a growl, not a roar. The wolf file is a cry.
 - Author names for the wolf page are not captured; check the page before release.
+
+## Added 2026-11-11 (coin pickup)
+| File | Use | Source page | Author | License |
+|---|---|---|---|---|
+| sfx/coin.mp3 | Coin pickup (you or your pet), about 1 s | https://opengameart.org/content/plingy-coin (coin_0.mp3) | Fupi | CC0 |
