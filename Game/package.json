@@ -9,7 +9,8 @@
     "build:precompute": "node scripts/build-precompute.mjs",
     "test": "vitest run",
     "sim": "node scripts/run-sim.mjs",
-    "e2e:two-client": "node scripts/e2e-two-client.mjs"
+    "e2e:two-client": "node scripts/e2e-two-client.mjs",
+    "balance": "SIM_ENTRY=scripts/balance.ts node scripts/run-sim.mjs"
   },
   "keywords": [],
   "author": "",
