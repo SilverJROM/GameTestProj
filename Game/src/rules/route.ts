@@ -46,7 +46,13 @@ const CORNER_CLEARANCE_PX = 1.5;
 function clear(a: Point, b: Point): boolean {
   if (firstSolidWallCrossing(a, b) !== null) return false;
   const len2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2;
+  const minX = Math.min(a[0], b[0]) - CORNER_CLEARANCE_PX;
+  const maxX = Math.max(a[0], b[0]) + CORNER_CLEARANCE_PX;
+  const minY = Math.min(a[1], b[1]) - CORNER_CLEARANCE_PX;
+  const maxY = Math.max(a[1], b[1]) + CORNER_CLEARANCE_PX;
   for (const c of wallCorners) {
+    // A corner outside the leg's bounding box cannot be within the clearance of it.
+    if (c[0] < minX || c[0] > maxX || c[1] < minY || c[1] > maxY) continue;
     if (Math.hypot(c[0] - a[0], c[1] - a[1]) < 2 * CORNER_CLEARANCE_PX || Math.hypot(c[0] - b[0], c[1] - b[1]) < 2 * CORNER_CLEARANCE_PX) continue;
     const t = len2 < 1e-9 ? 0 : Math.max(0, Math.min(1, ((c[0] - a[0]) * (b[0] - a[0]) + (c[1] - a[1]) * (b[1] - a[1])) / len2));
     if (Math.hypot(a[0] + t * (b[0] - a[0]) - c[0], a[1] + t * (b[1] - a[1]) - c[1]) < CORNER_CLEARANCE_PX) return false;

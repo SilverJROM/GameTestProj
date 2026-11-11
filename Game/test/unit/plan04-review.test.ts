@@ -29,7 +29,7 @@ describe('respawn keeps the monsters spread out', () => {
     expect(indexes).toEqual([0, 1, 2, 3, 4, 5, 6]);
   });
 
-  it('a respawn waits while a monster stands on its leek (never on top of one)', () => {
+  it('a respawn waits ten seconds while a monster stands on its leek (never on top of one)', () => {
     let bed: CabbageBed = plantCabbage();
     const victim = bed.beets.find((b) => b.kind === 'wolf' && b.spawnIndex === 3)!;
     const neighbour = bed.beets.find((b) => b.kind === 'wolf' && b.spawnIndex === 4)!;
@@ -41,7 +41,7 @@ describe('respawn keeps the monsters spread out', () => {
     expect(waiting.yams.length).toBe(1);
     // Once it has moved on the wolf comes back.
     const moved: CabbageBed = { ...waiting, beets: waiting.beets.map((b) => (b.id === neighbour.id ? { ...b, x: b.x + 200 } : b)) };
-    const back = sproutYams(moved, 10_000_000 + 3000);
+    const back = sproutYams(moved, 10_000_000 + 11_000);
     expect(back.beets.filter((b) => b.kind === 'wolf')).toHaveLength(7);
     const fresh = back.beets.find((b) => b.id.startsWith('wolf-') && b.spawnIndex === 3)!;
     for (const other of back.beets) if (other.id !== fresh.id) expect(overlapShare(fresh, other)).toBeLessThanOrEqual(MAX_OVERLAP);

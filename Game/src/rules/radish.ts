@@ -107,7 +107,8 @@ function distToSegment(p: Point, a: Point, b: Point): number {
 
 // True when the spot is within `within` px of the middle of a gate opening.
 export function nearGateOpening(p: Point, within: number): boolean {
-  return nearGate(p, within);
+  // The whole opening, not just its middle: the distance to the gate line.
+  return [limeTownGate, berryCemeteryGate].some((g) => distToSegment(p, g[0], g[1]) < within);
 }
 
 function nearGate(p: Point, within: number): boolean {

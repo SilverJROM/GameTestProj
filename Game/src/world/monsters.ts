@@ -286,10 +286,20 @@ export function sproutYams(bed: CabbageBed, nowMs: number): CabbageBed {
   const nextSerial: Record<string, number> = { ...bed.nextSerial };
   for (const yam of ordered) {
     const row = beetRow(yam.kind);
-    const spot = differentLeek(row.zone, yam.avoidX, yam.avoidY, beets);
-    // Not on top of a monster that wandered over the leek: try again in two seconds.
-    if (!spotAllowed({ id: `${yam.kind}-new`, kind: yam.kind, x: -10000, y: -10000 }, spot[0], spot[1], beets)) {
-      waiting.push({ ...yam, dueMs: nowMs + 2000 });
+    // Each monster owns one leek. The newcomer takes a free (unowned) leek with no monster standing on it; if every free
+    // leek has a monster on it, it waits ten seconds more. Only when no leek is free at all (a bed of odd size) does it use
+    // the older next-leek rule.
+    const owned = new Set(beets.filter((beet) => beet.zone === row.zone).map((beet) => beet.spawnIndex));
+    const free = spawnPoints[row.zone].filter((_, index) => !owned.has(index));
+    const mover = { id: `${yam.kind}-new`, kind: yam.kind, x: -10000, y: -10000 };
+    let spot: Point | undefined;
+    if (free.length === 0) {
+      spot = differentLeek(row.zone, yam.avoidX, yam.avoidY, beets);
+    } else {
+      spot = free.find((candidate) => spotAllowed(mover, candidate[0], candidate[1], beets));
+    }
+    if (spot === undefined || !spotAllowed(mover, spot[0], spot[1], beets)) {
+      waiting.push({ ...yam, dueMs: nowMs + 10_000 });
       continue;
     }
     const serial = nextSerial[yam.kind] ?? beets.length + 1;
