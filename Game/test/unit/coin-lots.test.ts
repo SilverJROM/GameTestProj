@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COIN_LIFETIME_MS, expiredLots, nextExpiry, planLots, type CoinLot } from '../../src/rules/coins';
+import { COIN_LIFETIME_MS, drawLots, expiredLots, nextExpiry, planLots, type CoinLot } from '../../src/rules/coins';
 import { COIN_LIFETIME_DAYS } from '../../src/rules/tables';
 
 const DAY = 86_400_000;
@@ -42,10 +42,60 @@ describe('coin lots', () => {
     expect(dead.amount).toBe(5);
   });
 
-  it('reports when the oldest living coins run out', () => {
-    const lots = [lot('x', 3, 2), lot('y', 8, 5), lot('gone', 1, 9)];
-    expect(nextExpiry(lots, now)).toEqual({ amount: 8, atMs: now - 5 * DAY + 7 * DAY });
+  it('reports only the coins that run out within 2 days', () => {
+    // ages: 6 d (1 d left), 5.5 d (1.5 d left), 3 d (4 d left: outside the window), 9 d (gone)
+    const lots = [lot('a', 4, 6), lot('b', 3, 5.5), lot('far', 20, 3), lot('gone', 1, 9)];
+    const out = nextExpiry(lots, now)!;
+    expect(out.amount).toBe(7);
+    expect(out.atMs).toBe(now - 6 * DAY + 7 * DAY);
+    expect(out.lastAtMs).toBe(now - 5.5 * DAY + 7 * DAY);
+    expect(out.groups).toEqual([
+      { amount: 4, atMs: now + 1 * DAY },
+      { amount: 3, atMs: now + 1.5 * DAY },
+    ]);
+    expect(nextExpiry([lot('far', 5, 3)], now)).toBeNull();
     expect(nextExpiry([lot('gone', 1, 9)], now)).toBeNull();
     expect(nextExpiry([], now)).toBeNull();
+  });
+
+  it('shows at most 3 groups, folding the rest into the last one', () => {
+    const lots = [lot('a', 1, 6.1), lot('b', 2, 6.2), lot('c', 3, 6.3), lot('d', 4, 6.4)];
+    const out = nextExpiry(lots, now)!;
+    expect(out.groups).toHaveLength(3);
+    expect(out.groups.reduce((n, g) => n + g.amount, 0)).toBe(10);
+    expect(out.amount).toBe(10);
+  });
+
+  it('a duel draw takes the exact amount, never more than the lots hold, and never from empty lots', () => {
+    const lots = [lot('a', 5, 4), lot('b', 3, 1), lot('z', 0, 2)];
+    const takes = drawLots(lots, 6, Math.random);
+    expect(takes.reduce((n, t) => n + t.amount, 0)).toBe(6);
+    for (const t of takes) expect(t.amount).toBeLessThanOrEqual(lots.find((l) => l.id === t.id)!.amount);
+    expect(drawLots(lots, 99, Math.random).reduce((n, t) => n + t.amount, 0)).toBe(8);
+    expect(drawLots(lots, 0, Math.random)).toEqual([]);
+    expect(drawLots(lots, Number.NaN, Math.random)).toEqual([]);
+    expect(drawLots([], 5, Math.random)).toEqual([]);
+  });
+
+  it('a duel draw is random across coins: a pile of 90 is hit about nine times as often as a pile of 10', () => {
+    const lots = [lot('big', 90, 5), lot('small', 10, 1)];
+    let big = 0;
+    let small = 0;
+    for (let i = 0; i < 2000; i += 1) {
+      for (const t of drawLots(lots, 10, Math.random)) {
+        if (t.id === 'big') big += t.amount;
+        else small += t.amount;
+      }
+    }
+    const share = small / (big + small);
+    expect(share).toBeGreaterThan(0.08);
+    expect(share).toBeLessThan(0.12);
+  });
+
+  it('a draw can leave the old lots untouched when the dice choose the other lot', () => {
+    const lots = [lot('old', 5, 6), lot('new', 5, 1)];
+    // rand 0.99 always points at the last coin in the pool: the newest lot pays first.
+    const takes = drawLots(lots, 3, () => 0.99);
+    expect(takes).toEqual([{ id: 'new', pickedAtMs: now - 1 * DAY, amount: 3 }]);
   });
 });

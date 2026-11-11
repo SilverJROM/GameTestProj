@@ -75,6 +75,8 @@ export const pearTimings = {
 
 // Coins expire this many days after the pickup. Spending uses the oldest coins first.
 export const COIN_LIFETIME_DAYS = 7;
+// The Bag warns about coins that expire within this many days.
+export const COIN_WARN_DAYS = 2;
 
 // Room tick, walk speed, monster chase speed, and melee reach. Frozen values.
 // viewPadPx grows the widest guava window on every side. A beet inside that pad counts as on screen.

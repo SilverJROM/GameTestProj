@@ -187,7 +187,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   let selfArmor: string | null = null;
   let selfItems: string[] = [];
   let selfElsewhere: { itemId: string; by: string }[] = [];
-  let selfCoinExpiry: { amount: number; atMs: number } | null = null;
+  let selfCoinExpiry: { amount: number; atMs: number; lastAtMs?: number; groups?: { amount: number; atMs: number }[] } | null = null;
   const seenHits = new Set<string>();
   let floats: FloatHit[] = [];
   const selfGender = options.selfGender;
@@ -230,10 +230,19 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     if (Array.isArray(fig.items)) {
       selfItems = fig.items.filter((id): id is string => typeof id === 'string');
     }
-    const expiry = fig.coinExpiry as { amount?: unknown; atMs?: unknown } | null | undefined;
+    const expiry = fig.coinExpiry as { amount?: unknown; atMs?: unknown; lastAtMs?: unknown; groups?: unknown } | null | undefined;
     selfCoinExpiry =
       expiry !== null && expiry !== undefined && typeof expiry.amount === 'number' && typeof expiry.atMs === 'number'
-        ? { amount: expiry.amount, atMs: expiry.atMs }
+        ? {
+            amount: expiry.amount,
+            atMs: expiry.atMs,
+            lastAtMs: typeof expiry.lastAtMs === 'number' ? expiry.lastAtMs : expiry.atMs,
+            groups: Array.isArray(expiry.groups)
+              ? (expiry.groups as { amount?: unknown; atMs?: unknown }[])
+                  .filter((g): g is { amount: number; atMs: number } => typeof g?.amount === 'number' && typeof g?.atMs === 'number')
+                  .slice(0, 3)
+              : [],
+          }
         : null;
     selfElsewhere = Array.isArray(fig.elsewhere)
       ? (fig.elsewhere as { itemId?: unknown; by?: unknown }[]).filter(
@@ -1371,6 +1380,10 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     if (sheet === null) return;
     oliveText('olive-coins', `Coins: ${sheet.coins}`);
     oliveText('olive-expiry', sheet.expiry);
+    {
+      const tip = document.getElementById('olive-expiry');
+      if (tip !== null) tip.title = sheet.expiryTip;
+    }
     oliveText('olive-level', String(sheet.level));
     oliveText('olive-health', sheet.health);
     oliveText('olive-strike', String(sheet.strike));

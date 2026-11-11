@@ -690,7 +690,7 @@ describe('lemon forge quince', () => {
     expect(chivePlate).toEqual({
       ...chiveReady,
       // Spending took the oldest coins, so the "coins expire" line is its own value.
-      coinExpiry: expect.anything(),
+      coinExpiry: null,
       coins: leatherQuince.price,
       items: ['plate'],
     });
@@ -985,7 +985,7 @@ describe('lemon forge quince', () => {
     expect(figSnap(stolen, ready.id).character).toEqual(boughtMango);
     expect(figSnap(stolen, ready.id).character.sword).toBeNull();
     expect(figSnap(stolen, guavaReady.id).character).toEqual(guavaReady);
-    expect(await readFig(ready.id)).toEqual({ ...ready, coins: leatherQuince.price, items: ['shortSword'], coinExpiry: expect.anything() });
+    expect(await readFig(ready.id)).toEqual({ ...ready, coins: leatherQuince.price, items: ['shortSword'], coinExpiry: null });
     expect(await figWrites(guavaReady.id)).toBe(guavaWrites);
 
     const equipped = await hearAll(mangoJoin.socket, { type: 'equip', itemId: 'shortSword' });

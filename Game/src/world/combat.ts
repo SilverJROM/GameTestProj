@@ -389,8 +389,8 @@ export function strikeFig(
     mark,
     // Loser first, winner second: saveFactsPair writes both in one batch.
     writes: [
-      { id: target.facts.id, patch: { hp: risen.health, place: risen.place, x: townX, y: townY, coins: loserCoins, coinsDelta: -pot } },
-      { id: attacker.facts.id, patch: { coins: winnerCoins, coinsDelta: pot } },
+      { id: target.facts.id, patch: { hp: risen.health, place: risen.place, x: townX, y: townY, coins: loserCoins, coinsDelta: -pot, duelPot: pot } },
+      { id: attacker.facts.id, patch: { coins: winnerCoins, coinsDelta: pot, duelPot: pot } },
     ],
   };
 }

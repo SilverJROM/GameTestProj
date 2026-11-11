@@ -121,8 +121,8 @@ describe('character store on local D1', () => {
 
     expect(plumSaved).toEqual({
       ...peachFacts,
-      // The purse now holds one coin lot, so the stored facts say when those coins run out.
-      coinExpiry: expect.objectContaining({ amount: 7 }),
+      // Fresh coins are days from expiry, so the 2 day Bag warning stays empty.
+      coinExpiry: null,
       level: 2,
       xp: 3,
       hp: 30,

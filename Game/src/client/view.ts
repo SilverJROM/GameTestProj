@@ -765,7 +765,7 @@ export interface InventoryFacts {
   readonly items: readonly string[];
   // Copies the account's other avatars wear: shown greyed with their name, and not usable here.
   readonly elsewhere?: readonly { readonly itemId: string; readonly by: string }[];
-  readonly coinExpiry?: { readonly amount: number; readonly atMs: number } | null;
+  readonly coinExpiry?: CoinExpiryView | null;
   readonly gender: Gender | undefined;
 }
 
@@ -792,22 +792,46 @@ export interface InventorySheet {
   readonly experience: string;
   // When the oldest coins run out, in words, or empty when there are no coins.
   readonly expiry: string;
+  readonly expiryTip: string;
   readonly tiles: readonly BagTile[];
   readonly portrait: string;
 }
 
-// "Oldest 12 coins expire in 6 days." The time left is rounded up to days, then hours, then minutes.
-export function coinExpiryText(expiry: { readonly amount: number; readonly atMs: number } | null | undefined, nowMs: number): string {
+export interface CoinExpiryView {
+  readonly amount: number;
+  readonly atMs: number;
+  readonly lastAtMs?: number;
+  readonly groups?: readonly { readonly amount: number; readonly atMs: number }[];
+}
+
+const DAY_MS = 86_400_000;
+
+function expiryUnit(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+function expiryWhen(left: number): string {
+  if (left <= 0) return 'now';
+  if (left <= 3_600_000) return `${expiryUnit(Math.max(1, Math.ceil(left / 60_000)), 'minute')}`;
+  if (left <= DAY_MS) return `${expiryUnit(Math.ceil(left / 3_600_000), 'hour')}`;
+  return expiryUnit(Math.ceil(left / DAY_MS), 'day');
+}
+
+// The Bag line for coins that run out soon (the server only sends coins inside the 2 day window):
+// "12 coins expire within 2 days." or "12 coins expire today." when all of them go within 24 hours. Empty when none.
+export function coinExpiryText(expiry: CoinExpiryView | null | undefined, nowMs: number): string {
   if (expiry === null || expiry === undefined || expiry.amount <= 0) return '';
-  const left = expiry.atMs - nowMs;
-  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
-  const when =
-    left > 86_400_000
-      ? unit(Math.ceil(left / 86_400_000), 'day')
-      : left > 3_600_000
-        ? unit(Math.ceil(left / 3_600_000), 'hour')
-        : unit(Math.max(1, Math.ceil(left / 60_000)), 'minute');
-  return `Oldest ${unit(expiry.amount, 'coin')} expire${expiry.amount === 1 ? 's' : ''} in ${when}.`;
+  const verb = expiry.amount === 1 ? 'expires' : 'expire';
+  const last = (expiry.lastAtMs ?? expiry.atMs) - nowMs;
+  const what = expiryUnit(expiry.amount, 'coin');
+  return last <= DAY_MS ? `${what} ${verb} today.` : `${what} ${verb} within ${expiryUnit(Math.max(1, Math.ceil(last / DAY_MS)), 'day')}.`;
+}
+
+// Hover text: up to 3 groups, "5 in 1 day, 7 in 2 days".
+export function coinExpiryTip(expiry: CoinExpiryView | null | undefined, nowMs: number): string {
+  if (expiry === null || expiry === undefined || expiry.amount <= 0) return '';
+  const groups = expiry.groups !== undefined && expiry.groups.length > 0 ? expiry.groups.slice(0, 3) : [{ amount: expiry.amount, atMs: expiry.atMs }];
+  return groups.map((g) => `${g.amount} in ${expiryWhen(g.atMs - nowMs)}`).join(', ');
 }
 
 // One grape per owned quince, in bag order. A worn quince keeps its seal.
@@ -882,6 +906,7 @@ export function inventorySheet(facts: InventoryFacts): InventorySheet {
     strike: strike(hero),
     experience: papayaXpText(facts.level, facts.xp),
     expiry: coinExpiryText(facts.coinExpiry, Date.now()),
+    expiryTip: coinExpiryTip(facts.coinExpiry, Date.now()),
     tiles: bagTiles(facts.items, facts.sword, facts.armor, facts.elsewhere ?? []),
     portrait: figStandSrc(facts.gender),
   };

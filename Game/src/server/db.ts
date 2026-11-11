@@ -1,7 +1,7 @@
 // Character store over D1. Every value is bound as a parameter; no id or name is ever spliced into SQL.
 // Starting facts come from the rules module (level table, gear, region spawn), never from restated numbers.
 
-import { COIN_LIFETIME_MS, lotExpired, nextExpiry, planLots, type CoinLot } from '../rules/coins';
+import { COIN_LIFETIME_MS, drawLots, lotExpired, nextExpiry, planLots, type CoinExpiry, type CoinLot } from '../rules/coins';
 import { maxHealth, type Hero } from '../rules/logic';
 import { normalizeName } from '../rules/names';
 import { townSpawn } from '../rules/regions';
@@ -74,7 +74,7 @@ export interface CharacterFacts {
   // Copies worn by the account's other avatars: the quince id and that avatar's name.
   readonly elsewhere?: readonly { readonly itemId: string; readonly by: string }[];
   // The oldest coins still alive and when they run out (milliseconds since 1970), or null with no coins.
-  readonly coinExpiry?: { readonly amount: number; readonly atMs: number } | null;
+  readonly coinExpiry?: CoinExpiry | null;
   readonly place: ZoneName;
   readonly x: number;
   readonly y: number;
@@ -91,6 +91,9 @@ export interface CharacterFactsPatch {
   // A purse change as an amount (gain or spend), not a total. Relative writes never undo each other, so a pickup,
   // a purchase, a duel and the once-a-minute expiry can overlap safely. When present it replaces `coins`.
   readonly coinsDelta?: number;
+  // A duel payout: the coins the loser pays (on both patches). The coins are drawn at random from the loser's live
+  // lots and arrive with the winner under their ORIGINAL dates, so they keep their own expiry.
+  readonly duelPot?: number;
   readonly sword?: string | null;
   readonly armor?: string | null;
   readonly place?: ZoneName;
@@ -126,6 +129,7 @@ const SAVABLE_COLUMNS: Readonly<Record<keyof CharacterFactsPatch, string>> = {
   maxHp: 'max_hp',
   coins: 'coins',
   coinsDelta: 'coins',
+  duelPot: 'coins',
   sword: 'sword',
   armor: 'armor',
   place: 'place',
@@ -133,7 +137,7 @@ const SAVABLE_COLUMNS: Readonly<Record<keyof CharacterFactsPatch, string>> = {
   y: 'y',
 };
 
-function rowToFacts(peachRow: CharacterRow, bag: Bag, coinExpiry: { amount: number; atMs: number } | null): CharacterFacts {
+function rowToFacts(peachRow: CharacterRow, bag: Bag, coinExpiry: CoinExpiry | null): CharacterFacts {
   return {
     id: peachRow.id,
     name: peachRow.name,
@@ -247,7 +251,7 @@ function patchAssignments(patch: CharacterFactsPatch): { sql: string[]; values: 
   const sql: string[] = [];
   const values: unknown[] = [];
   for (const key of Object.keys(SAVABLE_COLUMNS) as (keyof CharacterFactsPatch)[]) {
-    if (key === 'coinsDelta' || (key === 'coins' && patch.coinsDelta !== undefined)) {
+    if (key === 'coinsDelta' || key === 'duelPot' || (key === 'coins' && patch.coinsDelta !== undefined)) {
       continue;
     }
     const value = patch[key];
@@ -583,13 +587,49 @@ export async function saveFactsPair(
   db: CharacterDb,
   first: { readonly id: string; readonly patch: CharacterFactsPatch },
   second: { readonly id: string; readonly patch: CharacterFactsPatch },
+  rand: () => number = Math.random,
 ): Promise<void> {
   const nowMs = Date.now();
-  const lots = [
-    ...(await coinLotStatements(db, first.id, first.patch, nowMs)),
-    ...(await coinLotStatements(db, second.id, second.patch, nowMs)),
-  ];
-  const leeks = [...lots, prepareFactsUpdate(db, first.id, first.patch), prepareFactsUpdate(db, second.id, second.patch)].filter(
+  let a = first.patch;
+  let b = second.patch;
+  const lotStatements: D1Statement[] = [];
+  const pot = a.duelPot ?? b.duelPot;
+  if (pot !== undefined && pot > 0) {
+    // first pays, second collects. Draw the coins from the payer's live lots; they keep their dates.
+    const live = (await readCoinLots(db, first.id)).filter((lot) => !lotExpired(lot, nowMs));
+    const takes = drawLots(live, pot, rand);
+    const taken = takes.reduce((n, t) => n + t.amount, 0);
+    for (const take of takes) {
+      const lot = live.find((l) => l.id === take.id)!;
+      lotStatements.push(
+        lot.amount - take.amount > 0
+          ? db.prepare('UPDATE coin_lots SET amount = ? WHERE id = ?').bind(lot.amount - take.amount, take.id)
+          : db.prepare('DELETE FROM coin_lots WHERE id = ?').bind(take.id),
+      );
+      lotStatements.push(
+        db
+          .prepare(
+            'INSERT INTO coin_lots (id, character_id, amount, picked_at) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM characters WHERE id = ?)',
+          )
+          .bind(crypto.randomUUID(), second.id, take.amount, take.pickedAtMs, second.id),
+      );
+    }
+    if (taken < pot) {
+      // The loser's purse held coins that have no lot (an old purse): those arrive as a fresh lot dated now.
+      lotStatements.push(
+        db
+          .prepare(
+            'INSERT INTO coin_lots (id, character_id, amount, picked_at) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM characters WHERE id = ?)',
+          )
+          .bind(crypto.randomUUID(), second.id, pot - taken, nowMs, second.id),
+      );
+    }
+    a = { ...a, coins: undefined, coinsDelta: -pot, duelPot: undefined };
+    b = { ...b, coins: undefined, coinsDelta: pot, duelPot: undefined };
+  } else {
+    lotStatements.push(...(await coinLotStatements(db, first.id, a, nowMs)), ...(await coinLotStatements(db, second.id, b, nowMs)));
+  }
+  const leeks = [...lotStatements, prepareFactsUpdate(db, first.id, a), prepareFactsUpdate(db, second.id, b)].filter(
     (statement): statement is D1Statement => statement !== null,
   );
   if (leeks.length > 0) {
