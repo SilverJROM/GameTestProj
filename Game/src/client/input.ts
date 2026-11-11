@@ -1,7 +1,9 @@
-// One papaya click becomes one mango, or opens the quince panel and sends nothing.
-// A left click on a beet attacks. A left click on the melon, while the fig is in town, is a fountain.
-// A left click on the mango forge, while the fig is in town, opens the smith and does not buy yet.
-// A right click on another fig asks for a duel. Any other ground click is a move.
+// One papaya click becomes one mango, or opens a panel and sends nothing.
+// Left click: on a monster, walk to it and swing once; on the fountain (in town) sip; on the forge (in town) open the
+// smith; anywhere else, including on another player, only walk.
+// Right click: on a monster, walk to it and keep swinging until it dies; on the duel partner, walk to them and keep
+// swinging until one falls; on any other player, open the duel menu (nothing is sent until the player picks Duel);
+// on the ground, nothing.
 
 import type { ClientMessage } from '../protocol';
 import { hitForge, hitFountain } from '../rules/regions';
@@ -42,6 +44,26 @@ export interface ClickOrchard {
 export interface ClickPeel {
   readonly message: ClientMessage | null;
   readonly smithOpen: boolean;
+  // A right click landed on this other player: the page opens its little duel menu for them.
+  readonly duelMenu?: { readonly playerId: string };
+}
+
+// The click box of another player: the whole drawn body, from a little under the feet to above the head.
+export function figSpriteHolds(fig: { readonly x: number; readonly y: number }, x: number, y: number): boolean {
+  const height = scaleFor('player');
+  const halfWidth = Math.ceil(height * 0.36);
+  const pad = 6;
+  return x >= fig.x - halfWidth - pad && x <= fig.x + halfWidth + pad && y >= fig.y - height - pad && y <= fig.y + pad + 8;
+}
+
+// The other player under the pointer, the one in front (lowest feet) when two overlap.
+export function frontFig(x: number, y: number, rows: readonly ClickFig[]): ClickFig | null {
+  let best: ClickFig | null = null;
+  for (const row of rows) {
+    if (!figSpriteHolds(row, x, y)) continue;
+    if (best === null || row.y > best.y) best = row;
+  }
+  return best;
 }
 
 function nearestRow<T extends { readonly x: number; readonly y: number }>(
@@ -87,36 +109,38 @@ export function frontBeet(x: number, y: number, rows: readonly ClickBeet[]): Cli
   return best;
 }
 
-// Reads one click. The quince panel is the only click that sends no mango.
+// Reads one click. The quince panel and the duel menu are the clicks that send no mango.
 export function peelClick(click: ClickBerry, orchard: ClickOrchard): ClickPeel {
   const rightBerry = click.button === 2;
-  if (!rightBerry) {
+  const others = orchard.players.filter((fig) => fig.id !== orchard.selfId);
+  if (rightBerry) {
     const beet = frontBeet(click.x, click.y, orchard.monsters);
     if (beet !== null) {
+      // Walk to the monster and keep swinging until it dies (or the player clicks the ground).
       return { message: { type: 'attack', monsterId: beet.id }, smithOpen: false };
     }
-    // In a duel, a left click on the partner swings at them (one swing per click, on the attack clock).
-    const partnerId = orchard.duelPartnerId ?? null;
-    if (partnerId !== null) {
-      const partner = orchard.players.find((fig) => fig.id === partnerId && fig.id !== orchard.selfId);
-      // The body is drawn above the feet: about 20 px each side and 60 px up.
-      if (partner !== undefined && Math.abs(click.x - partner.x) <= 24 && click.y >= partner.y - 64 && click.y <= partner.y + 14) {
-        return { message: { type: 'attack', playerId: partner.id }, smithOpen: false };
-      }
-    }
-    if (orchard.selfPlace === 'town' && hitFountain(click.x, click.y)) {
-      return { message: { type: 'fountain', x: click.x, y: click.y }, smithOpen: false };
-    }
-    if (orchard.selfPlace === 'town' && hitForge(click.x, click.y)) {
-      return { message: null, smithOpen: true };
-    }
-  } else {
-    const others = orchard.players.filter((fig) => fig.id !== orchard.selfId);
-    const fig = nearestRow(click.x, click.y, others, () => scaleFor('player') / 2);
+    const fig = frontFig(click.x, click.y, others);
     if (fig !== null) {
-      return { message: { type: 'duel_request', playerId: fig.id }, smithOpen: false };
+      if (orchard.duelPartnerId === fig.id) {
+        // The duel partner: walk to them and keep swinging until one falls.
+        return { message: { type: 'attack', playerId: fig.id, walk: true }, smithOpen: false };
+      }
+      return { message: null, smithOpen: false, duelMenu: { playerId: fig.id } };
     }
+    return { message: null, smithOpen: false };
   }
+  const beet = frontBeet(click.x, click.y, orchard.monsters);
+  if (beet !== null) {
+    // Walk to the monster and swing once.
+    return { message: { type: 'attack', monsterId: beet.id, once: true, walk: true }, smithOpen: false };
+  }
+  if (orchard.selfPlace === 'town' && hitFountain(click.x, click.y)) {
+    return { message: { type: 'fountain', x: click.x, y: click.y }, smithOpen: false };
+  }
+  if (orchard.selfPlace === 'town' && hitForge(click.x, click.y)) {
+    return { message: null, smithOpen: true };
+  }
+  // Everything else, another player included, only walks: a fight with a player starts from a right click and a duel.
   return { message: { type: 'move', x: click.x, y: click.y }, smithOpen: false };
 }
 

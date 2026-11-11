@@ -324,7 +324,7 @@ describe('world view', () => {
 
     board.click({ x: 900, y: 360, button: 0 });
     expect(lemon.sent).toHaveLength(1);
-    expect(mangoOf(lemon, 0)).toEqual({ type: 'attack', monsterId: 'beet-wolf' });
+    expect(mangoOf(lemon, 0)).toEqual({ type: 'attack', monsterId: 'beet-wolf', once: true, walk: true });
 
     board.click({ x: 242, y: 566, button: 0 });
     expect(lemon.sent).toHaveLength(2);
@@ -340,6 +340,9 @@ describe('world view', () => {
     expect(board.smithOpen).toBe(true);
 
     board.click({ x: 700, y: 500, button: 2 });
+    // The right click only opens the duel menu; choosing Duel sends the request.
+    expect(lemon.sent).toHaveLength(3);
+    board.requestDuel('fig-other');
     expect(lemon.sent).toHaveLength(4);
     expect(mangoOf(lemon, 3)).toEqual({ type: 'duel_request', playerId: 'fig-other' });
 
@@ -359,7 +362,7 @@ describe('world view', () => {
     const headY = 360 - melon.pictureHeight + 1;
     expect(360 - headY).toBeGreaterThan(scaleFor('wolf') / 2);
     board.click({ x: 900, y: headY, button: 0 });
-    expect(mangoOf(lemon, 7)).toEqual({ type: 'attack', monsterId: 'beet-wolf' });
+    expect(mangoOf(lemon, 7)).toEqual({ type: 'attack', monsterId: 'beet-wolf', once: true, walk: true });
     board.click({ x: 900, y: melon.y - 1, button: 0 });
     expect(mangoOf(lemon, 8)).toEqual({ type: 'move', x: 900, y: melon.y - 1 });
   });

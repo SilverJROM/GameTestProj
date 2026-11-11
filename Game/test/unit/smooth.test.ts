@@ -268,17 +268,25 @@ describe('displayed feet', () => {
     }));
 
     board.click({ x: 500, y: 400, button: 0 });
-    expect(JSON.parse(sent[0] ?? 'null')).toEqual({ type: 'attack', monsterId: 'beet-wolf' });
+    expect(JSON.parse(sent[0] ?? 'null')).toEqual({ type: 'attack', monsterId: 'beet-wolf', once: true, walk: true });
     // The displayed head is part of the sprite box.
     board.click({ x: 500, y: 400 - scaleFor('wolf') + 1, button: 0 });
-    expect(JSON.parse(sent[1] ?? 'null')).toEqual({ type: 'attack', monsterId: 'beet-wolf' });
+    expect(JSON.parse(sent[1] ?? 'null')).toEqual({ type: 'attack', monsterId: 'beet-wolf', once: true, walk: true });
     board.click({ x: 530, y: 400, button: 0 });
     expect(JSON.parse(sent[2] ?? 'null').type).toBe('move');
 
+    // A right click on a player opens the duel menu and sends nothing; picking Duel sends the request.
     board.click({ x: 600, y: 420, button: 2 });
+    expect(sent).toHaveLength(3);
+    board.requestDuel('fig-other');
     expect(JSON.parse(sent[3] ?? 'null')).toEqual({ type: 'duel_request', playerId: 'fig-other' });
-    board.click({ x: 630, y: 420, button: 2 });
-    expect(JSON.parse(sent[4] ?? 'null').type).toBe('move');
+    expect(board.duelPending()).toBe('fig-other');
+    board.cancelDuelRequest();
+    expect(JSON.parse(sent[4] ?? 'null')).toEqual({ type: 'duel_cancel', playerId: 'fig-other' });
+    expect(board.duelPending()).toBeNull();
+    // A left click beside the player only walks.
+    board.click({ x: 630, y: 420, button: 0 });
+    expect(JSON.parse(sent[5] ?? 'null').type).toBe('move');
 
     const shown = feet(board.pose(), 'player', 'fig-self');
     expect(shown.x).toBe(400);
