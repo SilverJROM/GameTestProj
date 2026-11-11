@@ -68,6 +68,9 @@ const oliveStepCap = 10_000;
 const cabbageBedKey = 'cabbage-bed';
 
 // Stored world generation. A room that still has an older pear composts it on first load.
+// Version of the monster spawn layout in the saved world (see loadCabbage).
+const MONSTER_LAYOUT = 2;
+const monsterLayoutKey = 'monsterLayout';
 const worldEpochKey = 'world-epoch';
 
 function refuseFigSocket(): Response {
@@ -606,6 +609,14 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     const read = readCabbage(stored);
     if (read !== null) {
       this.cabbage = read;
+      // Plan 04 moved the monster spawn points (seven per zone, spread over the whole zone). A saved world with the
+      // older layout gets its monsters replanted on the new spawns; ground coins and everything else stay.
+      if ((await this.ctx.storage.get(monsterLayoutKey)) !== MONSTER_LAYOUT) {
+        const fresh = plantCabbage();
+        this.cabbage = { ...fresh, seeds: read.seeds, nextSeed: read.nextSeed };
+        await this.storeCabbage();
+        await this.ctx.storage.put(monsterLayoutKey, MONSTER_LAYOUT);
+      }
       return;
     }
     this.cabbage = plantCabbage();
@@ -625,6 +636,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     this.cabbage = plantCabbage();
     await this.storeCabbage();
     await this.ctx.storage.put(worldEpochKey, WORLD_EPOCH);
+    await this.ctx.storage.put(monsterLayoutKey, MONSTER_LAYOUT);
   }
 
   // Closes this fig's lemon and takes it off the map.

@@ -34,4 +34,16 @@ const kiwiOutput =
   `export const peachHtml = ${JSON.stringify(peachHtml)};\n` +
   `export const mangoJs = ${JSON.stringify(mangoJs)};\n`;
 
-writeFileSync(join(clientDir, 'shell.generated.ts'), kiwiOutput);
+// Write only when the content changed. `wrangler dev` watches this file and rebuilds when it is touched, so an
+// unconditional write made the local server rebuild and restart about once a second, which also reset the world
+// room (monsters barely patrolled and alarms never settled).
+const generatedPath = join(clientDir, 'shell.generated.ts');
+let previous = '';
+try {
+  previous = readFileSync(generatedPath, 'utf8');
+} catch {
+  previous = '';
+}
+if (previous !== kiwiOutput) {
+  writeFileSync(generatedPath, kiwiOutput);
+}
