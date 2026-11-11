@@ -28,7 +28,7 @@ You need to be the owner of the Cloudflare account.
 3. Go to **Policies**, edit the Allow policy, and under **Include** add a rule **Emails** with the tester's address. Save.
 4. The tester opens the game URL and receives a PIN at that address. No redeploy is needed.
 
-To allow a whole organisation instead of single addresses, add a rule **Emails ending in** with the domain. A domain rule does not cover subdomains, so add each one separately. The live policy currently allows the project owner's address, one invited address, and everyone at `roompoint.app` and `mailer.roompoint.app`.
+To allow a whole organisation instead of single addresses, add a rule **Emails ending in** with the domain. A domain rule does not cover subdomains, so add each one separately. The live policy currently allows the project owner's address, one invited address, and everyone at `roompoint.app`, `mailer.roompoint.app` and `roompoint.net`.
 
 Opening the app to any email is not recommended: a one-time PIN only proves control of an inbox, so a throwaway inbox passes it. Strangers could fill the 20-account cap and use up the Workers Free daily limits.
 
