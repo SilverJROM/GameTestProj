@@ -17,16 +17,16 @@ What protects the live game, what each layer does, and what it does not do. Writ
 | Value | Where | Notes |
 |---|---|---|
 | `SESSION_SECRET` | Cloudflare Worker secret | Signs the cookies. Never in the repository. Rotating it signs everyone out. |
-| `MAX_ACCOUNTS` | Cloudflare Worker secret | See the question below. |
+| `MAX_ACCOUNTS` | Cloudflare Worker secret | See "Where the account cap lives". |
 | Cloudflare API token | A local file outside the repository | Used by wrangler from the developer's machine. It is broader than it needs to be and **should be rotated** (see limits). |
 | GitHub token | Developer's machine only | Restricted to the one submission repository. |
 | Test account passwords | git-ignored local files | `.gitignore` covers them; nothing with a credential is committed. |
 
 D1's `database_id` is in `wrangler.jsonc`. It is an identifier, not a credential: it cannot be used without a token on the account.
 
-## Why is the account cap a secret and not plain config?
+## Where the account cap lives
 
-Honest answer: it did not need to be one. It is not sensitive. I put it in a secret for two practical reasons: it can be changed in the Cloudflare dashboard (or with `wrangler secret put MAX_ACCOUNTS`) without editing the repository or redeploying code, and the public repository then does not publish how many accounts the live site accepts. A plain `vars` entry in `wrangler.jsonc` would have done the first job too, but a code change and a deploy would then be needed to raise the cap, and `wrangler deploy` would overwrite a value set in the dashboard. The cost of the choice is that the live value is not visible in the repository, which this paragraph and the README make up for.
+`MAX_ACCOUNTS` is stored as a Cloudflare Worker secret, not as a plain value in `wrangler.jsonc`. Consequences, as built: it can be changed in the dashboard or with `wrangler secret put MAX_ACCOUNTS` without a code change or deploy (a plain `vars` entry would be overwritten by the next `wrangler deploy`), and the public repository does not state the live number. The value itself is not sensitive, so a plain config value would also have worked. The owner's own reasoning for the choice has not been recorded here.
 
 ## What is not protected (limits)
 
