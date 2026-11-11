@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { canvasToMap, viewBox } from '../../src/client/camera';
 import { townControls } from '../../src/client/view';
 import { townSpawn } from '../../src/rules/regions';
-import { ZOOM_CLOSE } from '../../src/rules/tables';
+import { ZOOM_DEFAULT } from '../../src/rules/tables';
 import {
   DEFAULT_SETTINGS,
   SETTINGS_KEY,
@@ -428,7 +428,7 @@ describe('settings on the page', () => {
     expect(page.stage.style.height).toBe(`${fit.height}px`);
     expect(page.elements.get('settings-res-fit')!.attrs['aria-pressed']).toBe('true');
 
-    const spot = canvasToMap(viewBox('town', townSpawn[0], townSpawn[1], ZOOM_CLOSE), 640, 500);
+    const spot = canvasToMap(viewBox('town', townSpawn[0], townSpawn[1], ZOOM_DEFAULT), 640, 500);
     const expectSameSpot = (viewW: number, viewH: number) => {
       page.rect.left = 0;
       page.rect.top = 0;
@@ -501,7 +501,7 @@ describe('settings on the page', () => {
     for (const listener of slider.listeners.input ?? []) {
       listener({ preventDefault() {}, stopPropagation() {} });
     }
-    expect(page.jar.get('game.zoom.v2')).toBe('70');
+    expect(page.jar.get('game.zoom.v3')).toBe('70');
   });
 
   it('rebinds, refuses clashes and forbidden keys, toggles panels, and ignores typing', async () => {
@@ -511,7 +511,7 @@ describe('settings on the page', () => {
     expect(page.elements.get('settings-key-settings')!.textContent).toBe('S');
     expect(page.elements.get('olive-key-hint')!.textContent).toBe('(B)');
 
-    const bag = townControls(viewBox('town', townSpawn[0], townSpawn[1], ZOOM_CLOSE)).find((row) => row.id === 'bag')!;
+    const bag = townControls(viewBox('town', townSpawn[0], townSpawn[1], ZOOM_DEFAULT)).find((row) => row.id === 'bag')!;
     const move: FakeEvent = {
       clientX: bag.x + 4,
       clientY: bag.y + 4,

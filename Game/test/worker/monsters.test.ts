@@ -18,7 +18,7 @@ import {
   type WelcomeMessage,
 } from '../../src/protocol';
 import { firstSolidWallCrossing, spawnPoints, zoneAt } from '../../src/rules/regions';
-import { kaleConstants, onionMonsterRows, pearTimings, type ZoneName } from '../../src/rules/tables';
+import { ZOOM_DEFAULT, kaleConstants, onionMonsterRows, pearTimings, type ZoneName } from '../../src/rules/tables';
 import { figSeesBeet } from '../../src/rules/view';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import type { CharacterDb, CharacterFacts } from '../../src/server/db';
@@ -525,13 +525,14 @@ describe('cabbage patrol on the rules tick', () => {
   it('moves nothing with no fig connected, and only on-screen beets for a fig in town', () => {
     const none = walkBed(plantCabbage(), new Map(), 50);
     expect(none.bed).toEqual(plantCabbage());
-    const fig = figIn('town');
+    // The player reports the default camera, so beets beyond its window stand still.
+    const fig = { ...figIn('town'), viewZoom: ZOOM_DEFAULT };
     const town = walkBed(plantCabbage(), new Map([['fig-town', fig]]), 40);
     let seen = 0;
     let hidden = 0;
     for (const start of plantCabbage().beets) {
       const later = town.bed.beets.find((beet) => beet.id === start.id)!;
-      const watched = figSeesBeet(fig.facts.place, fig.facts.x, fig.facts.y, start.x, start.y);
+      const watched = figSeesBeet(fig.facts.place, fig.facts.x, fig.facts.y, start.x, start.y, fig.viewZoom);
       if (watched) {
         seen += 1;
         expect(later.x !== start.x || later.y !== start.y).toBe(true);

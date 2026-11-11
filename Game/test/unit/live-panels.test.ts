@@ -7,7 +7,7 @@ import { viewBox } from '../../src/client/camera';
 import { sproutAfterLogin } from '../../src/client/main';
 import { HEALTH_BAR_H, HEALTH_X, HEALTH_Y, townControls } from '../../src/client/view';
 import { townSpawn } from '../../src/rules/regions';
-import { ZOOM_CLOSE } from '../../src/rules/tables';
+import { ZOOM_DEFAULT } from '../../src/rules/tables';
 
 const pageHtml = readFileSync(new URL('../../src/client/index.html', import.meta.url), 'utf8');
 
@@ -451,7 +451,7 @@ describe('live bag and blacksmith panels', () => {
 
     sproutAfterLogin(doc as unknown as Document, { id: 'fig-self', place: 'town', gender: 'woman' });
 
-    const controls = townControls(viewBox('town', townSpawn[0], townSpawn[1], ZOOM_CLOSE));
+    const controls = townControls(viewBox('town', townSpawn[0], townSpawn[1], ZOOM_DEFAULT));
     const bag = controls.find((row) => row.id === 'bag');
     const bubble = controls.find((row) => row.id === 'bubble');
     expect(bag).toBeDefined();

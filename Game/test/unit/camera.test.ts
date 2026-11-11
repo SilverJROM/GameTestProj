@@ -10,29 +10,17 @@ import {
 } from '../../src/client/camera';
 import { plantFigBoard } from '../../src/client/main';
 import { MAP_HEIGHT, MAP_WIDTH, townSpawn } from '../../src/rules/regions';
-import { MIN_VIEW_HEIGHT_PX, ZOOM_CLOSE, ZOOM_FAR, type ZoneName } from '../../src/rules/tables';
+import { ZOOM_CLOSE, ZOOM_DEFAULT, ZOOM_FAR, type ZoneName } from '../../src/rules/tables';
 
 const ZONES: ZoneName[] = ['town', 'cemetery', 'green', 'grey'];
 
-// Math.round of the exact area window. A couple of hand-rounded table cells differ by a pixel.
-const ROUNDED: Record<ZoneName, Record<number, { width: number; height: number; scale: number }>> = {
-  town: {
-    [ZOOM_CLOSE]: { width: 382, height: 215, scale: 3.35 },
-    [ZOOM_FAR]: { width: 715, height: 402, scale: 1.79 },
-  },
-  cemetery: {
-    [ZOOM_CLOSE]: { width: 382, height: 215, scale: 3.35 },
-    [ZOOM_FAR]: { width: 436, height: 245, scale: 2.94 },
-  },
-  green: {
-    [ZOOM_CLOSE]: { width: 382, height: 215, scale: 3.35 },
-    [ZOOM_FAR]: { width: 852, height: 479, scale: 1.5 },
-  },
-  grey: {
-    [ZOOM_CLOSE]: { width: 382, height: 215, scale: 3.35 },
-    [ZOOM_FAR]: { width: 774, height: 435, scale: 1.65 },
-  },
-};
+// The window is a fixed fraction of the map height in every zone: height = zoom * 720, width = height * 16 / 9.
+// Values typed out on purpose: closest 0.24, default 0.45, widest 0.77.
+const WINDOW = {
+  [ZOOM_CLOSE]: { width: 307, height: 173, scale: 4.17 },
+  [ZOOM_DEFAULT]: { width: 576, height: 324, scale: 2.22 },
+  [ZOOM_FAR]: { width: 986, height: 554, scale: 1.3 },
+} as Record<number, { width: number; height: number; scale: number }>;
 
 function openBoard() {
   const sockets: { sent: string[] }[] = [];
@@ -57,17 +45,13 @@ function openBoard() {
 
 describe('camera view box', () => {
   for (const place of ZONES) {
-    for (const zoom of [ZOOM_CLOSE, ZOOM_FAR]) {
-      it(`${place} at ${zoom}: area share, 16:9, rounded window`, () => {
+    for (const zoom of [ZOOM_CLOSE, ZOOM_DEFAULT, ZOOM_FAR]) {
+      it(`${place} at ${zoom}: fixed share of the map height, 16:9, rounded window`, () => {
         const box = zoneBox(place);
-        const boxW = box.x1 - box.x0;
-        const boxH = box.y1 - box.y0;
         const mid = { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 };
         const view = viewBox(place, mid.x, mid.y, zoom);
-        const want = ROUNDED[place][zoom]!;
-        // A window is never shorter than MIN_VIEW_HEIGHT_PX; above that the area is the zone share exactly.
-        if (view.height > MIN_VIEW_HEIGHT_PX) expect(view.width * view.height).toBeCloseTo(zoom * boxW * boxH, 4);
-        expect(view.height).toBeGreaterThanOrEqual(MIN_VIEW_HEIGHT_PX);
+        const want = WINDOW[zoom]!;
+        expect(view.height).toBeCloseTo(zoom * MAP_HEIGHT, 6);
         expect(view.width / view.height).toBeCloseTo(CANVAS_WIDTH / CANVAS_HEIGHT, 6);
         expect(view.scale).toBeCloseTo(CANVAS_HEIGHT / view.height, 6);
         expect(view.width * view.scale).toBeCloseTo(CANVAS_WIDTH, 5);
@@ -75,17 +59,16 @@ describe('camera view box', () => {
         expect(Math.round(view.width)).toBe(want.width);
         expect(Math.round(view.height)).toBe(want.height);
         expect(Math.abs(view.scale - want.scale)).toBeLessThanOrEqual(0.01);
-        expect(view.width < MAP_WIDTH && view.height < MAP_HEIGHT).toBe(true);
       });
     }
 
-    it(`${place}: the default share is the close end`, () => {
+    it(`${place}: the default share is the default zoom`, () => {
       const box = zoneBox(place);
       const mid = { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 };
-      expect(viewBox(place, mid.x, mid.y)).toEqual(viewBox(place, mid.x, mid.y, ZOOM_CLOSE));
+      expect(viewBox(place, mid.x, mid.y)).toEqual(viewBox(place, mid.x, mid.y, ZOOM_DEFAULT));
     });
 
-    it(`${place}: a share below 0.14 or above 0.75 is clamped`, () => {
+    it(`${place}: a share below 0.24 or above 0.77 is clamped`, () => {
       const box = zoneBox(place);
       const mid = { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 };
       const close = viewBox(place, mid.x, mid.y, ZOOM_CLOSE);
@@ -186,13 +169,13 @@ describe('board zoom', () => {
     vi.unstubAllGlobals();
   });
 
-  it('starts at the close end when the jar is empty', () => {
+  it('starts at the default zoom when the jar is empty', () => {
     const jar = stubJar();
     const board = openBoard();
     const [sx, sy] = townSpawn;
-    expect(board.zoom()).toBe(ZOOM_CLOSE);
-    expect(board.camera()).toEqual(viewBox('town', sx, sy, ZOOM_CLOSE));
-    expect(jar.has('game.zoom')).toBe(false);
+    expect(board.zoom()).toBe(ZOOM_DEFAULT);
+    expect(board.camera()).toEqual(viewBox('town', sx, sy, ZOOM_DEFAULT));
+    expect(jar.has('game.zoom.v3')).toBe(false);
   });
 
   it('setZoom changes the camera and the next board reads the jar', () => {
@@ -204,7 +187,7 @@ describe('board zoom', () => {
     expect(board.zoom()).toBe(ZOOM_FAR);
     expect(board.camera()).toEqual(viewBox('town', sx, sy, ZOOM_FAR));
     expect(board.camera().width).toBeGreaterThan(before.width);
-    expect(jar.get('game.zoom.v2')).toBe('75');
+    expect(jar.get('game.zoom.v3')).toBe('77');
 
     const again = openBoard();
     expect(again.zoom()).toBe(ZOOM_FAR);
@@ -212,7 +195,7 @@ describe('board zoom', () => {
   });
 
   it('reads a stored percent and keeps that share in another section', () => {
-    stubJar({ 'game.zoom.v2': '70' });
+    stubJar({ 'game.zoom.v3': '70' });
     const board = openBoard();
     const [sx, sy] = townSpawn;
     expect(board.zoom()).toBeCloseTo(0.7, 6);
@@ -231,13 +214,13 @@ describe('board zoom', () => {
     expect(board.camera()).toEqual(viewBox('green', 900, 500, 0.7));
   });
 
-  it('starts at the close end when the stored value is invalid', () => {
+  it('starts at the default zoom when the stored value is invalid', () => {
     const [sx, sy] = townSpawn;
-    for (const bad of ['nope', '', '50', '90', '0.5', '1']) {
-      stubJar({ 'game.zoom': bad });
+    for (const bad of ['nope', '', '10', '90', '1']) {
+      stubJar({ 'game.zoom.v3': bad });
       const board = openBoard();
-      expect(board.zoom(), bad).toBe(ZOOM_CLOSE);
-      expect(board.camera()).toEqual(viewBox('town', sx, sy, ZOOM_CLOSE));
+      expect(board.zoom(), bad).toBe(ZOOM_DEFAULT);
+      expect(board.camera()).toEqual(viewBox('town', sx, sy, ZOOM_DEFAULT));
     }
   });
 
@@ -252,7 +235,7 @@ describe('board zoom', () => {
     });
     const board = openBoard();
     const [sx, sy] = townSpawn;
-    expect(board.camera()).toEqual(viewBox('town', sx, sy, ZOOM_CLOSE));
+    expect(board.camera()).toEqual(viewBox('town', sx, sy, ZOOM_DEFAULT));
     expect(() => board.setZoom(ZOOM_FAR)).not.toThrow();
     expect(board.zoom()).toBe(ZOOM_FAR);
     expect(board.camera()).toEqual(viewBox('town', sx, sy, ZOOM_FAR));

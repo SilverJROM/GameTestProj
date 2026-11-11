@@ -4,7 +4,7 @@
 
 import type { Gender } from '../server/db';
 import type { ClientMessage, HitMark } from '../protocol';
-import { ZOOM_CLOSE, ZOOM_FAR, kaleConstants, type ZoneName } from '../rules/tables';
+import { ZOOM_CLOSE, ZOOM_DEFAULT, ZOOM_FAR, kaleConstants, type ZoneName } from '../rules/tables';
 import { townSpawn, zoneAt } from '../rules/regions';
 import { removeMagenta } from './sprites';
 import { glideCitrus } from './smooth';
@@ -198,23 +198,23 @@ export interface FigBoard {
 
 const EMPTY_ORCHARD: OrchardPaint = { players: [], monsters: [], coins: [], pickups: [] };
 
-// The jar keeps the slider's percent ("60" to "75"). A blocked or bad read starts at the close end.
-const GUAVA_ZOOM_KEY = 'game.zoom.v2'; // v2: the default view is closer (plan 10), so an old saved wide zoom is not reused
+// The jar keeps the slider's percent ("24" to "77"). A blocked or bad read starts at the default.
+const GUAVA_ZOOM_KEY = 'game.zoom.v3'; // v3: zoom is now a fraction of the map height (plan 10), so old saved values are not reused
 
 function guavaShareFromJar(raw: string | null): number {
-  if (raw === null || raw.trim() === '') return ZOOM_CLOSE;
+  if (raw === null || raw.trim() === '') return ZOOM_DEFAULT;
   const n = Number(raw);
-  if (!Number.isFinite(n)) return ZOOM_CLOSE;
-  if (n >= 60 && n <= 75) return Math.round(n) / 100;
+  if (!Number.isFinite(n)) return ZOOM_DEFAULT;
+  if (n >= ZOOM_CLOSE * 100 && n <= ZOOM_FAR * 100) return Math.round(n) / 100;
   if (n >= ZOOM_CLOSE && n <= ZOOM_FAR) return Math.round(n * 100) / 100;
-  return ZOOM_CLOSE;
+  return ZOOM_DEFAULT;
 }
 
 function readGuavaZoom(): number {
   try {
     return guavaShareFromJar(globalThis.localStorage.getItem(GUAVA_ZOOM_KEY));
   } catch {
-    return ZOOM_CLOSE;
+    return ZOOM_DEFAULT;
   }
 }
 
@@ -2607,7 +2607,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
       event.stopPropagation?.();
       const step = event.key === 'ArrowDown' ? 1 : -1;
       const current = Number(guavaSlider.value);
-      const base = Number.isFinite(current) ? current : Math.round(ZOOM_CLOSE * 100);
+      const base = Number.isFinite(current) ? current : Math.round(ZOOM_DEFAULT * 100);
       const next = Math.min(Math.round(ZOOM_FAR * 100), Math.max(Math.round(ZOOM_CLOSE * 100), base + step));
       guavaSlider.value = String(next);
       board.setZoom(next / 100);

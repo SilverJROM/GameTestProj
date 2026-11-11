@@ -896,6 +896,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
           this.aimAtRival(appleId, fig);
         }
         await this.armOrchard(false);
+        // Like the monster path below, always answer with the latest picture (the walk or the swing may change nothing the tick would send).
+        this.broadcastMango();
       }
       return;
     }

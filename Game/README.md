@@ -53,7 +53,7 @@ It takes effect on the next request. (`MAX_ACCOUNTS` is a secret so that it can 
 | Bag | The Bag button. Shows coins (and which expire soon), worn gear, level, health, strike, experience. |
 | Challenge a player | Right click the player, then Duel. You can Cancel while it waits. |
 | Fight your duel partner | Left click (one swing) or right click (swing until one falls) on them. |
-| Camera | Close view by default; the zoom slider widens it. Monsters only move while someone can see them. Menu button: settings and sound. |
+| Camera | Medium view by default; the zoom slider zooms in (to about 173 px of map) or out (to about 554 px). Monsters only move while someone can see them. Menu button: settings and sound. |
 
 ### The world
 

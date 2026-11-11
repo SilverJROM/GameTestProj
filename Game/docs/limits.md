@@ -4,7 +4,7 @@ Read with `docs/balance.md` (game balance limits) and `docs/security.md` (securi
 
 ## Verified and how
 
-- Automated tests: `npm test` (vitest, 574 tests across unit, worker and integration files). Last full run after plan 10: all pass. One test (`test/worker/duel-request.test.ts`) had a timing race (the offer message could arrive after the reply snapshot) and was made order-safe with a ping; it was seen failing once in a full run before that change.
+- Automated tests: `npm test` (vitest, 578 tests across unit, worker and integration files). Last full run after plan 10: all pass. One test (`test/worker/duel-request.test.ts`) had a timing race (the offer message could arrive after the reply snapshot) and was made order-safe with a ping; it was seen failing once in a full run before that change.
 - `npx tsc --noEmit` reports 8 type errors in `src/client/main.ts` and `src/server/password.ts` (a `LooseCtx` cast, `root` possibly null, a readonly array, and a Uint8Array/BufferSource typing). They were there before plan 09 and do not block bundling or tests. They should be cleaned up.
 - A real-browser check of the plan 09 death and duel flow is in `docs/plan05-tools/death-duel-check.mjs` (Playwright on installed Chrome).
 

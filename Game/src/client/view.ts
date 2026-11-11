@@ -1116,6 +1116,8 @@ export function townControls(view: PeachView): ScreenControl[] {
   let bubbleX = feet.x - bubbleWidth / 2;
   if (bubbleX < 8) bubbleX = 8;
   if (bubbleX + bubbleWidth > CANVAS_WIDTH - 8) bubbleX = CANVAS_WIDTH - 8 - bubbleWidth;
+  // With the closer camera the forge can be off screen; a bubble pinned to the top-right corner must not sit on the Menu and Bag buttons.
+  if (bubbleX + bubbleWidth > CANVAS_WIDTH - FIG_EDGE - FIG_BAG_W - 80 && bubbleY < FIG_EDGE + 60) bubbleY = FIG_EDGE + 60;
   const bagX = CANVAS_WIDTH - FIG_EDGE - FIG_BAG_W;
   const bagY = FIG_EDGE;
   return [

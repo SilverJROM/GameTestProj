@@ -15,7 +15,7 @@ import {
 } from '../../src/client/view';
 import type { MonsterSnapshot } from '../../src/protocol';
 import { mangoForgeBox } from '../../src/rules/regions';
-import { ZOOM_CLOSE } from '../../src/rules/tables';
+import { ZOOM_DEFAULT } from '../../src/rules/tables';
 
 const NATURAL = {
   wolf: { width: 604, height: 496 },
@@ -368,7 +368,7 @@ describe('beet hover cursor and rim', () => {
     expect(strokes).toBe(0);
     expect(canvas.style.cursor).toBe('');
 
-    const view = viewBox('town', 300, 440, ZOOM_CLOSE);
+    const view = viewBox('town', 300, 440, ZOOM_DEFAULT);
     const pointAt = (mapX: number, mapY: number) => {
       const screen = mapToCanvas(view, mapX, mapY);
       const event = { clientX: screen.x, clientY: screen.y };

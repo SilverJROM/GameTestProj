@@ -4,7 +4,7 @@
 // This module has no canvas and no DOM.
 
 import { MAP_HEIGHT, MAP_WIDTH, zoneRings, type Box } from './regions';
-import { MIN_VIEW_HEIGHT_PX, ZOOM_CLOSE, ZOOM_FAR, kaleConstants, type ZoneName } from './tables';
+import { ZOOM_CLOSE, ZOOM_DEFAULT, ZOOM_FAR, kaleConstants, type ZoneName } from './tables';
 
 // The picture is 1280 by 720, matching the client canvas. One scale, so map pixels never stretch.
 const FIG_CANVAS_W = 1280;
@@ -40,19 +40,15 @@ function clampSpan(start: number, size: number, limit: number): number {
 
 // A share outside the guava rail is pulled back onto it. A non-number uses the close end.
 function clampGuavaShare(zoom: number): number {
-  if (!Number.isFinite(zoom)) return ZOOM_CLOSE;
+  if (!Number.isFinite(zoom)) return ZOOM_DEFAULT;
   return Math.min(ZOOM_FAR, Math.max(ZOOM_CLOSE, zoom));
 }
 
-// View box for a zone, the fig's feet, and an area share (default the close end).
-// width * height = share * zone area, and width / height = 1280 / 720.
-export function guavaWindow(place: ZoneName, figX: number, figY: number, zoom: number = ZOOM_CLOSE): GuavaWindow {
-  const box = zoneBox(place);
-  const boxW = box.x1 - box.x0;
-  const boxH = box.y1 - box.y0;
+// View box around the fig's feet. The window height is zoom * the map height (the same in every zone) and
+// width / height = 1280 / 720, so the picture is never stretched. The default zoom is ZOOM_DEFAULT.
+export function guavaWindow(place: ZoneName, figX: number, figY: number, zoom: number = ZOOM_DEFAULT): GuavaWindow {
   const share = clampGuavaShare(zoom);
-  const melonArea = share * boxW * boxH;
-  const height = Math.min(MAP_HEIGHT, Math.max(MIN_VIEW_HEIGHT_PX, Math.sqrt(melonArea * (FIG_CANVAS_H / FIG_CANVAS_W))));
+  const height = share * MAP_HEIGHT;
   const width = height * (FIG_CANVAS_W / FIG_CANVAS_H);
   const scale = FIG_CANVAS_H / height;
   return {
@@ -65,7 +61,7 @@ export function guavaWindow(place: ZoneName, figX: number, figY: number, zoom: n
 }
 
 // True when the beet sits in the widest window around this fig, grown by the rules pad on every side.
-// `zoom` is the area share the player's own slider shows (the client reports it); with none reported the widest share is used.
+// `zoom` is the share the player's own slider shows (the client reports it); with none reported the widest share is used.
 export function figSeesBeet(place: ZoneName, figX: number, figY: number, beetX: number, beetY: number, zoom: number = ZOOM_FAR): boolean {
   const guava = guavaWindow(place, figX, figY, zoom);
   const pad = kaleConstants.viewPadPx;

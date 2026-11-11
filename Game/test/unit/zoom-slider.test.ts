@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { canvasToMap, viewBox } from '../../src/client/camera';
 import { sproutAfterLogin } from '../../src/client/main';
 import { townSpawn } from '../../src/rules/regions';
-import { ZOOM_CLOSE, ZOOM_FAR } from '../../src/rules/tables';
+import { ZOOM_DEFAULT, ZOOM_FAR } from '../../src/rules/tables';
 
 const pageHtml = readFileSync(new URL('../../src/client/index.html', import.meta.url), 'utf8');
 
@@ -71,10 +71,10 @@ describe('zoom slider markup', () => {
     expect(stage).toMatch(/id="kiwi-zoom"[^>]*hidden/);
     expect(stage).toContain('id="zoom-slider"');
     expect(stage).toContain('type="range"');
-    expect(stage).toContain('min="14"');
-    expect(stage).toContain('max="75"');
+    expect(stage).toContain('min="24"');
+    expect(stage).toContain('max="77"');
     expect(stage).toContain('step="1"');
-    expect(stage).toContain('value="14"');
+    expect(stage).toContain('value="45"');
     expect(stage).toContain('orient="vertical"');
     expect(pageHtml).toContain('transform: rotate(180deg)');
   });
@@ -147,7 +147,7 @@ describe('zoom slider does not walk the map', () => {
 
     sproutAfterLogin(doc as unknown as Document, { id: 'fig-self', place: 'town', gender: 'woman' });
 
-    expect(slider.value).toBe('14');
+    expect(slider.value).toBe('45');
 
     const press = (target: FakeEl, clientX: number, clientY: number): FakeEvent => {
       const event: FakeEvent = {
@@ -170,7 +170,7 @@ describe('zoom slider does not walk the map', () => {
     const first = JSON.parse(sent[0] ?? 'null') as { type: string; x: number; y: number };
     expect(first.type).toBe('move');
     const [sx, sy] = townSpawn;
-    const closeSpot = canvasToMap(viewBox('town', sx, sy, ZOOM_CLOSE), 640, 500);
+    const closeSpot = canvasToMap(viewBox('town', sx, sy, ZOOM_DEFAULT), 640, 500);
     expect(first.x).toBeCloseTo(closeSpot.x, 4);
     expect(first.y).toBeCloseTo(closeSpot.y, 4);
 
@@ -180,7 +180,7 @@ describe('zoom slider does not walk the map', () => {
     expect(sent).toHaveLength(1);
     expect(stagePresses).toBe(stageAfterWalk);
 
-    slider.value = '75';
+    slider.value = '77';
     for (const listener of slider.listeners.input ?? []) {
       listener({
         stopped: false,
@@ -188,7 +188,7 @@ describe('zoom slider does not walk the map', () => {
         stopPropagation() {},
       });
     }
-    expect(jar.get('game.zoom.v2')).toBe('75');
+    expect(jar.get('game.zoom.v3')).toBe('77');
 
     press(canvas, 640, 500);
     expect(sent).toHaveLength(2);
@@ -218,9 +218,9 @@ describe('zoom slider does not walk the map', () => {
     for (const listener of slider.listeners.keydown ?? []) listener(key);
     expect(prevented).toBe(true);
     expect(slider.value).toBe('71');
-    expect(jar.get('game.zoom.v2')).toBe('71');
+    expect(jar.get('game.zoom.v3')).toBe('71');
     expect(sent).toHaveLength(2);
     // Every slider move told the room the new camera share, so it only moves monsters this player can see.
-    expect(views.map((row) => (JSON.parse(row) as { zoom: number }).zoom)).toEqual([0.75, 0.71]);
+    expect(views.map((row) => (JSON.parse(row) as { zoom: number }).zoom)).toEqual([0.77, 0.71]);
   });
 });

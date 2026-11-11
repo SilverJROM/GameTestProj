@@ -6,7 +6,7 @@ import { CANVAS_HEIGHT, CANVAS_WIDTH, viewBox } from '../../src/client/camera';
 import { peelClick } from '../../src/client/input';
 import { plantFigBoard } from '../../src/client/main';
 import { GRAVE_LIFETIME_MS, RESPAWN_GLOW_MS, paintGraves, paintRespawnGlow } from '../../src/client/view';
-import { ZOOM_CLOSE } from '../../src/rules/tables';
+import { ZOOM_DEFAULT } from '../../src/rules/tables';
 import { stepAggro } from '../../src/world/combat';
 import { plantCabbage } from '../../src/world/monsters';
 import { sproutFig } from '../../src/world/core';
@@ -80,7 +80,7 @@ describe('death panel and cross', () => {
     const board = plantFigBoard({ selfId: 'fig-self', selfPlace: 'green', createSocket: () => quietLemon(sent), hooks: { onDeath, onRespawned } });
     board.ingest(deadSnapshot(['fig-self']));
     expect(onDeath).toHaveBeenCalledTimes(1);
-    expect(board.camera()).toEqual(viewBox('green', 900, 400, ZOOM_CLOSE));
+    expect(board.camera()).toEqual(viewBox('green', 900, 400, ZOOM_DEFAULT));
     const before = sent.length;
     board.click({ x: 500, y: 500, button: 0 });
     expect(board.pressScreen(1200, 40)).toBe(true);
@@ -91,7 +91,7 @@ describe('death panel and cross', () => {
     expect(onRespawned).not.toHaveBeenCalled();
     board.ingest({ ...killedSnapshot({ id: 'none' }), snapshot: { players: [fig('fig-self', 'town', 300, 440)], monsters: [], coins: [], pickups: [], hits: [] } });
     expect(onRespawned).toHaveBeenCalledTimes(1);
-    expect(board.camera()).toEqual(viewBox('town', 300, 440, ZOOM_CLOSE));
+    expect(board.camera()).toEqual(viewBox('town', 300, 440, ZOOM_DEFAULT));
     const after = sent.length;
     board.click({ x: 500, y: 500, button: 0 });
     expect(sent.length).toBe(after + 1);
@@ -100,14 +100,14 @@ describe('death panel and cross', () => {
   it('a dead avatar is a cross for everyone until it respawns, and is not drawn as a character', () => {
     const onDeath = vi.fn();
     const board = plantFigBoard({ selfId: 'fig-self', selfPlace: 'green', createSocket: () => quietLemon(), hooks: { onDeath } });
-    const view = viewBox('green', 900, 400, ZOOM_CLOSE);
+    const view = viewBox('green', 900, 400, ZOOM_DEFAULT);
     const rects: number[] = [];
     const ctx = { fillStyle: '', fillRect: () => void rects.push(1) };
     // Someone else is killed: no panel for this player, a cross on their spot, and no still for them.
     board.ingest(deadSnapshot(['fig-other'], { id: 'k1', targetId: 'fig-other', fatal: true, x: 700, y: 380 }));
     expect(onDeath).not.toHaveBeenCalled();
     expect(board.pose().some((still) => still.id === 'fig-other')).toBe(false);
-    board.paintGraves(ctx, viewBox('green', 700, 380, ZOOM_CLOSE), 5_000_000);
+    board.paintGraves(ctx, viewBox('green', 700, 380, ZOOM_DEFAULT), 5_000_000);
     expect(rects).toHaveLength(4);
     // They respawn (the snapshot has no dead flag any more): the cross goes away at once.
     rects.length = 0;
@@ -131,7 +131,7 @@ describe('death panel and cross', () => {
   });
 
   it('paints a cross inside the view, nothing outside it, and nothing after the cross has run out', () => {
-    const view = viewBox('green', 900, 400, ZOOM_CLOSE);
+    const view = viewBox('green', 900, 400, ZOOM_DEFAULT);
     const rects: string[] = [];
     const ctx = { fillStyle: '', fillRect: (x: number, y: number, w: number, h: number) => void rects.push(`${x},${y},${w},${h}`) };
     expect(paintGraves(ctx, [{ x: 900, y: 400, at: 1000 }], view, 1000)).toBe(1);
@@ -153,7 +153,7 @@ describe('death panel and cross', () => {
   });
 
   it('after respawn a pulsing light marks the avatar in town for a few seconds, then goes away', () => {
-    const view = viewBox('town', 300, 440, ZOOM_CLOSE);
+    const view = viewBox('town', 300, 440, ZOOM_DEFAULT);
     const draws: string[] = [];
     const gradient = { addColorStop() {} } as unknown as CanvasGradient;
     const ctx = {
@@ -179,9 +179,9 @@ describe('death panel and cross', () => {
     board.endDeath();
     const draws: number[] = [];
     const ctx = { globalAlpha: 1, fillStyle: '' as string | CanvasGradient, fillRect: () => void draws.push(1) };
-    board.paintRespawnGlow(ctx, viewBox('town', 300, 440, ZOOM_CLOSE), Date.now() + 200);
+    board.paintRespawnGlow(ctx, viewBox('town', 300, 440, ZOOM_DEFAULT), Date.now() + 200);
     expect(draws).toHaveLength(1);
-    board.paintRespawnGlow(ctx, viewBox('town', 300, 440, ZOOM_CLOSE), Date.now() + RESPAWN_GLOW_MS + 500);
+    board.paintRespawnGlow(ctx, viewBox('town', 300, 440, ZOOM_DEFAULT), Date.now() + RESPAWN_GLOW_MS + 500);
     expect(draws).toHaveLength(1);
   });
 

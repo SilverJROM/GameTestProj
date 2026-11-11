@@ -1,9 +1,9 @@
 // Guava window onto the 1280x720 orchard. Pure maths only: no canvas, no DOM.
-// The window's area is the zoom share of the player's zone box, at the canvas's 16:9 shape,
+// The window's height is the zoom share of the map height, at the canvas's 16:9 shape,
 // centred on the player and clamped so it never slides past the map edge.
 
 import { MAP_HEIGHT, MAP_WIDTH, zoneRings, type Box } from '../rules/regions';
-import { MIN_VIEW_HEIGHT_PX, ZOOM_CLOSE, ZOOM_FAR, type ZoneName } from '../rules/tables';
+import { ZOOM_CLOSE, ZOOM_DEFAULT, ZOOM_FAR, type ZoneName } from '../rules/tables';
 
 export const CANVAS_WIDTH = 1280;
 export const CANVAS_HEIGHT = 720;
@@ -45,20 +45,15 @@ function clampSpan(start: number, size: number, limit: number): number {
 
 // A share outside the guava rail is pulled back onto it. A non-number uses the close end.
 function clampGuavaShare(zoom: number): number {
-  if (!Number.isFinite(zoom)) return ZOOM_CLOSE;
+  if (!Number.isFinite(zoom)) return ZOOM_DEFAULT;
   return Math.min(ZOOM_FAR, Math.max(ZOOM_CLOSE, zoom));
 }
 
-// View box for a zone, the player's feet, and an area share (default the close end).
-// width * height = share * zone area, and width / height = 1280 / 720, so the picture is never stretched.
-export function viewBox(place: ZoneName, playerX: number, playerY: number, zoom: number = ZOOM_CLOSE): PeachView {
-  const box = zoneBox(place);
-  const boxW = box.x1 - box.x0;
-  const boxH = box.y1 - box.y0;
+// View box around the player's feet. height = share * map height, width / height = 1280 / 720, so the picture is never stretched.
+export function viewBox(place: ZoneName, playerX: number, playerY: number, zoom: number = ZOOM_DEFAULT): PeachView {
   const share = clampGuavaShare(zoom);
-  const melonArea = share * boxW * boxH;
-  // Never shorter than MIN_VIEW_HEIGHT_PX, so a small zone is not zoomed tighter than the others (same rule as the server).
-  const height = Math.min(MAP_HEIGHT, Math.max(MIN_VIEW_HEIGHT_PX, Math.sqrt(melonArea * (CANVAS_HEIGHT / CANVAS_WIDTH))));
+  // The window is a fixed fraction of the map height in every zone (same rule as the server).
+  const height = share * MAP_HEIGHT;
   const width = height * (CANVAS_WIDTH / CANVAS_HEIGHT);
   const scale = CANVAS_HEIGHT / height;
   return {

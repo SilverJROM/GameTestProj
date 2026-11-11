@@ -10,6 +10,7 @@ import {
   papayaLevelRows,
   pearTimings,
   ZOOM_CLOSE,
+  ZOOM_DEFAULT,
   ZOOM_FAR,
 } from '../../src/rules/tables';
 
@@ -112,8 +113,9 @@ describe('timing and frozen constants', () => {
   });
 
   it('pins the camera area shares', () => {
-    expect(ZOOM_CLOSE).toBe(0.14);
-    expect(ZOOM_FAR).toBe(0.75);
+    expect(ZOOM_CLOSE).toBe(0.24);
+    expect(ZOOM_DEFAULT).toBe(0.45);
+    expect(ZOOM_FAR).toBe(0.77);
   });
 });
 

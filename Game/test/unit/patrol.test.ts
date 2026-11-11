@@ -277,8 +277,9 @@ describe('radish patrol on the rules tick', () => {
 
   it('walks exactly the monsters some fig can see when two figs stand in different zones', () => {
     const figs = new Map<string, FigWalk>([
-      ['fig-green', figAt('fig-green', 'green', 720, 280)],
-      ['fig-cemetery', figAt('fig-cemetery', 'cemetery', 535, 130)],
+      // Both players report the closest camera, so the herds beyond their windows stand still.
+      ['fig-green', { ...figAt('fig-green', 'green', 720, 280), viewZoom: ZOOM_CLOSE }],
+      ['fig-cemetery', { ...figAt('fig-cemetery', 'cemetery', 535, 130), viewZoom: ZOOM_CLOSE }],
     ]);
     const before = plantCabbage();
     const walked = walkBed(before, figs, 40);

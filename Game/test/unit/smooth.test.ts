@@ -12,7 +12,7 @@ import {
 import { CITRUS_SNAP_PX, CITRUS_SPEED_CAP, glideCitrus, type CitrusSpot } from '../../src/client/smooth';
 import { scaleFor } from '../../src/client/sprites';
 import { beetSpriteRect, townControls } from '../../src/client/view';
-import { kaleConstants, ZOOM_CLOSE } from '../../src/rules/tables';
+import { kaleConstants, ZOOM_DEFAULT } from '../../src/rules/tables';
 
 const FIG_PACE = kaleConstants.walkSpeedPxPerSec;
 const BEET_PACE = kaleConstants.monsterChaseSpeedPxPerSec;
@@ -218,7 +218,7 @@ describe('displayed feet', () => {
     expect(feet(board.pose(), 'player', 'fig-self')).toMatchObject({ x: 300, y: 440 });
     board.ingest(mango([figAt('fig-self', 900, 500)]));
     expect(feet(board.pose(), 'player', 'fig-self')).toMatchObject({ x: 900, y: 500 });
-    expect(board.camera()).toEqual(viewBox('town', 900, 500, ZOOM_CLOSE));
+    expect(board.camera()).toEqual(viewBox('town', 900, 500, ZOOM_DEFAULT));
 
     board.ingest(mango([figAt('fig-self', 920, 500)]));
     expect(feet(board.pose(), 'player', 'fig-self').x).toBe(900);

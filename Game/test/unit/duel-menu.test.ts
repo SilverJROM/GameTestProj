@@ -5,7 +5,7 @@ import { viewBox } from '../../src/client/camera';
 import { figSpriteHolds, frontFig, peelClick } from '../../src/client/input';
 import { plantFigBoard } from '../../src/client/main';
 import { paintDuelDots, paintFigRim } from '../../src/client/view';
-import { ZOOM_CLOSE } from '../../src/rules/tables';
+import { ZOOM_DEFAULT } from '../../src/rules/tables';
 
 const pageHtml = readFileSync(new URL('../../src/client/index.html', import.meta.url), 'utf8');
 
@@ -68,13 +68,13 @@ describe('the duel menu and the waiting dots', () => {
     expect(board.duelPending()).toBe('foe');
     const draws: number[] = [];
     const ctx = { fillStyle: '', font: '', fillRect: () => void draws.push(1) };
-    board.paintDuelWaiting(ctx, viewBox('green', 300, 300, ZOOM_CLOSE), Date.now());
+    board.paintDuelWaiting(ctx, viewBox('green', 300, 300, ZOOM_DEFAULT), Date.now());
     expect(draws.length).toBeGreaterThanOrEqual(6);
     // The target accepts: both are paired, the dots are removed.
     board.ingest(snap([fig('me', 300, 300, 'foe'), fig('foe', 380, 300, 'me')]));
     expect(board.duelPending()).toBeNull();
     draws.length = 0;
-    board.paintDuelWaiting(ctx, viewBox('green', 300, 300, ZOOM_CLOSE), Date.now());
+    board.paintDuelWaiting(ctx, viewBox('green', 300, 300, ZOOM_DEFAULT), Date.now());
     expect(draws).toHaveLength(0);
   });
 
@@ -100,7 +100,7 @@ describe('the duel menu and the waiting dots', () => {
   it('paints a white bubble with three dots, one lit at a time, over the player', () => {
     const rects: string[] = [];
     const ctx = { fillStyle: '', font: '', fillRect: (x: number, y: number, w: number, h: number) => void rects.push(`${ctx.fillStyle}|${w}x${h}`) };
-    expect(paintDuelDots(ctx, viewBox('green', 300, 300, ZOOM_CLOSE), 300, 300, 0)).toBe(true);
+    expect(paintDuelDots(ctx, viewBox('green', 300, 300, ZOOM_DEFAULT), 300, 300, 0)).toBe(true);
     expect(rects.filter((r) => r.startsWith('#ffffff')).length).toBeGreaterThanOrEqual(2);
     expect(rects.filter((r) => r.includes('7x7'))).toHaveLength(3);
   });
@@ -139,7 +139,7 @@ describe('the duel menu and the waiting dots', () => {
       moveTo: () => void calls.push('m'), lineTo: () => void calls.push('l'), arcTo: () => void calls.push('a'), closePath: () => void calls.push('c'),
       quadraticCurveTo: () => void calls.push('q'), arc: () => void calls.push('arc'),
     };
-    paintFigRim(ctx as never, 380, 300, viewBox('green', 300, 300, ZOOM_CLOSE));
+    paintFigRim(ctx as never, 380, 300, viewBox('green', 300, 300, ZOOM_DEFAULT));
     expect(calls[0]).toBe('save');
     expect(calls).toContain('stroke');
     expect(calls[calls.length - 1]).toBe('restore');

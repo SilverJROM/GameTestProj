@@ -100,12 +100,13 @@ export const kaleConstants = {
   coinPickupPx: 24,
 } as const;
 
-// Guava window: closest and widest area share of the section the fig stands in.
-// The camera is the only reader. 0.14 is the default (the avatar stands about 19% of the screen high, measured against the owner's reference screenshot); 0.75 is as wide as the slider goes.
-export const ZOOM_CLOSE = 0.14;
-export const ZOOM_FAR = 0.75;
-// A zone's window is never shorter than this many map pixels, so a small zone (the cemetery) is not zoomed tighter than the rest.
-export const MIN_VIEW_HEIGHT_PX = 215;
+// Camera zoom, as the window's height divided by the map height (720), the same in every zone (plan 10).
+// 0.24 is as close as the slider goes (a 173 px high window), 0.45 is the default (324 px: the avatar stands about
+// 12% of the screen high), 0.77 is as wide as it goes (554 px). The server reads each player's reported value only to
+// decide which monsters that player can see.
+export const ZOOM_CLOSE = 0.24;
+export const ZOOM_DEFAULT = 0.45;
+export const ZOOM_FAR = 0.77;
 
 // Fresh-start marker for the saved orchard. A room whose stored epoch is not this
 // number composts the old monster bed, ground coins, and anything keyed to pre-account figs.

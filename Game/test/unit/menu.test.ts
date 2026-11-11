@@ -5,7 +5,7 @@ import { CANVAS_WIDTH, viewBox } from '../../src/client/camera';
 import { changeAvatarFig, logOutFig, plantFigBoard, sproutAfterLogin } from '../../src/client/main';
 import { controlAt, paintControlIcon, townControls, type ScreenControl } from '../../src/client/view';
 import { townSpawn } from '../../src/rules/regions';
-import { ZOOM_CLOSE, type ZoneName } from '../../src/rules/tables';
+import { ZOOM_DEFAULT, type ZoneName } from '../../src/rules/tables';
 
 const pageHtml = readFileSync(new URL('../../src/client/index.html', import.meta.url), 'utf8');
 const zones: ZoneName[] = ['town', 'green', 'grey', 'cemetery'];
@@ -409,7 +409,7 @@ describe('menu panel on the page', () => {
     expect(texts).not.toContain('Bag');
     expect(texts).not.toContain('Menu');
 
-    const controls = townControls(viewBox('town', townSpawn[0], townSpawn[1], ZOOM_CLOSE));
+    const controls = townControls(viewBox('town', townSpawn[0], townSpawn[1], ZOOM_DEFAULT));
     const menu = controls.find((row) => row.id === 'menu')!;
     const bag = controls.find((row) => row.id === 'bag')!;
     const bubble = controls.find((row) => row.id === 'bubble')!;
