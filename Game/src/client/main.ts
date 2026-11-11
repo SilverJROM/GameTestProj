@@ -27,6 +27,7 @@ import {
   healthReadout,
   hudReadout,
   paintBeetRim,
+  paintControlIcon,
   paintHealth,
   paintHud,
   paintStack,
@@ -82,6 +83,7 @@ const MELON_INK = '#e0b15a';
 export interface FigHooks {
   onSmith?: (open: boolean) => void;
   onBag?: (open: boolean) => void;
+  onMenu?: (open: boolean) => void;
   onOffer?: (offer: { fromId: string; fromName: string } | null) => void;
   onSnapshot?: () => void;
 }
@@ -97,7 +99,7 @@ export interface PlantOptions {
 
 export interface FigBoard {
   click(click: ClickBerry): void;
-  // Screen click on the thought bubble or the Bag control. Returns true when that click was used.
+  // Screen click on the thought bubble, the menu, or the Bag. Returns true when that click was used.
   pressScreen(x: number, y: number): boolean;
   accept(askerId?: string): void;
   decline(askerId?: string): void;
@@ -131,8 +133,13 @@ export interface FigBoard {
   gearFacts(): InventoryFacts;
   // Hides the Bag and the Blacksmith and clears both open flags.
   closePanels(): void;
+  // Opens or closes the fig menu. Opening it closes the Bag and the Blacksmith.
+  setMenu(open: boolean): void;
+  // Stops the lemon from sprouting again, then closes it so the fig leaves the world.
+  haltLemon(): void;
   readonly smithOpen: boolean;
   readonly bagOpen: boolean;
+  readonly menuOpen: boolean;
 }
 
 const EMPTY_ORCHARD: OrchardPaint = { players: [], monsters: [], coins: [], pickups: [] };
@@ -193,6 +200,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   const selfGender = options.selfGender;
   let quinceOpen = false;
   let bagOpen = false;
+  let menuOpen = false;
+  let figLeaving = false;
   let guavaZoom = readGuavaZoom();
   let askerHeld = '';
   let oliveDepth = 0;
@@ -515,7 +524,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   }
 
   function controls(): ScreenControl[] {
-    // The blacksmith's bubble belongs to the town. The Bag button stays everywhere.
+    // The blacksmith's bubble belongs to the town. The menu and the Bag stay everywhere.
     return townControls(camera()).filter((row) => row.id !== 'bubble' || selfPlace === 'town');
   }
 
@@ -558,12 +567,19 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     const hit = controlAt(controls(), x, y);
     if (hit === null) return false;
     if (hit.id === 'bubble') {
+      if (menuOpen) setMenu(false);
       quinceOpen = true;
       bagOpen = false;
       hooks.onSmith?.(true);
       hooks.onBag?.(false);
       return true;
     }
+    if (hit.id === 'menu') {
+      setMenu(!menuOpen);
+      return true;
+    }
+    if (hit.id !== 'bag') return false;
+    if (menuOpen) setMenu(false);
     if (bagOpen) {
       bagOpen = false;
       hooks.onBag?.(false);
@@ -653,12 +669,14 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   }
 
   function sproutLemon(): void {
+    if (figLeaving) return;
     const next = options.createSocket('/ws', plumCookie);
     lemon = next;
     listen(next, 'message', (event) => {
       if (typeof event.data === 'string') ingest(event.data);
     });
     listen(next, 'close', () => {
+      if (figLeaving) return;
       if (oliveDepth > 0) return;
       oliveDepth += 1;
       try {
@@ -667,6 +685,27 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
         oliveDepth -= 1;
       }
     });
+  }
+
+  function haltLemon(): void {
+    figLeaving = true;
+    const ripe = lemon;
+    lemon = null;
+    ripe?.close();
+  }
+
+  function setMenu(open: boolean): void {
+    const was = menuOpen;
+    menuOpen = open;
+    if (open) {
+      const smithWas = quinceOpen;
+      const bagWas = bagOpen;
+      quinceOpen = false;
+      bagOpen = false;
+      if (smithWas) hooks.onSmith?.(false);
+      if (bagWas) hooks.onBag?.(false);
+    }
+    if (was !== open) hooks.onMenu?.(open);
   }
 
   sproutLemon();
@@ -696,11 +735,16 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     shop,
     inventory,
     closePanels,
+    setMenu,
+    haltLemon,
     get smithOpen() {
       return quinceOpen;
     },
     get bagOpen() {
       return bagOpen;
+    },
+    get menuOpen() {
+      return menuOpen;
     },
   };
 }
@@ -799,6 +843,60 @@ function mapBerry(canvas: LooseEl, event: LooseEvent): { x: number; y: number } 
 }
 
 let papayaPlanted = false;
+// The live lemon from the signed-in fig. Change avatar and a successful sign-out both call it.
+let melonHalt: (() => void) | null = null;
+
+interface PearResponse {
+  ok: boolean;
+  json?: () => Promise<unknown>;
+}
+
+function reloadFigPage(): void {
+  const loc = (globalThis as { location?: { reload?: () => void } }).location;
+  if (typeof loc?.reload === 'function') loc.reload();
+}
+
+// Closes the lemon, then reloads. The account cookie stays, so the page shows the roster.
+export function changeAvatarFig(reload: () => void): void {
+  melonHalt?.();
+  reload();
+}
+
+async function figSignError(response: PearResponse, fallback: string): Promise<string> {
+  try {
+    const body = await response.json?.();
+    if (body !== null && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string') {
+      return (body as { error: string }).error;
+    }
+  } catch {
+    // A body that is not JSON keeps the fallback.
+  }
+  return fallback;
+}
+
+// Posts /api/signout the same way signOutFig does. A failure stays put and returns the error.
+export async function logOutFig(
+  fetchFn: (input: string, init?: { method: string; credentials: string }) => Promise<PearResponse>,
+  reload: () => void,
+): Promise<{ ok: boolean; error: string }> {
+  let response: PearResponse;
+  try {
+    response = await fetchFn('/api/signout', { method: 'POST', credentials: 'same-origin' });
+  } catch {
+    return { ok: false, error: 'Could not reach the server.' };
+  }
+  if (!response.ok) {
+    return { ok: false, error: await figSignError(response, 'Could not sign out.') };
+  }
+  try {
+    await response.json?.();
+  } catch {
+    // An empty body still counts as signed out.
+  }
+  melonHalt?.();
+  reload();
+  return { ok: true, error: '' };
+}
 
 function figChildren(el: LooseEl): LooseEl[] {
   if (el.children === undefined) return [];
@@ -1065,16 +1163,16 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
       paintHealth(screen, board.health());
       paintHud(screen, board.hud());
       for (const control of board.controls()) {
-        screen.fillStyle = control.id === 'bag' ? '#1c1814' : '#ffffff';
-        screen.fillRect(control.x, control.y, control.width, control.height);
-        screen.fillStyle = control.id === 'bag' ? '#ffffff' : '#1a140c';
-        screen.font = control.font;
-        if (control.id === 'bubble') {
-          const pen = limePen(screen, control.text, control.x, control.width);
-          screen.fillText(control.text, pen, control.y + 28);
-        } else {
-          screen.fillText(control.text, control.x + 12, control.y + 36);
+        if (control.id === 'bag' || control.id === 'menu') {
+          paintControlIcon(screen, control);
+          continue;
         }
+        screen.fillStyle = '#ffffff';
+        screen.fillRect(control.x, control.y, control.width, control.height);
+        screen.fillStyle = '#1a140c';
+        screen.font = control.font;
+        const pen = limePen(screen, control.text, control.x, control.width);
+        screen.fillText(control.text, pen, control.y + 28);
       }
       for (const num of board.damageNumbers(nowMs)) {
         screen.fillStyle = num.color;
@@ -1463,13 +1561,23 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     hooks: {
       onSmith(open) {
         if (smith !== null) smith.hidden = !open;
+        if (open) hideSettings();
         if (open) paintQuince();
       },
       onBag(open) {
         const sheetEl = doc.getElementById('olive-sheet');
         if (sheetEl !== null) sheetEl.hidden = !open;
         if (!open) forgetCarry();
+        if (open) hideSettings();
         if (open) paintOlive();
+      },
+      onMenu(open) {
+        const panel = doc.getElementById('menu-panel');
+        if (panel !== null) panel.hidden = !open;
+        if (!open) return;
+        hideSettings();
+        const line = doc.getElementById('menu-error');
+        if (line !== null) line.textContent = '';
       },
       onOffer(offer) {
         if (plumDuel !== null) plumDuel.hidden = offer === null;
@@ -1553,16 +1661,58 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     });
   }
 
+  function hideSettings(): void {
+    const settings = doc.getElementById('settings-panel');
+    if (settings !== null) settings.hidden = true;
+  }
+
+  function showSettings(): void {
+    board.closePanels();
+    board.setMenu(false);
+    const settings = doc.getElementById('settings-panel');
+    if (settings !== null) settings.hidden = false;
+  }
+
   function shutPanels(): void {
     forgetCarry();
     board.closePanels();
   }
+
+  melonHalt = () => {
+    board.haltLemon();
+  };
 
   doc.getElementById('quince-close')?.addEventListener?.('click', () => {
     shutPanels();
   });
   doc.getElementById('olive-close')?.addEventListener?.('click', () => {
     shutPanels();
+  });
+  doc.getElementById('menu-avatar')?.addEventListener?.('click', () => {
+    changeAvatarFig(reloadFigPage);
+  });
+  doc.getElementById('menu-settings')?.addEventListener?.('click', () => {
+    showSettings();
+  });
+  doc.getElementById('menu-logout')?.addEventListener?.('click', () => {
+    const line = doc.getElementById('menu-error');
+    if (line !== null) line.textContent = '';
+    const fetchFn = (globalThis as {
+      fetch?: (input: string, init?: { method: string; credentials: string }) => Promise<PearResponse>;
+    }).fetch;
+    if (typeof fetchFn !== 'function') {
+      if (line !== null) line.textContent = 'Could not reach the server.';
+      return;
+    }
+    void logOutFig((input, init) => fetchFn(input, init), reloadFigPage).then((result) => {
+      if (!result.ok && line !== null) line.textContent = result.error;
+    });
+  });
+  doc.getElementById('menu-close')?.addEventListener?.('click', () => {
+    board.setMenu(false);
+  });
+  doc.getElementById('settings-close')?.addEventListener?.('click', () => {
+    hideSettings();
   });
   wireSlot('olive-sword', 'sword');
   wireSlot('olive-armor', 'armor');
@@ -1572,6 +1722,16 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   };
   keyHost.addEventListener?.('keydown', (event) => {
     if (event.key !== 'Escape') return;
+    const menuPanel = doc.getElementById('menu-panel');
+    if (menuPanel !== null && menuPanel.hidden !== true) {
+      board.setMenu(false);
+      return;
+    }
+    const settingsPanel = doc.getElementById('settings-panel');
+    if (settingsPanel !== null && settingsPanel.hidden !== true) {
+      settingsPanel.hidden = true;
+      return;
+    }
     if (!board.smithOpen && !board.bagOpen) return;
     shutPanels();
   });
@@ -1591,6 +1751,15 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   const aimBeet = (event: LooseEvent) => {
     if (canvas == null) return;
     const pixel = mapBerry(canvas, event);
+    const overFig = controlAt(board.controls(), pixel.x, pixel.y);
+    if (overFig !== null) {
+      melonPointer = null;
+      const hadRim = melonHoverId !== null;
+      melonHoverId = null;
+      setPapayaCursor('pointer');
+      if (hadRim) show(board.pose());
+      return;
+    }
     const spot = canvasToMap(board.camera(), pixel.x, pixel.y);
     melonPointer = spot;
     const stills = board.pose();

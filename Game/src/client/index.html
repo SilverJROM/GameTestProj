@@ -330,6 +330,87 @@
       #olive-sheet .mango { margin: 1px 2px 0; font-size: 14px; font-weight: 700; color: #f2c200; }
       #olive-sheet .note { margin: 4px 0 0; font-size: 16px; color: #c8b79a; }
       #olive-sheet [hidden] { display: none !important; }
+      /* Fig menu sits on the picture, just under the bag and menu icons. Settings is a centered sheet. */
+      #menu-panel[hidden],
+      #settings-panel[hidden] { display: none !important; }
+      #menu-panel {
+        position: absolute;
+        top: 10.5%;
+        right: 1.1rem;
+        z-index: 4;
+        width: 14.5rem;
+        box-sizing: border-box;
+        background: #221c16;
+        color: #f4efe6;
+        border: 2px solid #6b5433;
+        border-radius: 14px;
+        padding: 12px 12px 10px;
+        font-family: system-ui, Arial, sans-serif;
+      }
+      #menu-panel button {
+        display: block;
+        width: 100%;
+        margin: 0 0 8px;
+        height: 40px;
+        border: 0;
+        border-radius: 8px;
+        background: #3a332b;
+        color: #fff;
+        font-size: 16px;
+        font-weight: 700;
+        font-family: inherit;
+        text-align: left;
+        padding: 0 12px;
+        cursor: pointer;
+      }
+      #menu-panel button.link {
+        display: inline-block;
+        width: auto;
+        height: auto;
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        color: #e0b15a;
+        font-size: 14px;
+        font-weight: 700;
+        text-decoration: underline;
+      }
+      #menu-error {
+        color: #e07a5f;
+        min-height: 1.1em;
+        margin: 0 0 6px;
+        font-size: 14px;
+      }
+      #settings-panel {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 6;
+        width: min(420px, 94vw);
+        box-sizing: border-box;
+        background: #221c16;
+        color: #f4efe6;
+        border: 2px solid #6b5433;
+        border-radius: 14px;
+        padding: 16px 18px 14px;
+        font-family: system-ui, Arial, sans-serif;
+      }
+      #settings-panel .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+      #settings-panel h3 { margin: 0; font-size: 32px; font-weight: 700; }
+      #settings-panel .close {
+        height: 40px;
+        line-height: 40px;
+        padding: 0 16px;
+        border: 0;
+        border-radius: 8px;
+        background: #3a332b;
+        color: #fff;
+        font-size: 18px;
+        font-weight: 700;
+        font-family: inherit;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
@@ -409,7 +490,17 @@
         Zoom
         <input type="range" id="zoom-slider" min="60" max="75" step="1" value="60" orient="vertical" />
       </label>
+      <section id="menu-panel" hidden>
+        <button type="button" id="menu-avatar">Change avatar</button>
+        <button type="button" id="menu-settings">Settings</button>
+        <button type="button" id="menu-logout">Log out</button>
+        <p id="menu-error" role="alert"></p>
+        <button type="button" id="menu-close" class="link">Close</button>
+      </section>
     </div>
+    <section id="settings-panel" hidden>
+      <div class="top"><h3>Settings</h3><button type="button" id="settings-close" class="close">Close</button></div>
+    </section>
     <section id="quince-smith" hidden>
       <div class="top"><h3>Blacksmith</h3><button type="button" id="quince-close" class="close">Close</button></div>
       <p id="quince-purse" class="purse"></p>

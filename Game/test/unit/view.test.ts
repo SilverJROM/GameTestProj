@@ -750,9 +750,9 @@ describe('blacksmith shop and inventory', () => {
         snapshot: { players: [fig({ id: 'fig-self', x: 300, y: 450, place })], monsters: [], coins: [], pickups: [] },
       });
     send('town');
-    expect(board.controls().map((row) => row.id)).toEqual(['bubble', 'bag']);
+    expect(board.controls().map((row) => row.id)).toEqual(['bubble', 'menu', 'bag']);
     send('green');
-    expect(board.controls().map((row) => row.id)).toEqual(['bag']);
+    expect(board.controls().map((row) => row.id)).toEqual(['menu', 'bag']);
   });
 
   it('opens the six-item shop from the thought bubble and the inventory from Bag', () => {
@@ -782,6 +782,7 @@ describe('blacksmith shop and inventory', () => {
     const bag = board.controls().find((row) => row.id === 'bag');
     expect(bubble?.text).toBe('...');
     expect(bag?.text).toBe('Bag');
+    expect(bag?.label).toBe('Bag');
     expect(LIME_BUBBLE_W).toBe(64);
     expect(LIME_BUBBLE_H).toBe(36);
     expect(bubble!.width).toBe(LIME_BUBBLE_W);

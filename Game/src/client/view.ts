@@ -1080,8 +1080,10 @@ export function hudReadout(facts: HudFacts): HudReadout {
 }
 
 export interface ScreenControl {
-  readonly id: 'bubble' | 'bag';
+  readonly id: 'bubble' | 'bag' | 'menu';
   readonly text: string;
+  // Accessible name. The bag and menu icons are painted; this word is not drawn.
+  readonly label?: string;
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -1094,7 +1096,16 @@ export const LIME_BUBBLE_W = 64;
 export const LIME_BUBBLE_H = 36;
 export const LIME_BUBBLE_FONT = '800 24px system-ui, Arial, sans-serif';
 
-// Thought bubble over the blacksmith, and the Bag control at the top right. Both are screen space.
+// Screen-space fig buttons. The bag keeps its old hit box. The menu sits one gap to its left.
+const FIG_EDGE = 24;
+const FIG_BAG_W = 92;
+const FIG_BAG_H = 44;
+const FIG_MENU_W = 44;
+const FIG_MENU_H = 44;
+const FIG_ICON_GAP = 12;
+const FIG_ICON_FONT = '800 22px Georgia, serif';
+
+// Thought bubble over the blacksmith, the menu, and the Bag. All three are screen space.
 export function townControls(view: PeachView): ScreenControl[] {
   const feet = mapToCanvas(view, SMITH_X, SMITH_Y);
   const headTop = feet.y - scaleFor('blacksmith') * view.scale;
@@ -1105,6 +1116,8 @@ export function townControls(view: PeachView): ScreenControl[] {
   let bubbleX = feet.x - bubbleWidth / 2;
   if (bubbleX < 8) bubbleX = 8;
   if (bubbleX + bubbleWidth > CANVAS_WIDTH - 8) bubbleX = CANVAS_WIDTH - 8 - bubbleWidth;
+  const bagX = CANVAS_WIDTH - FIG_EDGE - FIG_BAG_W;
+  const bagY = FIG_EDGE;
   return [
     {
       id: 'bubble',
@@ -1116,15 +1129,68 @@ export function townControls(view: PeachView): ScreenControl[] {
       font: LIME_BUBBLE_FONT,
     },
     {
+      id: 'menu',
+      text: 'Menu',
+      label: 'Menu',
+      x: bagX - FIG_ICON_GAP - FIG_MENU_W,
+      y: bagY,
+      width: FIG_MENU_W,
+      height: FIG_MENU_H,
+      font: FIG_ICON_FONT,
+    },
+    {
       id: 'bag',
       text: 'Bag',
-      x: CANVAS_WIDTH - 24 - 92,
-      y: 24,
-      width: 92,
-      height: 44,
-      font: '800 22px Georgia, serif',
+      label: 'Bag',
+      x: bagX,
+      y: bagY,
+      width: FIG_BAG_W,
+      height: FIG_BAG_H,
+      font: FIG_ICON_FONT,
     },
   ];
+}
+
+// Dark fig button, light glyph. fillRect only, so a double with fillRect and fillText can paint it.
+const FIG_ICON_BACK = '#1c1814';
+const FIG_ICON_INK = '#ffffff';
+
+function paintBagGlyph(ctx: ScreenCtx, control: ScreenControl): void {
+  const bodyW = 22;
+  const bodyH = 14;
+  const bodyX = Math.round(control.x + (control.width - bodyW) / 2);
+  const bodyY = Math.round(control.y + (control.height - bodyH) / 2 + 3);
+  const handleW = 10;
+  const handleH = 3;
+  const handleX = bodyX + Math.round((bodyW - handleW) / 2);
+  const handleY = bodyY - 7;
+  const flapH = 4;
+  const flapY = bodyY - flapH - 1;
+  ctx.fillRect(handleX, handleY, handleW, handleH);
+  ctx.fillRect(bodyX, flapY, bodyW, flapH);
+  ctx.fillRect(bodyX, bodyY, bodyW, bodyH);
+}
+
+function paintMenuBars(ctx: ScreenCtx, control: ScreenControl): void {
+  const barW = 18;
+  const barH = 3;
+  const gap = 4;
+  const stack = barH * 3 + gap * 2;
+  const left = Math.round(control.x + (control.width - barW) / 2);
+  const top = Math.round(control.y + (control.height - stack) / 2);
+  ctx.fillRect(left, top, barW, barH);
+  ctx.fillRect(left, top + barH + gap, barW, barH);
+  ctx.fillRect(left, top + (barH + gap) * 2, barW, barH);
+}
+
+// Paints the bag (body, handle, flap) or the three-bar menu. The control text stays undrawn.
+export function paintControlIcon(ctx: ScreenCtx, control: ScreenControl): void {
+  if (control.id !== 'bag' && control.id !== 'menu') return;
+  ctx.fillStyle = FIG_ICON_BACK;
+  ctx.fillRect(control.x, control.y, control.width, control.height);
+  ctx.fillStyle = FIG_ICON_INK;
+  if (control.id === 'menu') paintMenuBars(ctx, control);
+  else paintBagGlyph(ctx, control);
 }
 
 export function controlAt(
