@@ -300,11 +300,18 @@ describe('G4 hunt flow', () => {
   }, 180_000);
 
   it('lets a skeleton ignore a fig outside the radius and a fig in the grey, then chase a fig inside both', async () => {
-    // The fifth skeleton stands at the east edge of the cemetery, next to the grey ground.
+    // The fifth skeleton starts at (455, 95), near the cemetery's east edge and the grey ground.
+    // Seven skeletons now patrol the whole cemetery, so Plum starts just outside this skeleton's radius (the nearest
+    // other skeleton is far away) and the skeleton patrols for a few seconds without ever waking.
     const skeleton = nthBeet('skeleton', 4);
-    // Far enough that this skeleton's radish stays outside the wake radius while it patrols.
-    const plumOutside = { x: 535, y: 130 };
-    const plumInside = { x: skeleton.x + skeletonRadiusPx - 1, y: skeleton.y };
+    const plumOutside = { x: 555, y: 115 };
+    expect(Math.hypot(plumOutside.x - skeleton.x, plumOutside.y - skeleton.y)).toBeGreaterThan(skeletonRadiusPx);
+    // A spot just inside the radius that is still cemetery ground (east of this skeleton is the grey).
+    const insideAt = (from: { x: number; y: number }) =>
+      [[-1, 0], [0, 1], [0, -1], [1, 0]]
+        .map(([dx, dy]) => ({ x: from.x + dx! * (skeletonRadiusPx - 1), y: from.y + dy! * (skeletonRadiusPx - 1) }))
+        .find((spot) => zoneAt(spot.x, spot.y) === 'cemetery')!;
+    const plumInside = insideAt(skeleton);
     const radishGrey = { x: 470, y: 20 };
     expect(zoneAt(plumOutside.x, plumOutside.y)).toBe('cemetery');
     expect(zoneAt(plumInside.x, plumInside.y)).toBe('cemetery');
@@ -327,7 +334,7 @@ describe('G4 hunt flow', () => {
       expect(heard.otherSnap.character.hp).toBe(strong.hp);
       const reach = kaleConstants.meleeReachPx;
       expect(Math.hypot(standing.x - plumOutside.x, standing.y - plumOutside.y)).toBeGreaterThan(reach);
-      expect(Math.hypot(standing.x - radishGrey.x, standing.y - radishGrey.y)).toBeGreaterThan(reach);
+      // The patrol loop may pass within reach of the grey fig; the skeleton still ignores it (no swing, no damage).
     }
 
     // Plum follows the patrolling skeleton, staying in the cemetery, until she stands inside its radius.
@@ -339,7 +346,8 @@ describe('G4 hunt flow', () => {
         reachedIn = true;
         break;
       }
-      await fromPlum({ type: 'move', x: standing.x + skeletonRadiusPx - 1, y: standing.y });
+      const spot = insideAt(standing);
+      await fromPlum({ type: 'move', x: spot.x, y: spot.y });
       heard = await fromPlum({ type: 'ripen', steps: 1 });
     }
     expect(reachedIn).toBe(true);

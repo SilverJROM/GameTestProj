@@ -397,8 +397,12 @@ describe('lemon room attack', () => {
     const planted = await plantPlayingFig((path, init) => live.fetch(`http://town.example${path}`, init), 'Plum', 'man');
     const facts = planted.facts;
     const grape = planted.grape;
-    const wolf = plantCabbage().beets.filter((beet) => beet.kind === 'wolf')[1]!;
+    const wolfId = plantCabbage().beets.filter((beet) => beet.kind === 'wolf')[1]!.id;
     const bar = papayaLevelRows[0]!.xpToNext!;
+    // Wolves patrol a big cell of the green, so Plum joins beside the second wolf where it stands now.
+    const scout = await connectFig(`ws://127.0.0.1:${live.port}/ws`, grape);
+    const wolf = scout.welcome.snapshot.monsters.find((beet) => beet.id === wolfId)!;
+    scout.socket.close();
     await saveFacts(kiwiDb, facts.id, { x: wolf.x, y: wolf.y, place: 'green', xp: bar - 1 });
 
     const plumJoin = await connectFig(`ws://127.0.0.1:${live.port}/ws`, grape);

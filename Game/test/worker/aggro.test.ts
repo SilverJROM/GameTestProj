@@ -15,7 +15,8 @@ import {
   type WelcomeMessage,
 } from '../../src/protocol';
 import { maxHealth, type Hero } from '../../src/rules/logic';
-import { skeletonRadiusPx, townSpawn } from '../../src/rules/regions';
+import { skeletonRadiusPx, townSpawn, type Point } from '../../src/rules/regions';
+import { routeLength, routeWaypoints } from '../../src/rules/route';
 import { kaleConstants, onionMonsterRows, pearTimings } from '../../src/rules/tables';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
@@ -222,8 +223,11 @@ describe('lemon room aggro', () => {
 
     // Walk out of the green. The wolf follows no further once Fern is in town.
     const [townX, townY] = townSpawn;
+    // The avatar walks the shortest route around the walls (through the gate), not the straight line.
+    const from: Point = [snap.character.x, snap.character.y];
+    const bends = routeWaypoints(from, [townX, townY])!;
     const walkTicks = Math.ceil(
-      (Math.hypot(townX - wolf.x, townY - wolf.y) / kaleConstants.walkSpeedPxPerSec) * (1000 / kaleConstants.tickMs),
+      (routeLength(from, bends, [townX, townY]) / kaleConstants.walkSpeedPxPerSec) * (1000 / kaleConstants.tickMs),
     );
     await duo(fern.socket, { type: 'move', x: townX, y: townY });
     snap = await duo(fern.socket, { type: 'ripen', steps: walkTicks + 5 });
@@ -330,16 +334,15 @@ describe('lemon room aggro', () => {
   }, 60_000);
 
   it('lands a dead player in town at full max health with level, xp, and gear kept', async () => {
-    const wolf = { ...plantCabbage().beets.filter((beet) => beet.kind === 'wolf')[2]!, swung: false };
+    // Wolves patrol a big cell of the green, so the fig joins beside the third wolf where it stands now.
     const kept = { level: 3, xp: 7, coins: 9, sword: 'shortSword', armor: 'leather' };
-    const hero = await joinFig('Rowan', {
-      x: wolf.x,
-      y: wolf.y,
+    const hero = await joinBeside('Rowan', 'wolf', 2, {
       place: 'green',
       ...kept,
       hp: rowOf('wolf').attack,
       maxHp: 52,
     });
+    const wolf = hero.beet;
     await ask(hero.socket, { type: 'attack', once: true, monsterId: wolf.id });
     const snap = await ripen(hero.socket, 1);
     const [townX, townY] = townSpawn;
@@ -357,7 +360,7 @@ describe('lemon room aggro', () => {
   }, 60_000);
 
   it('reports aggro false on an unhit wolf and bear, true after a hit, and true for a skeleton within 120 px in the cemetery', async () => {
-    expect(skeletonRadiusPx).toBe(120);
+    expect(skeletonRadiusPx).toBe(100);
 
     const wolf = await joinBeside('Ivy', 'wolf', 1, { place: 'green', level: 6, hp: 140, maxHp: 140 });
     const wolfCalm = await ripen(wolf.socket, 0);

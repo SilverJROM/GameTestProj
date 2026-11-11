@@ -18,8 +18,8 @@ export const MAP_WIDTH = 1280;
 export const MAP_HEIGHT = 720;
 
 // Skeleton proximity radius in pixels: a skeleton wakes when a character is this close.
-// 120 px is 2.5 melee reaches (48 px), so a player must walk through the graveyard to be noticed.
-export const skeletonRadiusPx = 120;
+// 100 px, a little over 2 melee reaches (48 px), so a player must walk through the graveyard to be noticed.
+export const skeletonRadiusPx = 100;
 
 // Apple ring: the town zone. It is the lower-left part of the picture: the walled town plus the
 // grass around it, bounded above by the cemetery's lower wall and the dirt road, and on the right
@@ -121,15 +121,17 @@ export const zoneRings: Readonly<Record<ZoneName, readonly Ring[]>> = {
 export const carrotTownSpawns: readonly Point[] = [
   [300, 440], [260, 470], [330, 500], [230, 500], [290, 520], [340, 450], [210, 430],
 ];
+// Seven leeks per hunting zone, one per monster. They sit at the centres of seven equal-sized parts of the zone
+// (found by repeatedly moving each leek to the centre of the spots nearest to it), so the monsters start spread over
+// the whole section. docs/plan04-notes.md has the reasoning.
 export const beanGreenSpawns: readonly Point[] = [
-  [720, 280], [800, 320], [900, 380], [960, 420], [880, 500], [1000, 560], [1100, 620], [760, 520],
-  [660, 600],
+  [565, 235], [725, 335], [895, 395], [1085, 455], [655, 575], [895, 615], [1155, 615],
 ];
 export const pumpkinGreySpawns: readonly Point[] = [
-  [860, 150], [950, 120], [1040, 200], [1120, 150], [1180, 250], [980, 260], [1100, 300],
+  [625, 65], [795, 95], [1005, 75], [1195, 105], [1215, 315], [915, 185], [1075, 235],
 ];
 export const turnipCemeterySpawns: readonly Point[] = [
-  [60, 60], [140, 30], [230, 70], [300, 110], [380, 80], [200, 160], [120, 170], [260, 200],
+  [65, 65], [185, 65], [315, 55], [365, 135], [455, 95], [235, 175], [105, 165],
 ];
 
 export const townSpawnPoints: readonly Point[] = carrotTownSpawns;

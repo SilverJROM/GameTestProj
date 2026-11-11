@@ -499,10 +499,13 @@ describe('cabbage patrol on the rules tick', () => {
     // Patrol alone is never a storage event.
     expect(first.stored).toBe(false);
     // A beet outside the green and outside this fig's window stays on its leek. One inside the window walks.
-    const fig = figIn('green');
+    // Monsters now spread over the whole zones, so a fig in the middle of the green sees every one of them. A fig in
+    // the south-east corner of the green still has the far cemetery monsters outside its window.
+    const fig = figAt(1200, 650, 'green');
+    const cornerWalk = walkBed(plantCabbage(), new Map([['fig-green', fig]]), 2_000);
     let seenOther = 0;
     let hiddenOther = 0;
-    for (const beet of first.bed.beets.filter((candidate) => candidate.kind !== 'wolf')) {
+    for (const beet of cornerWalk.bed.beets.filter((candidate) => candidate.kind !== 'wolf')) {
       const start = plantCabbage().beets.find((candidate) => candidate.id === beet.id)!;
       const seen = figSeesBeet(fig.facts.place, fig.facts.x, fig.facts.y, start.x, start.y);
       if (seen) {

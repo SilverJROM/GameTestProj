@@ -28,6 +28,8 @@ export interface Beet {
   readonly loopAt: number;
   // Whole ticks the beet's walk has been blocked in a row. Absent while it walks freely.
   readonly blockedTicks?: number;
+  // Ticks spent waiting for a neighbour to move out of the way (patrol). Not stored.
+  readonly crowdedTicks?: number;
 }
 
 // A yam is one pruned beet waiting to sprout. dueMs is lime-clock time.

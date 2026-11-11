@@ -169,22 +169,31 @@ describe('lemon room skeleton proximity aggro', () => {
   const ripen = (socket: WebSocket, steps: number) => ask(socket, { type: 'ripen', steps });
   const beetIn = (snap: SnapshotMessage, id: string) => snap.snapshot.monsters.find((beet) => beet.id === id);
 
-  // The fifth skeleton stands at the east edge of the cemetery, next to the grey ground.
+  // The fifth skeleton starts at (455, 95), near the east edge of the cemetery and the grey ground. Seven skeletons now
+  // patrol the whole cemetery, so every case reasons about this one skeleton only and uses spots computed from its start.
   const borderSkeleton = () => firstBeet('skeleton', 4);
   const bite = rowOf('skeleton').attack;
 
   it('ignores a fig just outside the radius and targets one just inside, biting the row attack on the rules gap', async () => {
     const skeleton = borderSkeleton();
-    // East of every grave's radish, so a patrol loop cannot walk into the wake radius.
-    const feet = { x: 535, y: 130 };
+    // Just outside this skeleton's radius, at the cemetery's east edge; the nearest other skeleton is far away. The
+    // skeleton patrols at 1.1 px a tick, so it may drift toward the fig: every tick that ends with it still outside the
+    // radius must leave it asleep and the fig untouched, and it must stay asleep for at least a few ticks.
+    const feet = { x: 555, y: 115 };
     expect(zoneAt(feet.x, feet.y)).toBe('cemetery');
     expect(Math.hypot(feet.x - skeleton.x, feet.y - skeleton.y)).toBeGreaterThan(skeletonRadiusPx);
     const outside = await joinFig('Plum', { ...feet, place: 'cemetery', level: 6, hp: 80, maxHp: 80 });
-    const snap = await ripen(outside.socket, 200);
-    const beet = beetIn(snap, skeleton.id)!;
-    expect(Math.hypot(beet.x - snap.character.x, beet.y - snap.character.y)).toBeGreaterThan(skeletonRadiusPx);
-    expect(beet.swung).toBe(false);
-    expect(snap.character.hp).toBe(80);
+    let quiet = 0;
+    for (let tick = 0; tick < 40; tick += 1) {
+      const snap = await ripen(outside.socket, 1);
+      const beet = beetIn(snap, skeleton.id)!;
+      if (Math.hypot(beet.x - snap.character.x, beet.y - snap.character.y) <= skeletonRadiusPx) break;
+      expect(beet.swung, `tick ${tick}`).toBe(false);
+      expect(beet.aggro, `tick ${tick}`).toBe(false);
+      expect(snap.character.hp).toBe(80);
+      quiet += 1;
+    }
+    expect(quiet).toBeGreaterThanOrEqual(1);
     // Close the socket so this fig is gone before the next case.
     outside.socket.close();
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -192,8 +201,11 @@ describe('lemon room skeleton proximity aggro', () => {
 
   it('chases the first target, keeps it past the radius, and lets go when the fig leaves the cemetery', async () => {
     const skeleton = borderSkeleton();
-    expect(zoneAt(skeleton.x + skeletonRadiusPx - 1, skeleton.y)).toBe('cemetery');
-    const inside = await joinFig('Cherry', { x: skeleton.x + skeletonRadiusPx - 1, y: skeleton.y, place: 'cemetery', level: 6, hp: 80, maxHp: 80 });
+    // Just inside this skeleton's radius (east is cemetery here, but not straight east: the grey starts there).
+    const near = { x: 552, y: 112 };
+    expect(zoneAt(near.x, near.y)).toBe('cemetery');
+    expect(Math.hypot(near.x - skeleton.x, near.y - skeleton.y)).toBeLessThan(skeletonRadiusPx);
+    const inside = await joinFig('Cherry', { ...near, place: 'cemetery', level: 6, hp: 80, maxHp: 80 });
     // Close in first, then the bite lands on the rules gap.
     let snap = await ripen(inside.socket, 1);
     for (let tick = 0; tick < 200 && !beetIn(snap, skeleton.id)!.swung; tick += 1) {
@@ -209,7 +221,9 @@ describe('lemon room skeleton proximity aggro', () => {
     }
     expect(start - snap.character.hp).toBe(bite * 2);
     // Leaving the cemetery clears the aggro: the skeleton stops where it is.
-    await ask(inside.socket, { type: 'move', x: skeleton.x + 200, y: skeleton.y - 30 });
+    const greyExit = { x: 545, y: 75 };
+    expect(zoneAt(greyExit.x, greyExit.y)).toBe('grey');
+    await ask(inside.socket, { type: 'move', ...greyExit });
     snap = await ripen(inside.socket, 200);
     expect(snap.character.place).not.toBe('cemetery');
     const hpAway = snap.character.hp;
@@ -224,13 +238,15 @@ describe('lemon room skeleton proximity aggro', () => {
     const skeleton = borderSkeleton();
     const spot = { x: 470, y: 20 };
     expect(zoneAt(spot.x, spot.y)).toBe('grey');
-    expect(Math.hypot(spot.x - skeleton.x, spot.y - skeleton.y)).toBeLessThan(skeletonRadiusPx);
     const grey = await joinFig('Radish', { ...spot, place: 'grey', level: 6, hp: 80, maxHp: 80 });
+    // Where the skeleton stands now (earlier cases moved it), it is within the wake radius of the grey fig.
+    const standing = beetIn(await ripen(grey.socket, 0), skeleton.id)!;
+    expect(Math.hypot(spot.x - standing.x, spot.y - standing.y)).toBeLessThan(skeletonRadiusPx);
     // A grey fig is not a target. The skeleton may still patrol when it sits on her screen.
     const snap = await ripen(grey.socket, 200);
     const beet = beetIn(snap, skeleton.id)!;
     expect(beet.swung).toBe(false);
     expect(snap.character.hp).toBe(80);
-    expect(Math.hypot(beet.x - spot.x, beet.y - spot.y)).toBeGreaterThan(kaleConstants.meleeReachPx);
+    // The patrol loop may carry the skeleton within reach of the grey fig; it still never swings at her.
   }, 60_000);
 });

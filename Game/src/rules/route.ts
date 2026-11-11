@@ -189,7 +189,7 @@ export function planWalk(from: Point, to: Point): WalkPlan | null {
   return bends === null ? null : { target, bends };
 }
 
-function nearWall(p: Point, within: number): boolean {
+export function nearWall(p: Point, within: number): boolean {
   for (const [a, b] of guavaSolidWalls) {
     const len2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2;
     if (len2 < 1e-9) continue;
