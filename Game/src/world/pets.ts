@@ -63,6 +63,11 @@ export function stepPickups(
   let changed = false;
   const writes: PersimmonWrite[] = [];
   for (const [ownerId, fig] of figs) {
+    // A dead owner's pet waits: no walk-on pickup and no dig until the owner respawns (the coin stays on the ground).
+    if (fig.facts.hp <= 0) {
+      digs.delete(ownerId);
+      continue;
+    }
     // Walk-on first, so a step onto the seed this tick pays once and the dig for it stops.
     const pocketed = current.seeds.filter(
       (seed) => seed.ownerId === ownerId && samePlum(fig, seed) && feetOnMelon(fig, seed),

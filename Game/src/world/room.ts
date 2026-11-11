@@ -25,6 +25,7 @@ import {
   peelClientMessage,
   type HitMark,
 } from '../protocol';
+import { townSpawn } from '../rules/regions';
 import { WORLD_EPOCH, kaleConstants, type ZoneName } from '../rules/tables';
 import { nextExpiry } from '../rules/coins';
 import { expireCoinLots, getById, listBag, listSiblingIds, readCoinLots, saveFacts, savePosition, saveFactsPair, saveQuinceBuy, saveQuinceSlot, type CharacterDb, type CharacterFactsPatch } from '../server/db';
@@ -198,7 +199,14 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (loaded === null) {
       return refuseFigSocket();
     }
-    const planted = sproutFig(loaded);
+    // An avatar left dead (its player exited after being killed) comes back in town at full health on the next Play.
+    let rejoin = loaded;
+    if (loaded.hp <= 0) {
+      const [townX, townY] = townSpawn;
+      rejoin = { ...loaded, hp: loaded.maxHp, place: 'town', x: townX, y: townY };
+      await saveFacts(kiwiDb, appleId, { hp: rejoin.hp, place: 'town', x: townX, y: townY });
+    }
+    const planted = sproutFig(rejoin);
 
     const melonPair = new WebSocketPair();
     const [clientSocket, serverSocket] = Object.values(melonPair) as [WebSocket, WebSocket];
@@ -272,7 +280,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       }
     });
 
-    const welcome = bakeWelcome(planted, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs), this.duelOrchard.pairs);
+    const welcome = bakeWelcome(planted, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs), this.duelOrchard.pairs, this.duelOrchard.hp);
     serverSocket.send(JSON.stringify(welcome));
 
     await this.armOrchard(false);
@@ -355,6 +363,11 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       this.replyOne(appleId, serverSocket);
       return;
     }
+    if (peeled.type === 'respawn') {
+      await this.onRespawn(appleId);
+      this.replyOne(appleId, serverSocket);
+      return;
+    }
     if (peeled.type === 'move') {
       await this.onMove(appleId, peeled.x, peeled.y);
       return;
@@ -406,6 +419,13 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
 
   // The asker or answerer is the socket's fig. The message names only the other fig.
   private onDuel(appleId: string, serverSocket: WebSocket, kind: 'duel_request' | 'duel_accept' | 'duel_decline' | 'duel_cancel', otherId: string): void {
+    // A dead avatar neither asks nor accepts a duel.
+    const me = this.orchard.figs.get(appleId);
+    const them = this.orchard.figs.get(otherId);
+    if (me === undefined || me.facts.hp <= 0 || (kind !== 'duel_decline' && kind !== 'duel_cancel' && (them === undefined || them.facts.hp <= 0))) {
+      this.replyOne(appleId, serverSocket);
+      return;
+    }
     sweepTownOffers(this.duelOrchard, this.orchard.figs);
     if (kind === 'duel_request') {
       const asked = askDuel(this.duelOrchard, this.orchard.figs, appleId, otherId);
@@ -814,9 +834,29 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
 
   // The attacker is the socket's fig. The beet id is the only thing the mango names.
   // A message that names a monster runs the monster path only; otherwise a named player is a duel swing.
+  // A dead avatar's player picks Respawn in town: it lands in town at full health and may act again.
+  private async onRespawn(appleId: string): Promise<void> {
+    const fig = this.orchard.figs.get(appleId);
+    if (fig === undefined || fig.facts.hp > 0) {
+      return;
+    }
+    const [townX, townY] = townSpawn;
+    this.stopChase(appleId);
+    dropDuelsFor(this.duelOrchard, appleId);
+    this.posPending.delete(appleId);
+    this.radishDigs.delete(appleId);
+    fig.facts = { ...fig.facts, hp: fig.facts.maxHp, place: 'town', x: townX, y: townY };
+    fig.guavaX = townX;
+    fig.guavaY = townY;
+    fig.guavaArmed = false;
+    fig.limeStops = [];
+    await saveFacts(this.env.DB, appleId, { hp: fig.facts.hp, place: 'town', x: townX, y: townY });
+    this.broadcastMango();
+  }
+
   private async onAttack(appleId: string, beetId: string | undefined, rivalId: string | undefined, once = false, walk = false): Promise<void> {
     const fig = this.orchard.figs.get(appleId);
-    if (fig === undefined) {
+    if (fig === undefined || fig.facts.hp <= 0) {
       return;
     }
     if (beetId === undefined) {
@@ -1060,14 +1100,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (rival !== undefined) {
       await this.expireNow(rival);
     }
-    const hit = strikeFig(fig, this.orchard.figs.get(rivalId), this.duelOrchard.pairs, swing, this.limeClock.nowMs());
+    const hit = strikeFig(fig, this.orchard.figs.get(rivalId), this.duelOrchard.pairs, swing, this.limeClock.nowMs(), this.duelOrchard.hp);
     if (hit.mark !== null) this.noteHit(hit.mark);
     if (hit.felled) {
       const [loserRow, winnerRow] = hit.writes as [PersimmonWrite, PersimmonWrite];
       // The pairing and the glow end with the fight; both purses go to D1 in one batch.
       dropDuelsFor(this.duelOrchard, appleId);
-      // The loser lands in town: a position waiting to be saved must not overwrite the landing later.
-      this.posPending.delete(loserRow.id);
       const { moved, expired } = await saveFactsPair(this.env.DB, loserRow, winnerRow);
       if (expired > 0) {
         // Coins that ran out between the pot being set and the write also left the stored purse.
@@ -1272,7 +1310,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return null;
     }
-    const baked = bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs), this.duelOrchard.pairs, this.pendingHits);
+    const baked = bakeSnapshotMessage(fig, [...this.orchard.figs.values()], this.beetsInBloom(), this.cabbage.seeds, pickupSnapshots(this.cabbage, this.radishDigs), this.duelOrchard.pairs, this.pendingHits, this.duelOrchard.hp);
     if (this.swungFigs.size === 0) {
       return JSON.stringify(baked);
     }

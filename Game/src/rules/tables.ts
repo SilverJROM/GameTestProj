@@ -74,6 +74,10 @@ export const pearTimings = {
 } as const;
 
 // Coins expire this many days after the pickup. Spending uses the oldest coins first.
+// In a duel every fighter uses these level's base health and strike (plus their own sword and armor), so a farmed
+// weapon and armor are what decide a duel, not a level lead or deficit. Real level, health and XP are not touched.
+export const DUEL_LEVEL = 3;
+
 export const COIN_LIFETIME_DAYS = 7;
 // The Bag warns about coins that expire within this many days.
 export const COIN_WARN_DAYS = 2;

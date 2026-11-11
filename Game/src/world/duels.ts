@@ -14,10 +14,12 @@ export interface PlumOffer {
 export interface DuelOrchard {
   offers: PlumOffer[];
   readonly pairs: Map<string, string>;
+  // Duel health of the two fighters in a pairing (set at the first swing, so a duel never touches real health).
+  readonly hp: Map<string, number>;
 }
 
 export function plantDuelOrchard(): DuelOrchard {
-  return { offers: [], pairs: new Map<string, string>() };
+  return { offers: [], pairs: new Map<string, string>(), hp: new Map<string, number>() };
 }
 
 // A fig is standing in the room and out of town.
@@ -101,9 +103,11 @@ export function answerDuel(
 export function dropDuelsFor(duels: DuelOrchard, figId: string): void {
   duels.offers = duels.offers.filter((row) => row.fromId !== figId && row.toId !== figId);
   const partner = duels.pairs.get(figId);
+  duels.hp.delete(figId);
   if (partner !== undefined) {
     duels.pairs.delete(figId);
     duels.pairs.delete(partner);
+    duels.hp.delete(partner);
   }
 }
 
@@ -123,6 +127,8 @@ export function sweepTownPairs(duels: DuelOrchard, figs: ReadonlyMap<string, Fig
     if (duels.pairs.has(figId) && (!inTheField(figs, figId) || !inTheField(figs, partnerId))) {
       duels.pairs.delete(figId);
       duels.pairs.delete(partnerId);
+      duels.hp.delete(figId);
+      duels.hp.delete(partnerId);
       ended.push(figId, partnerId);
     }
   }
