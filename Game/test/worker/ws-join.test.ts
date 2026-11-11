@@ -7,6 +7,7 @@ import path from 'node:path';
 import { getPlatformProxy, unstable_dev, type PlatformProxy, type Unstable_DevWorker } from 'wrangler';
 import WebSocket from 'ws';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { petFor } from '../../src/rules/pets';
 import { townSpawn } from '../../src/rules/regions';
 import { sproutApricot } from '../../src/world/core';
 import { ACCOUNT_COOKIE_NAME, SESSION_COOKIE_NAME, signCharacterId } from '../../src/server/cookie';
@@ -224,6 +225,7 @@ describe('GET /ws join on the real worker', () => {
         moving: false,
         place: 'town',
         gender: ada.facts.gender,
+        pet: petFor(ada.facts.id),
         duelPartnerId: null,
       },
     ]);
@@ -285,6 +287,7 @@ describe('GET /ws join on the real worker', () => {
       moving: false,
       place: 'green',
       gender: ada.facts.gender,
+      pet: petFor(ada.facts.id),
       duelPartnerId: null,
     });
     expect(beaJoin.socket.readyState).toBe(WebSocket.OPEN);

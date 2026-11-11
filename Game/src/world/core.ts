@@ -11,6 +11,7 @@ import { buyItem, equipItem, unequipItem, type OwnedGear } from '../rules/items'
 import { duelMaxHealth, maxHealth, type Hero } from '../rules/logic';
 import { firstSolidWallCrossing, firstSolidWallHit, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, nearFountain, skeletonRadiusPx, townSpawn, zoneAt, type GuavaWallHit } from '../rules/regions';
 import { planWalk } from '../rules/route';
+import { petFor } from '../rules/pets';
 import { FOUNTAIN_REGEN_HP_PER_SEC, FOUNTAIN_REGEN_REACH_PX, kaleConstants, onionMonsterRows, type GearSlot } from '../rules/tables';
 import type { ApricotFacing, CoinSnapshot, HitMark, PickupSnapshot, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
 
@@ -457,6 +458,7 @@ function toPlayer(
     moving: figMoving(fig),
     place: planted.place,
     gender: fig.facts.gender,
+    pet: petFor(planted.id),
     duelPartnerId: partners.get(planted.id) ?? null,
   };
 }

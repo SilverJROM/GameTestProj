@@ -58,7 +58,7 @@ The first screen is character setup, before the map.
 - A blank name, including a name that is empty after trim, is refused and creates nothing.
 - Names are unique in the world after trim, compared without case. "Bob" and " bob " are the same character.
 - An existing name enters as that character and does not reset level, experience, coins, gear, or place.
-- A new name creates a level 1 character in town, with full health, 0 coins, 0 experience, no sword, no armor, and one axolotl.
+- A new name creates a level 1 character in town, with full health, 0 coins, 0 experience, no sword, no armor, and one pet (dog, cat, tiger cub or axolotl, see Coins and the pet).
 - The session plays only as the character it entered. It cannot spend another character's coins, move them, or fight as them.
 
 ## Accounts
@@ -136,15 +136,15 @@ Deviation from the manager's guidance (report 22), decided by the project owner:
 
 A monster that reaches 0 dies, grants its experience to the killer, and drops one coin worth its coin value on the ground.
 
-## Coins and the axolotl
+## Coins and the pet
 
 Coins are not added to the purse at the moment of the kill. A kill drops one coin at the spot where the monster died, worth that monster's coin value. The ground picture is one icon, `assets/items/coin.png`, on a magenta field that is removed with the other stills. It is not cropped from the axolotl pickup still, and it is not drawn once per point of value.
 
-Every character has one axolotl. It follows that character, using `avatars/axolotl/stand.png` and `walk.png`. The magenta behind those pictures is not part of the world.
+Every character has one pet, chosen at random with fixed odds when the avatar is made: **dog, cat and tiger cub 30% each, axolotl 10%**. The pick comes from the avatar's own random id (`src/rules/pets.ts`), so an avatar always keeps the same pet and nothing is stored. The pet follows that character, using `avatars/<pet>/stand.png` and `walk.png` (the axolotl's own pictures are in `avatars/axolotl/`), all drawn at the same small size. The magenta behind those pictures is not part of the world.
 
-Only the killer's axolotl picks up that coin. Another player's pet cannot take it.
+Only the killer's pet picks up that coin. Another player's pet cannot take it.
 
-The owner may walk away as soon as the monster dies. The pet goes to the coin wherever it lies. The pickup plays `avatars/axolotl/pickup.png` and lasts **2.25 seconds**. When those 2.25 seconds finish, the whole coin value is added to the owner's purse at once. The pet then comes back and follows the owner again. A coin left on the ground stays there for that owner until their pet collects it. If the owner leaves before the pickup finishes, the coin waits and the 2.25 seconds start over when the owner returns.
+The owner may walk away as soon as the monster dies. The pet goes to the coin wherever it lies. The pickup plays the pet's `pickup.png` (the axolotl holds the coin; the dog, cat and tiger cub crouch, their stand picture squashed) and lasts **2.25 seconds**. When those 2.25 seconds finish, the whole coin value is added to the owner's purse at once. The pet then comes back and follows the owner again. A coin left on the ground stays there for that owner until their pet collects it. If the owner leaves before the pickup finishes, the coin waits and the 2.25 seconds start over when the owner returns.
 
 A coin expires 7 days after it is picked up. Each pickup is its own lot with its own date, spending takes the oldest lots first, and the Bag warns about lots that expire within 2 days. A lot past its date is gone from the purse.
 

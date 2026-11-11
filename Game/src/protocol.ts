@@ -75,6 +75,8 @@ export interface PlayerSnapshot {
   readonly duelPartnerId: string | null;
   // True only for the snapshot in which this player's swing landed (the avatar shows its swing frames).
   readonly attacking?: boolean;
+  // This avatar's pet (dog, cat, tiger or axolotl). Chosen from the avatar's id, so it never changes.
+  readonly pet?: 'axolotl' | 'dog' | 'cat' | 'tiger';
   // True while this avatar is dead where it fell (its health is 0). It cannot move or fight until it respawns in town.
   readonly dead?: boolean;
   // During a duel: the duel health and its maximum (duel level plus gear). The page shows these instead of real health.

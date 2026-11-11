@@ -6,3 +6,4 @@ export * from './names';
 export * from './view';
 export * from './radish';
 export * from './coins';
+export * from './pets';

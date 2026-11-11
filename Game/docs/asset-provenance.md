@@ -15,6 +15,7 @@ for use in the game and commercial use is allowed.
 |---|---|---|---|---|
 | Warriors (first set, man, woman) | `avatars/warrior`, `warrior-m`, `warrior-f` | Grok AI generated | Developer states use and commercial use allowed | Stated, no evidence file |
 | Axolotl pet | `avatars/axolotl` | Grok AI generated | same | Stated, no evidence file |
+| Dog, cat and tiger cub pets | `avatars/dog`, `avatars/cat`, `avatars/tiger` | Generated on 2026-11-11 by the project's Grok CLI image tool, prompted to match the axolotl style (stand and walk pictures); background removed, cropped and fitted to 784x508 with Pillow; the pickup picture is the stand picture squashed to 80% height | same | No evidence file. Free-licensed (CC0) packs were looked for first; none matched the painterly style and none had a tiger cub, so these are AI generated like the axolotl |
 | Blacksmith | `avatars/blacksmith` | Grok AI generated | same | Stated, no evidence file |
 | Wolf | `avatars/wolf` | Grok AI generated | same | Stated, no evidence file |
 | Bear | `avatars/bear` | Grok AI generated | same | Stated, no evidence file |

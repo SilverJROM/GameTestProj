@@ -112,6 +112,15 @@ const GUAVA_PIXELS: Readonly<Record<string, { readonly width: number; readonly h
   '/avatars/axolotl/stand.png': { width: 784, height: 508 },
   '/avatars/axolotl/walk.png': { width: 1190, height: 734 },
   '/avatars/axolotl/pickup.png': { width: 782, height: 508 },
+  '/avatars/dog/stand.png': { width: 784, height: 508 },
+  '/avatars/dog/walk.png': { width: 784, height: 508 },
+  '/avatars/dog/pickup.png': { width: 784, height: 508 },
+  '/avatars/cat/stand.png': { width: 784, height: 508 },
+  '/avatars/cat/walk.png': { width: 784, height: 508 },
+  '/avatars/cat/pickup.png': { width: 784, height: 508 },
+  '/avatars/tiger/stand.png': { width: 784, height: 508 },
+  '/avatars/tiger/walk.png': { width: 784, height: 508 },
+  '/avatars/tiger/pickup.png': { width: 784, height: 508 },
   '/avatars/blacksmith/stand.png': { width: 460, height: 1572 },
 };
 
@@ -425,7 +434,8 @@ export function paintOrchard(reel: OliveReel, orchard: OrchardPaint): GuavaStill
       x = spot.x;
       y = spot.y;
     }
-    const src = `/avatars/axolotl/${stem}.png`;
+    // Each avatar's pet (dog, cat, tiger cub or axolotl) is drawn at the same small size slot as the axolotl.
+    const src = `/avatars/${fig.pet ?? 'axolotl'}/${stem}.png`;
     const size = sizedStill('axolotl', src);
     stills.push(
       makeStill({
