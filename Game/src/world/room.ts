@@ -47,7 +47,8 @@ import {
 } from './core';
 import { answerDuel, askDuel, cancelDuel, dropDuelsFor, duelPartnerOf, plantDuelOrchard, sweepTownOffers, sweepTownPairs } from './duels';
 import { anyDigDue, pickupSnapshots, stepPickups, type RadishDigs } from './pets';
-import { anyBeetWatched, strikeBeet, strikeFig, newSwingClock, stepAggro, type StrikeMark, type SwingClock } from './combat';
+import { maxHealth } from '../rules/logic';
+import { heroOf, anyBeetWatched, strikeBeet, strikeFig, newSwingClock, stepAggro, type StrikeMark, type SwingClock } from './combat';
 import {
   anyAggro,
   clearAggroOn,
@@ -203,8 +204,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     let rejoin = loaded;
     if (loaded.hp <= 0) {
       const [townX, townY] = townSpawn;
-      rejoin = { ...loaded, hp: loaded.maxHp, place: 'town', x: townX, y: townY };
-      await saveFacts(kiwiDb, appleId, { hp: rejoin.hp, place: 'town', x: townX, y: townY });
+      const full = maxHealth({
+        level: loaded.level, xp: loaded.xp, health: loaded.hp, coins: loaded.coins,
+        sword: loaded.sword, armor: loaded.armor, place: loaded.place,
+      });
+      rejoin = { ...loaded, hp: full, maxHp: full, place: 'town', x: townX, y: townY };
+      await saveFacts(kiwiDb, appleId, { hp: full, maxHp: full, place: 'town', x: townX, y: townY });
     }
     const planted = sproutFig(rejoin);
 
@@ -845,12 +850,13 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     dropDuelsFor(this.duelOrchard, appleId);
     this.posPending.delete(appleId);
     this.radishDigs.delete(appleId);
-    fig.facts = { ...fig.facts, hp: fig.facts.maxHp, place: 'town', x: townX, y: townY };
+    const full = maxHealth(heroOf(fig));
+    fig.facts = { ...fig.facts, hp: full, maxHp: full, place: 'town', x: townX, y: townY };
     fig.guavaX = townX;
     fig.guavaY = townY;
     fig.guavaArmed = false;
     fig.limeStops = [];
-    await saveFacts(this.env.DB, appleId, { hp: fig.facts.hp, place: 'town', x: townX, y: townY });
+    await saveFacts(this.env.DB, appleId, { hp: full, maxHp: full, place: 'town', x: townX, y: townY });
     this.broadcastMango();
   }
 

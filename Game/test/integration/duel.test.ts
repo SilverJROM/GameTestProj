@@ -15,7 +15,7 @@ import {
   type SnapshotMessage,
   type WelcomeMessage,
 } from '../../src/protocol';
-import { duelPayout, maxHealth, strike, type Hero } from '../../src/rules/logic';
+import { duelMaxHealth, duelPayout, duelStrike, maxHealth, type Hero } from '../../src/rules/logic';
 import {
   firstSolidWallCrossing,
   inRing,
@@ -292,14 +292,17 @@ describe('G5 duel flow', () => {
 
     // 4. A fight to 0 health. Each swing waits out the rules gap on the ripen clock.
     const beforeFight = { melon: await factsOf(melon.id), turnip: await factsOf(turnip.id) };
-    const blow = strike(heroOf(beforeFight.melon));
-    const swingsNeeded = Math.ceil(beforeFight.turnip.hp / blow);
+    // Duels are fought at level 3 base stats, with the worn sword and armor kept.
+    const blow = duelStrike(heroOf(beforeFight.melon));
+    const duelHealth = duelMaxHealth(heroOf(beforeFight.turnip));
+    const swingsNeeded = Math.ceil(duelHealth / blow);
     for (let swing = 0; swing < swingsNeeded; swing += 1) {
       await ripen(melon, swingTicks);
       await ask(melon, { type: 'attack', playerId: turnip.id });
       const pumpkin = await factsOf(turnip.id);
       if (swing < swingsNeeded - 1) {
-        expect(pumpkin.hp).toBe(beforeFight.turnip.hp - blow * (swing + 1));
+        // Real health is untouched while the duel health drains.
+        expect(pumpkin.hp).toBe(beforeFight.turnip.hp);
         expect(pumpkin.place).toBe('green');
       }
     }
@@ -310,17 +313,24 @@ describe('G5 duel flow', () => {
     expect(payout).toBe(4);
     expect(afterFight.melon.coins).toBe(beforeFight.melon.coins + payout);
     expect(afterFight.turnip.coins).toBe(beforeFight.turnip.coins - payout);
+    // The loser stays dead where it fell until it picks Respawn.
     expect(afterFight.turnip).toMatchObject({
-      place: 'town',
-      x: townSpawn[0],
-      y: townSpawn[1],
-      hp: maxHealth(heroOf(beforeFight.turnip)),
+      place: 'green',
+      hp: 0,
       maxHp: beforeFight.turnip.maxHp,
       level: beforeFight.turnip.level,
       xp: beforeFight.turnip.xp,
       sword: beforeFight.turnip.sword,
       armor: beforeFight.turnip.armor,
     });
+    const respawned = await ask(turnip, { type: 'respawn' });
+    expect(await factsOf(turnip.id)).toMatchObject({
+      place: 'town',
+      x: townSpawn[0],
+      y: townSpawn[1],
+      hp: maxHealth(heroOf(beforeFight.turnip)),
+    });
+    expect(respawned.character.place).toBe('town');
     // No xp moves in a duel.
     expect(afterFight.melon.xp).toBe(beforeFight.melon.xp);
     expect(afterFight.melon.level).toBe(beforeFight.melon.level);
@@ -338,7 +348,7 @@ describe('G5 duel flow', () => {
     const midFight = await factsOf(turnip.id);
     await ripen(melon, swingTicks);
     await ask(melon, { type: 'attack', playerId: turnip.id });
-    expect((await factsOf(turnip.id)).hp).toBe(midFight.hp - blow);
+    expect((await factsOf(turnip.id)).hp).toBe(midFight.hp); // duel health, not real health, took the blow
     const purses = [(await factsOf(melon.id)).coins, (await factsOf(turnip.id)).coins];
 
     const inTown = await walkTo(turnip, townSpawn[0], townSpawn[1]);

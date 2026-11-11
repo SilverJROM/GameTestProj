@@ -333,7 +333,7 @@ describe('lemon room aggro', () => {
     expect(snap.character.hp).toBe(80);
   }, 60_000);
 
-  it('lands a dead player in town at full max health with level, xp, and gear kept', async () => {
+  it('leaves a dead player where it fell, then respawns it in town at full max health with level, xp, and gear kept', async () => {
     // Wolves patrol a big cell of the green, so the fig joins beside the third wolf where it stands now.
     const kept = { level: 3, xp: 7, coins: 9, sword: 'shortSword', armor: 'leather' };
     const hero = await joinBeside('Rowan', 'wolf', 2, {
@@ -347,13 +347,20 @@ describe('lemon room aggro', () => {
     const snap = await ripen(hero.socket, 1);
     const [townX, townY] = townSpawn;
     const fullMax = maxHealth(heroOf({ ...snap.character, ...kept }));
-    expect(snap.character).toMatchObject({ ...kept, place: 'town', x: townX, y: townY, hp: fullMax });
+    // Dead where it fell: health 0, same zone, not in town.
+    expect(snap.character).toMatchObject({ ...kept, place: 'green', hp: 0 });
     const me = snap.snapshot.players.find((player) => player.id === hero.id)!;
-    expect([me.place, me.x, me.y]).toEqual(['town', townX, townY]);
+    expect(me.dead).toBe(true);
+    expect(me.place).toBe('green');
     const row = await getById(kiwiDb, hero.id);
-    expect(row).toMatchObject({ ...kept, place: 'town', x: townX, y: townY, hp: fullMax });
-
-    // Nothing chases the player any more.
+    expect(row).toMatchObject({ ...kept, place: 'green', hp: 0 });
+    // The wolf lets a dead avatar be.
+    const quiet = await ripen(hero.socket, 100);
+    expect(beetIn(quiet, wolf.id)!.swung).toBe(false);
+    // Respawn: town, full health.
+    const back = await ask(hero.socket, { type: 'respawn' });
+    expect(back.character).toMatchObject({ ...kept, place: 'town', x: townX, y: townY, hp: fullMax });
+    expect(await getById(kiwiDb, hero.id)).toMatchObject({ ...kept, place: 'town', x: townX, y: townY, hp: fullMax });
     const later = await ripen(hero.socket, 100);
     expect(beetIn(later, wolf.id)!.swung).toBe(false);
     expect(later.character.hp).toBe(fullMax);
