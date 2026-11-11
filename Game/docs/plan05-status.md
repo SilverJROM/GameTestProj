@@ -8,12 +8,12 @@ Branch `update-05` from `main` (163cc9d + plan 05 docs). Nothing is pushed or de
 | # | Slice | Level | State |
 |---|---|---|---|
 | 1 | test clock only with ALLOW_TEST_CLOCK | L1 | done (tests updated, lock test added) |
-| 2 | precompute route graph and patrol cells at build time | L2 | not started |
+| 2 | precompute route graph and patrol cells at build time | L2 | done (c6547b7) |
 | 3 | in-memory tick instead of the 100 ms alarm chain | L2 | built (Opus review pending) |
 | 4 | throttle position saves, no read-back | L2 | built (Opus review pending) |
 | 5 | throttle storeCabbage | L2 | built (Opus review pending) |
-| 6 | idle socket close after 20 min | L1 | not started |
-| 7 | account cap 6 | L1 | not started |
-| 8 | email allowlist + invite code sign-up (lock B) | L1/L2 | not started |
+| 6 | idle socket close after 20 min | L1 | done (uncommitted until the next commit) |
+| 7 | account cap 6 (MAX_ACCOUNTS) | L1 | done |
+| 8 | email allowlist + invite code sign-up (lock B), migration 0006 | L1/L2 | done |
 
 Next step: see the first non-done row.

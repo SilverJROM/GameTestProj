@@ -101,6 +101,8 @@ export interface FigHooks {
   onSmith?: (open: boolean) => void;
   onBag?: (open: boolean) => void;
   onMenu?: (open: boolean) => void;
+  // The server closed this socket for inactivity (code 4001): no reconnect, show the reload message.
+  onIdle?: () => void;
   onOffer?: (offer: { fromId: string; fromName: string } | null) => void;
   onSnapshot?: () => void;
   onPlace?: (place: ZoneName) => void;
@@ -700,13 +702,13 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     sendOne(buyQuince(itemId));
   }
 
-  function listen(sock: LemonLike, type: string, fn: (event: { data?: unknown }) => void): void {
+  function listen(sock: LemonLike, type: string, fn: (event: { data?: unknown; code?: number }) => void): void {
     if (typeof sock.addEventListener === 'function') {
       sock.addEventListener(type, fn);
       return;
     }
     if (type === 'close') {
-      sock.onclose = () => fn({});
+      sock.onclose = (event?: unknown) => fn({ code: (event as { code?: number } | undefined)?.code });
     } else if (type === 'message') {
       sock.onmessage = fn;
     }
@@ -719,8 +721,14 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     listen(next, 'message', (event) => {
       if (typeof event.data === 'string') ingest(event.data);
     });
-    listen(next, 'close', () => {
+    listen(next, 'close', (event) => {
       if (figLeaving) return;
+      // Closed for inactivity: do not reconnect (that would defeat the idle limit); tell the player instead.
+      if (event.code === IDLE_CLOSE_CODE) {
+        figLeaving = true;
+        hooks.onIdle?.();
+        return;
+      }
       if (oliveDepth > 0) return;
       oliveDepth += 1;
       try {
@@ -914,6 +922,8 @@ const QUIET_MUSIC: MusicEngine = {
 };
 // The live music for the signed-in fig. Sign-in and the picker never start it.
 let figMusic: MusicEngine = QUIET_MUSIC;
+// The server closes a socket that sent nothing for 20 minutes with this code.
+const IDLE_CLOSE_CODE = 4001;
 const QUIET_SFX: SfxEngine = {
   frame() {},
   noteGesture() {},
@@ -1733,6 +1743,12 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
         if (open) hideSettings();
         if (open) paintOlive();
       },
+      onIdle() {
+        const idle = doc.getElementById('idle-panel');
+        if (idle !== null) idle.hidden = false;
+        figMusic.setCanvasVisible(false);
+        figSfx.setCanvasVisible(false);
+      },
       onMenu(open) {
         const panel = doc.getElementById('menu-panel');
         if (panel !== null) panel.hidden = !open;
@@ -2069,6 +2085,9 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     void logOutFig((input, init) => fetchFn(input, init), reloadFigPage).then((result) => {
       if (!result.ok && line !== null) line.textContent = result.error;
     });
+  });
+  doc.getElementById('idle-reload')?.addEventListener?.('click', () => {
+    reloadFigPage();
   });
   doc.getElementById('menu-close')?.addEventListener?.('click', () => {
     board.setMenu(false);

@@ -41,7 +41,7 @@ describe('shell routes on the real worker', () => {
     expect(pageText).toContain('id="apple-form"');
     expect(pageText).toContain('id="papaya-canvas"');
     expect(pageText).toContain('type="password"');
-    expect(pageText).toContain('No email is needed. A forgotten password cannot be recovered.');
+    expect(pageText).toContain('A forgotten password cannot be recovered.');
     expect(pageText).toContain('id="fig-roster"');
     expect(pageText).toContain('id="fig-plant"');
     expect(pageText).not.toContain('/api/login');

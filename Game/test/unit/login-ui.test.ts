@@ -55,6 +55,8 @@ function fakeDocument(): FakeDoc {
   add('apple-form');
   add('kiwi-user');
   add('kiwi-pass');
+  add('kiwi-email');
+  add('kiwi-invite');
   add('kiwi-signin');
   add('kiwi-create');
   add('pear-refusal');
@@ -186,7 +188,7 @@ function rosterFetch(start: FigRow[]) {
 
 describe('account screen markup', () => {
   it('shows the recovery note, a password field, and the three screens', () => {
-    expect(pageHtml).toContain('No email is needed. A forgotten password cannot be recovered.');
+    expect(pageHtml).toContain('A forgotten password cannot be recovered.');
     expect(pageHtml).toContain('type="password"');
     expect(pageHtml).toContain('autocomplete="username"');
     expect(pageHtml).toContain('autocomplete="current-password"');
@@ -278,6 +280,8 @@ describe('account screens', () => {
     await wireScreens(peachDoc as unknown as Document, fetchMock);
     peachDoc.getElementById('kiwi-user').value = 'ada_fig';
     peachDoc.getElementById('kiwi-pass').value = password;
+    peachDoc.getElementById('kiwi-email').value = 'ada@example.com';
+    peachDoc.getElementById('kiwi-invite').value = 'the-code';
     press(peachDoc.getElementById('kiwi-create'));
     await vi.waitFor(() => {
       expect(peachDoc.getElementById('fig-roster').hidden).toBe(false);
@@ -285,7 +289,9 @@ describe('account screens', () => {
 
     const account = callsOf(fetchMock).find((call) => call.path === '/api/account');
     expect(account?.method).toBe('POST');
-    expect(JSON.parse(String(account?.init.body))).toEqual({ username: 'ada_fig', password });
+    expect(JSON.parse(String(account?.init.body))).toEqual({ username: 'ada_fig', password, email: 'ada@example.com', invite: 'the-code' });
+    // The invite code box is cleared after the request, like the password.
+    expect(peachDoc.getElementById('kiwi-invite').value).toBe('');
     assertPasswordAbsent(peachDoc, password);
     expect(peachDoc.getElementById('apple-login').hidden).toBe(true);
     expect(peachDoc.getElementById('fig-plant').hidden).toBe(true);

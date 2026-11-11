@@ -4,8 +4,9 @@
 
 import { SESSION_COOKIE_NAME, buildSetCookie, readCookieValue, verifyCharacterCookie } from './cookie';
 import { getById, type CharacterDb, type CharacterFacts } from './db';
+import type { SignupSettings } from './signup';
 
-export interface SessionBindings {
+export interface SessionBindings extends SignupSettings {
   readonly DB: CharacterDb;
   readonly SESSION_SECRET: string;
 }

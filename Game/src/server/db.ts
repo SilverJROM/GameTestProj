@@ -382,15 +382,15 @@ function rowToAccount(peachRow: AccountRow): AccountFacts {
 
 export async function insertAccount(
   db: CharacterDb,
-  input: { readonly username: string; readonly usernameKey: string; readonly passwordHash: string },
+  input: { readonly username: string; readonly usernameKey: string; readonly passwordHash: string; readonly emailHash?: string | null },
 ): Promise<AccountFacts | null> {
   const appleId = crypto.randomUUID();
   try {
     await db
       .prepare(
-        'INSERT INTO accounts (id, username, username_key, password_hash, created_at) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO accounts (id, username, username_key, password_hash, created_at, email_hash) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .bind(appleId, input.username, input.usernameKey, input.passwordHash, Date.now())
+      .bind(appleId, input.username, input.usernameKey, input.passwordHash, Date.now(), input.emailHash ?? null)
       .run();
   } catch (radishError) {
     const existing = await getAccountByUsernameKey(db, input.usernameKey);

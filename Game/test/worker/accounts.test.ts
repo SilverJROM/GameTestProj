@@ -1,4 +1,7 @@
 // Account and avatar routes against the local D1 that wrangler emulates.
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { getPlatformProxy, type PlatformProxy } from 'wrangler';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ACCOUNT_COOKIE_NAME, SESSION_COOKIE_NAME, verifyAccountCookie, verifyCharacterCookie } from '../../src/server/cookie';
@@ -479,5 +482,94 @@ describe('accounts and avatars on local D1', () => {
     const getSignout = await call(kiwiDb, '/api/signout', { method: 'GET' });
     expect(getSignout.status).toBe(405);
     expect(getSignout.headers.getSetCookie()).toEqual([]);
+  });
+});
+
+describe('invited sign-up', () => {
+  let proxy: PlatformProxy | undefined;
+  let db: CharacterDb;
+
+  let inviteDir = '';
+
+  // Its own temporary database: never the developer's local one.
+  beforeAll(async () => {
+    inviteDir = await mkdtemp(path.join(tmpdir(), 'fig-invite-'));
+    proxy = await getPlatformProxy({ configPath: 'wrangler.jsonc', persist: { path: path.join(inviteDir, 'v3') } });
+    db = (proxy.env as unknown as { DB: CharacterDb }).DB;
+    await applyMigrations(db);
+  }, 60_000);
+
+  afterAll(async () => {
+    await proxy?.dispose();
+    if (inviteDir.length > 0) await rm(inviteDir, { recursive: true, force: true });
+  });
+
+  beforeEach(async () => {
+    await clearOrchard(db);
+  });
+
+  const gated = (extra: Record<string, string> = {}) => ({
+    ...plumBindings(db),
+    ALLOWED_EMAILS: ' First@Example.com , second@example.com ',
+    INVITE_CODE: 'open-sesame-123',
+    ...extra,
+  });
+
+  function signup(body: Record<string, unknown>, bindings = gated()) {
+    return worker.fetch(
+      new Request(`${origin}/api/account`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+      bindings,
+    );
+  }
+
+  it('is open when no allowed emails are set (local development and the tests)', async () => {
+    const res = await worker.fetch(
+      new Request(`${origin}/api/account`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'opener', password: pearPassword }) }),
+      plumBindings(db),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('refuses without the invited email and code, with one generic message, and slowly', async () => {
+    const t0 = Date.now();
+    const noEmail = await signup({ username: 'nobody1', password: pearPassword, invite: 'open-sesame-123' });
+    expect(noEmail.status).toBe(403);
+    expect((await noEmail.json()) as { error: string }).toEqual({ error: 'Sign-up is by invitation only.' });
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(500);
+    const wrongEmail = await signup({ username: 'nobody2', password: pearPassword, email: 'stranger@example.com', invite: 'open-sesame-123' });
+    expect(wrongEmail.status).toBe(403);
+    expect((await wrongEmail.json()) as { error: string }).toEqual({ error: 'Sign-up is by invitation only.' });
+    const wrongCode = await signup({ username: 'nobody3', password: pearPassword, email: 'first@example.com', invite: 'guess' });
+    expect(wrongCode.status).toBe(403);
+    expect((await wrongCode.json()) as { error: string }).toEqual({ error: 'Sign-up is by invitation only.' });
+    const row = await db.prepare('SELECT COUNT(*) AS n FROM accounts').first<{ n: number }>();
+    expect(Number(row?.n)).toBe(0);
+  });
+
+  it('accepts an invited email in any case with the code, stores only a hash, and allows one account per email', async () => {
+    const ok = await signup({ username: 'firsty', password: pearPassword, email: '  FIRST@example.COM ', invite: 'open-sesame-123' });
+    expect(ok.status).toBe(200);
+    const row = await db.prepare('SELECT email_hash FROM accounts WHERE username_key = ?').bind('firsty').first<{ email_hash: string }>();
+    expect(row?.email_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(row)).not.toContain('example.com');
+    const again = await signup({ username: 'firsty2', password: pearPassword, email: 'first@example.com', invite: 'open-sesame-123' });
+    expect(again.status).toBe(409);
+  });
+
+  it('closes registration at MAX_ACCOUNTS', async () => {
+    const bindings = gated({ MAX_ACCOUNTS: '1' });
+    expect((await signup({ username: 'cap-one', password: pearPassword, email: 'first@example.com', invite: 'open-sesame-123' }, bindings)).status).toBe(200);
+    const full = await signup({ username: 'cap-two', password: pearPassword, email: 'second@example.com', invite: 'open-sesame-123' }, bindings);
+    expect(full.status).toBe(403);
+    expect(((await full.json()) as { error: string }).error).toMatch(/closed/i);
+  });
+
+  it('never gates sign-in', async () => {
+    await signup({ username: 'signer', password: pearPassword, email: 'second@example.com', invite: 'open-sesame-123' });
+    const res = await worker.fetch(
+      new Request(`${origin}/api/signin`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'signer', password: pearPassword }) }),
+      gated(),
+    );
+    expect(res.status).toBe(200);
   });
 });
