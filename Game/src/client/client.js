@@ -235,10 +235,11 @@ async function postGate(peachDoc, fetchFn, path, fallback) {
   const gate = readGate(peachDoc);
   pearRefusal.textContent = '';
   const body = { username: gate.username, password: gate.password };
-  // Only a new account sends the email and invite code; sign-in sends the two original fields.
+  // A new account sends an email and invite code only if the page has those boxes and they are filled in (the public site
+// is locked by Cloudflare Access instead, so its page has none).
   if (path === '/api/account') {
-    body.email = gate.email;
-    body.invite = gate.invite;
+    if (gate.email) body.email = gate.email;
+    if (gate.invite) body.invite = gate.invite;
   }
   const response = await postJson(fetchFn, path, body);
   if (!response.ok) {

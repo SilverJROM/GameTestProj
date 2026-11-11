@@ -290,6 +290,9 @@ describe('account screens', () => {
     const account = callsOf(fetchMock).find((call) => call.path === '/api/account');
     expect(account?.method).toBe('POST');
     expect(JSON.parse(String(account?.init.body))).toEqual({ username: 'ada_fig', password, email: 'ada@example.com', invite: 'the-code' });
+    // The shipped page has no email or invite boxes any more (Cloudflare Access is the lock).
+    expect(pageHtml).not.toContain('kiwi-email');
+    expect(pageHtml).not.toContain('kiwi-invite');
     // The invite code box is cleared after the request, like the password.
     expect(peachDoc.getElementById('kiwi-invite').value).toBe('');
     assertPasswordAbsent(peachDoc, password);
