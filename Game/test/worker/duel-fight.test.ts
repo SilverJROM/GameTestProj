@@ -14,7 +14,7 @@ import {
   type SnapshotMessage,
   type WelcomeMessage,
 } from '../../src/protocol';
-import { maxHealth, strike, type Hero } from '../../src/rules/logic';
+import { duelMaxHealth, duelStrike, maxHealth, strike, type Hero } from '../../src/rules/logic';
 import { townSpawn } from '../../src/rules/regions';
 import { kaleConstants, pearTimings } from '../../src/rules/tables';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
@@ -170,6 +170,13 @@ describe('duel fight', () => {
   const noPartners = (snap: SnapshotMessage, ...ids: string[]) =>
     expect(Object.values(partnersOf(snap, ...ids))).toEqual(ids.map(() => null));
   const factsOf = async (id: string) => (await getById(kiwiDb, id))!;
+  // A duel runs on duel health (duel level plus gear), shown in the snapshot of the two fighters; real health is untouched.
+  const duelHpOf = (snap: SnapshotMessage, id: string) => snap.snapshot.players.find((row) => row.id === id)?.duelHp;
+  const duelHpBelow = (fig: PlumFig, id: string, limit: number) =>
+    until(fig, (snap) => {
+      const hp = duelHpOf(snap, id);
+      return hp !== undefined && hp < limit ? hp : undefined;
+    });
 
 
   const heroOf = (facts: CharacterFacts): Hero => ({ ...facts, health: facts.hp });
@@ -230,8 +237,12 @@ describe('duel fight', () => {
       armor: 'leather',
     });
     const before = { winner: await factsOf(winner.id), loser: await factsOf(loser.id) };
-    await ask(winner, { type: 'attack', playerId: loser.id });
-    const snap = await until(winner, async (seen) => ((await factsOf(loser.id)).place === 'town' ? seen : undefined));
+    // Duels are fought on duel health, so it takes many swings; each one waits out the attack gap.
+    for (let swings = 0; swings < 80 && (await factsOf(loser.id)).hp > 0; swings += 1) {
+      await ask(winner, { type: 'attack', playerId: loser.id });
+      await ripenMs(winner, gapMs);
+    }
+    const snap = await ask(winner, { type: 'ping' });
     const after = { winner: await factsOf(winner.id), loser: await factsOf(loser.id) };
     return { winner, loser, before, after, snap };
   }
@@ -240,11 +251,12 @@ describe('duel fight', () => {
     const { winner, loser, before, after, snap } = await settle(2, 9, 'Nine');
     expect(after.winner.coins).toBe(before.winner.coins + 4);
     expect(after.loser.coins).toBe(5);
+    // The loser is dead where it fell (the same zone and spot, health 0) until its player picks Respawn in town.
     expect(after.loser).toMatchObject({
-      place: 'town',
-      x: townSpawn[0],
-      y: townSpawn[1],
-      hp: after.loser.maxHp,
+      place: 'green',
+      x: before.loser.x,
+      y: before.loser.y,
+      hp: 0,
       maxHp: before.loser.maxHp,
       level: before.loser.level,
       xp: before.loser.xp,
@@ -253,16 +265,21 @@ describe('duel fight', () => {
     });
     expect(after.winner.xp).toBe(before.winner.xp);
     expect(after.winner.level).toBe(before.winner.level);
-    expect(after.loser.hp).toBe(before.loser.maxHp);
-    // The glow is gone for both.
+    // The glow is gone for both, and the loser shows as dead.
     noPartners(snap, winner.id, loser.id);
+    expect(snap.snapshot.players.find((row) => row.id === loser.id)?.dead).toBe(true);
+    // Respawn lands it in town at full health, keeping level, xp and gear.
+    await ask(loser, { type: 'respawn' });
+    const respawned = await factsOf(loser.id);
+    expect(respawned).toMatchObject({ place: 'town', x: townSpawn[0], y: townSpawn[1], hp: before.loser.maxHp, level: before.loser.level, sword: 'shortSword', armor: 'leather' });
   }, 60_000);
 
   it('pays nothing from a loser with one coin', async () => {
     const { winner, loser, before, after, snap } = await settle(6, 1, 'One');
     expect(after.loser.coins).toBe(1);
     expect(after.winner.coins).toBe(6);
-    expect(after.loser.place).toBe('town');
+    expect(after.loser.place).toBe('green');
+    expect(after.loser.hp).toBe(0);
     expect(after.winner.xp).toBe(before.winner.xp);
     expect(after.loser.xp).toBe(before.loser.xp);
     noPartners(snap, winner.id, loser.id);
@@ -271,9 +288,13 @@ describe('duel fight', () => {
   it('lands strike() of the attacker on a duelist who survives, with no xp', async () => {
     const { asker, target } = await pairUp('Sword', 'Shield', { sword: 'shortSword' }, {});
     const before = await factsOf(target.id);
-    await ask(asker, { type: 'attack', playerId: target.id });
+    const snap = await ask(asker, { type: 'attack', playerId: target.id });
     const after = await factsOf(target.id);
-    expect(after.hp).toBe(before.hp - strike(heroOf(await factsOf(asker.id))));
+    // Duel numbers: duel level strike (plus the sword) against duel level health (plus armor). Real health is untouched.
+    const duelMax = duelMaxHealth(heroOf(before));
+    const hit = duelStrike(heroOf(await factsOf(asker.id)));
+    expect(duelHpOf(snap, target.id)).toBe(duelMax - hit);
+    expect(after.hp).toBe(before.hp);
     expect(after.xp).toBe(before.xp);
     expect((await factsOf(asker.id)).xp).toBe(0);
     expect(after.place).toBe('green');
@@ -308,14 +329,14 @@ describe('duel fight', () => {
     expect(await factsOf(bystander.id)).toEqual(bystanderBefore);
     expect((await factsOf(asker.id)).hp).toBe(40);
     // Same instant, real partner: lands, so the misses stamped nothing.
-    const targetBefore = await factsOf(target.id);
+    const targetBefore = duelHpOf(await ask(asker, { type: 'ping' }), target.id)!;
     await ask(asker, { type: 'attack', playerId: target.id });
-    await hpBelow(asker, target.id, targetBefore.hp);
+    await duelHpBelow(asker, target.id, targetBefore);
     // A message naming both runs the monster path only: the wolf is far, so nothing lands on the partner.
-    const partnerNow = (await factsOf(target.id)).hp;
+    const partnerNow = duelHpOf(await ask(asker, { type: 'ping' }), target.id);
     await ripenMs(asker, gapMs);
     await ask(asker, { type: 'attack', once: true, monsterId: 'no-such-wolf', playerId: target.id });
-    expect((await factsOf(target.id)).hp).toBe(partnerNow);
+    expect(duelHpOf(await ask(asker, { type: 'ping' }), target.id)).toBe(partnerNow);
   }, 60_000);
 
   describe('shared attack clock with a real wolf', () => {
@@ -352,9 +373,9 @@ describe('duel fight', () => {
       const { asker, target } = await pairUp('ClockA', 'ClockB', { x: wolf.x, y: wolf.y }, { hp: 40, maxHp: 40 });
       await ripenOntoBeet(asker, wolf.id);
       const startHp = wolfHpOf(await ask(asker, { type: 'ping' }), wolf.id);
-      const targetStart = (await factsOf(target.id)).hp;
+      const targetStart = duelHpOf(await ask(asker, { type: 'ping' }), target.id)!;
       await ask(asker, { type: 'attack', playerId: target.id });
-      const targetOnce = await hpBelow(asker, target.id, targetStart);
+      const targetOnce = await duelHpBelow(asker, target.id, targetStart);
       await ripenMs(asker, insideGapMs);
       const blocked = await ask(asker, { type: 'attack', once: true, monsterId: wolf.id });
       wolfInReach(blocked, wolf.id);
@@ -366,7 +387,7 @@ describe('duel fight', () => {
       // The monster swing stamped the clock: a duel swing a full gap later lands.
       await ripenMs(asker, gapMs);
       await ask(asker, { type: 'attack', playerId: target.id });
-      await hpBelow(asker, target.id, targetOnce);
+      await duelHpBelow(asker, target.id, targetOnce);
     }, 60_000);
 
     it('a monster swing at 0 blocks a duel swing at 400 ms, and either lands at the rules gap', async () => {
@@ -376,14 +397,14 @@ describe('duel fight', () => {
       const startHp = wolfHpOf(await ask(asker, { type: 'ping' }), wolf.id);
       await ask(asker, { type: 'attack', once: true, monsterId: wolf.id });
       const wolfOnce = await wolfBelow(asker, wolf.id, startHp);
-      const targetStart = (await factsOf(target.id)).hp;
+      const targetStart = duelHpOf(await ask(asker, { type: 'ping' }), target.id)!;
       await ripenMs(asker, insideGapMs);
       await ask(asker, { type: 'attack', playerId: target.id });
-      expect((await factsOf(target.id)).hp).toBe(targetStart);
+      expect(duelHpOf(await ask(asker, { type: 'ping' }), target.id)).toBe(targetStart);
       // The next whole tick crosses the rules gap, so the duel swing lands.
       await ripenMs(asker, tickMs);
       await ask(asker, { type: 'attack', playerId: target.id });
-      const targetOnce = await hpBelow(asker, target.id, targetStart);
+      const targetOnce = await duelHpBelow(asker, target.id, targetStart);
       // The duel swing stamped the clock: a monster swing still inside the gap is blocked, and the next tick lands.
       await ripenMs(asker, insideGapMs);
       const blocked = await ask(asker, { type: 'attack', once: true, monsterId: wolf.id });
@@ -397,14 +418,12 @@ describe('duel fight', () => {
 
   it('a right click on the duel partner (attack with walk) walks over and swings until the partner falls', async () => {
     const { asker, target } = await pairUp('ChaseA', 'ChaseB', { x: wolfSpot.x, y: wolfSpot.y }, { hp: 12, maxHp: 40, x: wolfSpot.x + 130, y: wolfSpot.y });
-    const before = await factsOf(target.id);
-    expect(before.hp).toBe(12);
-    // One message: walk to the partner and keep swinging. No other click is sent.
+    // One message: walk to the partner and keep swinging until one falls. No other click is sent.
     await ask(asker, { type: 'attack', playerId: target.id, walk: true });
     let landed = false;
-    for (let i = 0; i < 80 && !landed; i += 1) {
+    for (let i = 0; i < 400 && !landed; i += 1) {
       await ripenMs(asker, 250);
-      landed = (await factsOf(target.id)).place === 'town';
+      landed = (await factsOf(target.id)).hp === 0;
     }
     expect(landed).toBe(true);
     // The fighters met on the way: the asker is no longer where it started.
@@ -439,15 +458,15 @@ describe('duel fight', () => {
 
   it('a left click on the partner (attack once with walk) walks over and swings exactly once, then stops', async () => {
     const { asker, target } = await pairUp('LeftA', 'LeftB', { x: wolfSpot.x, y: wolfSpot.y }, { hp: 40, maxHp: 40, x: wolfSpot.x + 130, y: wolfSpot.y });
+    const max = duelHpOf(await ask(asker, { type: 'ping' }), target.id)!;
     await ask(asker, { type: 'attack', playerId: target.id, once: true, walk: true });
     for (let i = 0; i < 40; i += 1) await ripenMs(asker, 250);
-    const after = await factsOf(target.id);
+    const afterOne = duelHpOf(await ask(asker, { type: 'ping' }), target.id)!;
     // Exactly one landed swing: the partner lost one hit, not the whole bar, and the asker did walk over.
-    expect(after.hp).toBeLessThan(40);
-    expect(after.hp).toBeGreaterThan(0);
-    const swingDamage = 40 - after.hp;
+    expect(afterOne).toBeLessThan(max);
+    expect(afterOne).toBeGreaterThan(0);
     for (let i = 0; i < 20; i += 1) await ripenMs(asker, 250);
-    expect((await factsOf(target.id)).hp).toBe(40 - swingDamage);
+    expect(duelHpOf(await ask(asker, { type: 'ping' }), target.id)).toBe(afterOne);
     const me = await factsOf(asker.id);
     expect(Math.abs(me.x - wolfSpot.x)).toBeGreaterThan(30);
   }, 90_000);
