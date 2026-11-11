@@ -9,6 +9,7 @@ import { townSpawn } from '../rules/regions';
 import { removeMagenta } from './sprites';
 import { glideCitrus } from './smooth';
 import { canvasToMap, mapToCanvas, viewBox, type PeachView } from './camera';
+import { createMusicEngine, type MusicAudio, type MusicEngine } from './music';
 import {
   actionForKey,
   adoptSettings,
@@ -101,6 +102,7 @@ export interface FigHooks {
   onMenu?: (open: boolean) => void;
   onOffer?: (offer: { fromId: string; fromName: string } | null) => void;
   onSnapshot?: () => void;
+  onPlace?: (place: ZoneName) => void;
 }
 
 export interface PlantOptions {
@@ -234,12 +236,18 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     lemon?.send(JSON.stringify(message));
   }
 
+  function setSelfPlace(place: ZoneName): void {
+    if (place === selfPlace) return;
+    selfPlace = place;
+    hooks.onPlace?.(place);
+  }
+
   function readFig(value: unknown): void {
     const fig = asRecord(value);
     if (fig === null) return;
     if (typeof fig.id === 'string' && fig.id.length > 0) selfId = fig.id;
     if (fig.place === 'town' || fig.place === 'green' || fig.place === 'grey' || fig.place === 'cemetery') {
-      selfPlace = fig.place;
+      setSelfPlace(fig.place);
     }
     if ((fig.gender === 'woman' || fig.gender === 'man') && typeof fig.id === 'string') {
       genderMap.set(fig.id, fig.gender);
@@ -305,7 +313,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       }
       if (snap !== null) noteHits(snap.hits);
       const selfRow = orchard.players.find((fig) => fig.id === selfId);
-      if (selfRow !== undefined) selfPlace = selfRow.place;
+      if (selfRow !== undefined) setSelfPlace(selfRow.place);
       // New figs and far jumps land now, so the camera and the click see them before the next frame.
       glideFeet(0);
       hooks.onSnapshot?.();
@@ -876,6 +884,61 @@ function mapBerry(canvas: LooseEl, event: LooseEvent): { x: number; y: number } 
 let papayaPlanted = false;
 // The live plum listener from the latest signed-in fig. A new sprout drops the previous one.
 let dropFigUiWatch: (() => void) | null = null;
+const QUIET_MUSIC: MusicEngine = {
+  setZone() {},
+  setCanvasVisible() {},
+  setTabVisible() {},
+  noteGesture() {},
+  dispose() {},
+};
+// The live music for the signed-in fig. Sign-in and the picker never start it.
+let figMusic: MusicEngine = QUIET_MUSIC;
+
+function tabIsShown(page: { visibilityState?: string; hidden?: boolean }): boolean {
+  if (page.visibilityState === 'hidden') return false;
+  if (page.visibilityState === undefined && page.hidden === true) return false;
+  return true;
+}
+
+function browserAudio(src: string): MusicAudio {
+  const AudioCtor = (globalThis as { Audio?: new (src: string) => MusicAudio }).Audio;
+  if (typeof AudioCtor !== 'function') throw new Error('no Audio');
+  const audio = new AudioCtor(src);
+  try {
+    (audio as MusicAudio & { preload?: string }).preload = 'auto';
+  } catch {
+    // preload is a hint. The file can still play.
+  }
+  return audio;
+}
+
+function startFigMusic(zone: ZoneName): MusicEngine {
+  try {
+    if (typeof (globalThis as { Audio?: unknown }).Audio !== 'function') return QUIET_MUSIC;
+    return createMusicEngine({
+      zone,
+      createAudio: browserAudio,
+      now: () => Date.now(),
+      every(ms, fn) {
+        const id = setInterval(fn, ms);
+        return () => {
+          clearInterval(id);
+        };
+      },
+      readSettings() {
+        const settings = getSettings();
+        return { musicVolume: settings.musicVolume, muted: settings.muted };
+      },
+      listenSettings(fn) {
+        return onSettingsChange(() => {
+          fn();
+        });
+      },
+    });
+  } catch {
+    return QUIET_MUSIC;
+  }
+}
 let melonResize: (() => void) | null = null;
 let melonResizeWin: { removeEventListener?(type: string, fn: () => void): void } | null = null;
 // The live lemon from the signed-in fig. Change avatar and a successful sign-out both call it.
@@ -894,6 +957,7 @@ function reloadFigPage(): void {
 // Closes the lemon, then reloads. The account cookie stays, so the page shows the roster.
 export function changeAvatarFig(reload: () => void): void {
   melonHalt?.();
+  figMusic.setCanvasVisible(false);
   reload();
 }
 
@@ -929,6 +993,7 @@ export async function logOutFig(
     // An empty body still counts as signed out.
   }
   melonHalt?.();
+  figMusic.setCanvasVisible(false);
   reload();
   return { ok: true, error: '' };
 }
@@ -1140,6 +1205,10 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   const gender = fig !== null && (fig.gender === 'woman' || fig.gender === 'man') ? fig.gender : undefined;
 
   const canvas = doc.getElementById('papaya-canvas');
+  figMusic.dispose();
+  figMusic = startFigMusic(selfPlace);
+  figMusic.setTabVisible(tabIsShown(doc as { visibilityState?: string; hidden?: boolean }));
+  figMusic.setCanvasVisible(canvas != null && canvas.hidden !== true);
   const smith = doc.getElementById('quince-smith');
   const smithList = doc.getElementById('quince-list');
   const plumDuel = doc.getElementById('plum-duel');
@@ -1594,6 +1663,9 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     selfPlace,
     selfGender: gender,
     hooks: {
+      onPlace(place) {
+        figMusic.setZone(place);
+      },
       onSmith(open) {
         if (smith !== null) smith.hidden = !open;
         if (open) hideSettings();
@@ -2049,7 +2121,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     if (board.smithOpen || board.bagOpen) shutPanels();
   }
   const keyHost = doc as LooseDoc & {
-    addEventListener?(type: string, listener: (event: LooseEvent) => void): void;
+    addEventListener?(type: string, listener: (event: LooseEvent) => void, capture?: boolean): void;
   };
   keyHost.addEventListener?.('fullscreenchange', () => {
     if (figLeavingFull) return;
@@ -2059,6 +2131,12 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     const back: ResolutionPreset = figBeforeFull === 'fullscreen' ? 'fit' : figBeforeFull;
     commitSettings(browserJar(), { ...getSettings(), resolution: back });
   });
+  const armMusic = (): void => {
+    figMusic.noteGesture();
+  };
+  // Capture so a control that stops the event (the zoom rail) still counts as the first gesture.
+  keyHost.addEventListener?.('pointerdown', armMusic, true);
+  keyHost.addEventListener?.('keydown', armMusic, true);
   keyHost.addEventListener?.('keydown', (event) => {
     if (figRebind !== null) {
       event.preventDefault?.();
@@ -2226,6 +2304,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   page?.addEventListener?.('visibilitychange', () => {
     if (screenOpen()) citrus.start();
     else citrus.stop();
+    figMusic.setTabVisible(tabIsShown(page as { visibilityState?: string; hidden?: boolean }));
   });
   const Observer = (root as { MutationObserver?: new (cb: () => void) => { observe(target: unknown, options: { attributes: boolean; attributeFilter: string[] }): void } }).MutationObserver;
   if (typeof Observer === 'function' && canvas != null) {
@@ -2233,6 +2312,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
       const watch = new Observer(() => {
         if (screenOpen()) citrus.start();
         else citrus.stop();
+        figMusic.setCanvasVisible(papayaOnScreen());
       });
       watch.observe(canvas, { attributes: true, attributeFilter: ['hidden'] });
     } catch {
