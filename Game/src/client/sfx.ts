@@ -14,11 +14,12 @@ export const CREATURE_COOLDOWN_MS = 6000;
 export const SFX_MAX_PLAY_MS = 4000;
 
 export type CreatureKind = 'wolf' | 'bear' | 'skeleton';
-export type EffectName = 'sword' | 'stab' | CreatureKind;
+export type EffectName = 'sword' | 'stab' | 'coin' | CreatureKind;
 
 export const SFX_SRC: Readonly<Record<EffectName, string>> = {
   sword: '/sounds/sfx/sword-attack.ogg',
   stab: '/sounds/sfx/stab-hit.ogg',
+  coin: '/sounds/sfx/coin.mp3',
   wolf: '/sounds/sfx/wolf.mp3',
   bear: '/sounds/sfx/bear.ogg',
   skeleton: '/sounds/sfx/skeleton-placeholder.ogg',
@@ -80,6 +81,8 @@ export interface Decision {
 
 export function decide(state: SfxState, effect: EffectName, nowMs: number): Decision {
   const no: Decision = { play: false, cutCreature: false };
+  // A coin pickup (yours or your pet's) always plays; it is short and rare, and never cuts anything off.
+  if (effect === 'coin') return { play: true, cutCreature: false };
   if (effect === 'stab') {
     if (state.stabPlaying) return no;
     return { play: true, cutCreature: state.creaturePlaying };
@@ -116,6 +119,8 @@ export interface SfxFrame {
 
 export interface SfxEngine {
   frame(frame: SfxFrame): void;
+  // One simple coin sound (about 1 second) for a coin the player or the player's pet picked up.
+  coin(): void;
   noteGesture(): void;
   setCanvasVisible(visible: boolean): void;
   dispose(): void;
@@ -237,6 +242,11 @@ export function createSfxEngine(options: SfxEngineOptions): SfxEngine {
       }
       const near = pickCreature(f.self, f.monsters, f.fightingId);
       if (near !== null && isCreatureKind(near.kind)) request(near.kind);
+    },
+    coin() {
+      // Restart the sound if an earlier pickup is still ringing.
+      if (isPlaying('coin', options.now())) stop('coin');
+      request('coin');
     },
     noteGesture() {
       unlocked = true;

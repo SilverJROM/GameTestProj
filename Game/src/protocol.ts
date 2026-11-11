@@ -100,6 +100,8 @@ export interface HitMark {
   readonly amount: number;
   readonly x: number;
   readonly y: number;
+  // True when this hit killed a player at (x, y).
+  readonly fatal?: boolean;
 }
 
 // A pickup in progress: the owner's coin spot and how much of the dig has passed.

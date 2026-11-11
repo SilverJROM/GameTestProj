@@ -22,7 +22,7 @@ import {
   type Box,
   type Point,
 } from '../rules/regions';
-import { CANVAS_WIDTH, mapToCanvas, type PeachView } from './camera';
+import { CANVAS_HEIGHT, CANVAS_WIDTH, mapToCanvas, type PeachView } from './camera';
 import { clampHealth, maxHealth, strike, type Hero } from '../rules/logic';
 import { mangoGearRows, papayaLevelRows, pearTimings, type ZoneName } from '../rules/tables';
 import {
@@ -1313,4 +1313,88 @@ export function paintStack(
     }
   }
   ctx.restore();
+}
+
+
+// A cross where an avatar was killed. It stays for GRAVE_LIFETIME_MS. Screen space is derived from the map spot.
+// Another player's cross is drawn for this long. The player's own cross stays until they respawn (see `mine`).
+export const GRAVE_LIFETIME_MS = 10_000;
+
+export interface Grave {
+  readonly x: number;
+  readonly y: number;
+  readonly at: number;
+  // The local player's own cross: it stays while the death panel is open and is removed when they respawn.
+  readonly mine?: boolean;
+}
+
+export interface GraveCtx {
+  fillStyle: string | CanvasGradient | CanvasPattern;
+  fillRect(x: number, y: number, w: number, h: number): void;
+}
+
+// Draws every grave still alive that falls inside the view: a pale cross with a dark edge, sized with the map scale.
+export function paintGraves(ctx: GraveCtx, graves: readonly Grave[], view: PeachView, nowMs: number): number {
+  let drawn = 0;
+  for (const grave of graves) {
+    if (grave.mine !== true && nowMs - grave.at >= GRAVE_LIFETIME_MS) continue;
+    const spot = mapToCanvas(view, grave.x, grave.y);
+    const k = Math.max(0.6, view.scale);
+    const height = 34 * k;
+    const arm = 22 * k;
+    const bar = Math.max(4, 6 * k);
+    if (spot.x < -arm || spot.x > CANVAS_WIDTH + arm || spot.y < -height || spot.y > CANVAS_HEIGHT + height) continue;
+    const top = spot.y - height;
+    const left = spot.x - arm / 2;
+    // Edge first, then the pale cross on top: upright bar, then the cross arm a third of the way down.
+    ctx.fillStyle = '#1a140c';
+    ctx.fillRect(spot.x - bar / 2 - 2, top - 2, bar + 4, height + 4);
+    ctx.fillRect(left - 2, top + height * 0.28 - 2, arm + 4, bar + 4);
+    ctx.fillStyle = '#d9d2c2';
+    ctx.fillRect(spot.x - bar / 2, top, bar, height);
+    ctx.fillRect(left, top + height * 0.28, arm, bar);
+    drawn += 1;
+  }
+  return drawn;
+}
+
+
+// A soft pulsing light on the spot where the avatar comes back in town, so the player finds it at once.
+export const RESPAWN_GLOW_MS = 3500;
+
+export interface GlowCtx {
+  globalAlpha?: number;
+  fillStyle: string | CanvasGradient | CanvasPattern;
+  fillRect(x: number, y: number, w: number, h: number): void;
+  createRadialGradient?: (x0: number, y0: number, r0: number, x1: number, y1: number, r1: number) => CanvasGradient;
+}
+
+// Draws the glow (a warm radial light that breathes) at the map spot for RESPAWN_GLOW_MS. Returns whether it drew.
+export function paintRespawnGlow(ctx: GlowCtx, glow: { readonly x: number; readonly y: number; readonly at: number } | null, view: PeachView, nowMs: number): boolean {
+  if (glow === null) return false;
+  const age = nowMs - glow.at;
+  if (age < 0 || age >= RESPAWN_GLOW_MS) return false;
+  const spot = mapToCanvas(view, glow.x, glow.y);
+  const k = Math.max(0.6, view.scale);
+  // Breathes about twice a second and fades out over the last second.
+  const pulse = 0.65 + 0.35 * Math.sin((age / 1000) * Math.PI * 4);
+  const fade = Math.min(1, (RESPAWN_GLOW_MS - age) / 1000);
+  const radius = (54 + 10 * pulse) * k;
+  const centreY = spot.y - 14 * k;
+  if (typeof ctx.createRadialGradient === 'function') {
+    const gradient = ctx.createRadialGradient(spot.x, centreY, 2, spot.x, centreY, radius);
+    gradient.addColorStop(0, 'rgba(255, 236, 160, 0.85)');
+    gradient.addColorStop(0.45, 'rgba(255, 214, 110, 0.35)');
+    gradient.addColorStop(1, 'rgba(255, 200, 80, 0)');
+    const before = ctx.globalAlpha ?? 1;
+    ctx.globalAlpha = before * fade * (0.7 + 0.3 * pulse);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(spot.x - radius, centreY - radius, radius * 2, radius * 2);
+    ctx.globalAlpha = before;
+  } else {
+    // A plain ring of squares when the canvas has no gradients (older test doubles): still marks the spot.
+    ctx.fillStyle = 'rgba(255, 226, 140, 0.35)';
+    ctx.fillRect(spot.x - radius / 2, centreY - radius / 2, radius, radius);
+  }
+  return true;
 }

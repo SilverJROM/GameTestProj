@@ -231,4 +231,38 @@ describe('the effects engine', () => {
     rejecting.noteGesture();
     expect(() => rejecting.frame({ selfId: 'me', self: me, monsters: [{ id: 'w', kind: 'wolf', x: 110, y: 100 }], fightingId: null, hits: [] })).not.toThrow();
   });
+
+  it('a coin pickup plays the coin sound at the effects volume, restarts if it is still ringing, and never cuts a creature sound', () => {
+    const r = rig();
+    r.engine.coin();
+    expect(r.played('coin')).toBe(1);
+    expect(r.made[0]!.volume).toBeCloseTo(0.35, 5);
+    // A second pickup while the first rings: the sound restarts (stopped, then played again).
+    r.engine.coin();
+    expect(r.played('coin')).toBe(2);
+    // With a creature sound playing, the coin still plays and the creature keeps going.
+    const mon = [{ id: 'w', kind: 'wolf', x: 130, y: 100 }];
+    r.engine.frame({ selfId: 'me', self: me, monsters: mon, fightingId: null, hits: [] });
+    expect(r.played('wolf')).toBe(1);
+    r.engine.coin();
+    expect(r.played('coin')).toBe(3);
+    expect(r.made.find((a) => a.src === SFX_SRC.wolf)!.paused).toBe(0);
+  });
+
+  it('a coin pickup is silent before the first gesture, while muted, and when the canvas is hidden', () => {
+    const quiet = createSfxEngine({ createAudio: (s) => new FakeAudio(s), now: () => 0, readSettings: () => ({ effectsVolume: 35, muted: false }) });
+    quiet.setCanvasVisible(true);
+    expect(() => quiet.coin()).not.toThrow();
+    const r = rig({ effectsVolume: 35, muted: true });
+    r.engine.coin();
+    expect(r.played('coin')).toBe(0);
+    const h = rig();
+    h.engine.setCanvasVisible(false);
+    h.engine.coin();
+    expect(h.played('coin')).toBe(0);
+  });
+
+  it('the coin sound file is about one second (1 to 1.5 s)', () => {
+    expect(SFX_SRC.coin).toBe('/sounds/sfx/coin.mp3');
+  });
 });

@@ -32,6 +32,8 @@ export interface ClickBeet {
 
 export interface ClickOrchard {
   readonly selfId: string;
+  // The avatar this player is in a duel with (after both agreed), or null/undefined.
+  readonly duelPartnerId?: string | null;
   readonly selfPlace: ZoneName;
   readonly players: readonly ClickFig[];
   readonly monsters: readonly ClickBeet[];
@@ -92,6 +94,15 @@ export function peelClick(click: ClickBerry, orchard: ClickOrchard): ClickPeel {
     const beet = frontBeet(click.x, click.y, orchard.monsters);
     if (beet !== null) {
       return { message: { type: 'attack', monsterId: beet.id }, smithOpen: false };
+    }
+    // In a duel, a left click on the partner swings at them (one swing per click, on the attack clock).
+    const partnerId = orchard.duelPartnerId ?? null;
+    if (partnerId !== null) {
+      const partner = orchard.players.find((fig) => fig.id === partnerId && fig.id !== orchard.selfId);
+      // The body is drawn above the feet: about 20 px each side and 60 px up.
+      if (partner !== undefined && Math.abs(click.x - partner.x) <= 24 && click.y >= partner.y - 64 && click.y <= partner.y + 14) {
+        return { message: { type: 'attack', playerId: partner.id }, smithOpen: false };
+      }
     }
     if (orchard.selfPlace === 'town' && hitFountain(click.x, click.y)) {
       return { message: { type: 'fountain', x: click.x, y: click.y }, smithOpen: false };

@@ -130,6 +130,8 @@ export interface StrikeMark {
   readonly amount: number;
   readonly x: number;
   readonly y: number;
+  // True when this hit killed the avatar at (x, y): the page draws a cross there and offers respawn or exit.
+  readonly fatal?: boolean;
 }
 
 export interface BeetStrike {
@@ -344,14 +346,15 @@ export function stepAggro(
     }
     changed = true;
     swung.push(beet.id);
+    const left = fig.facts.hp - row.attack;
     bites.push({
       targetKind: 'player',
       targetId: fig.facts.id,
       amount: row.attack,
       x: fig.facts.x,
       y: fig.facts.y,
+      ...(left <= 0 ? { fatal: true } : {}),
     });
-    const left = fig.facts.hp - row.attack;
     if (left > 0) {
       fig.facts = { ...fig.facts, hp: left };
       writes.push({ id: fig.facts.id, patch: { hp: left } });
@@ -434,7 +437,7 @@ export function strikeFig(
   return {
     struck: true,
     felled: true,
-    mark,
+    mark: { ...mark, fatal: true },
     // Loser first, winner second: saveFactsPair writes both in one batch.
     writes: [
       { id: target.facts.id, patch: { hp: risen.health, place: risen.place, x: townX, y: townY, coins: loserCoins, coinsDelta: -pot, duelPot: pot } },
