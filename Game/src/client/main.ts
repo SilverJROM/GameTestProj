@@ -59,7 +59,10 @@ import {
   type RimCtx,
   type ScreenCtx,
   GRAVE_LIFETIME_MS,
+  RESPAWN_GLOW_MS,
   paintGraves,
+  paintRespawnGlow,
+  type GlowCtx,
   type Grave,
   type GraveCtx,
   type FigPaint,
@@ -163,6 +166,8 @@ export interface FigBoard {
   setMenu(open: boolean): void;
   // Crosses where avatars were killed, drawn over the map.
   paintGraves(ctx: GraveCtx, view: PeachView, nowMs: number): void;
+  // The pulsing light on the town spot where the avatar respawned.
+  paintRespawnGlow(ctx: GlowCtx, view: PeachView, nowMs: number): void;
   // The death panel was dismissed (the player chose to respawn): the camera returns to the avatar.
   endDeath(): void;
   // Stops the lemon from sprouting again, then closes it so the fig leaves the world.
@@ -669,8 +674,22 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     paintGraves(ctx, graves, view, nowMs);
   }
 
+  // Where the avatar came back in town (for the respawn glow), and when.
+  let respawnGlow: { x: number; y: number; at: number } | null = null;
+
+  function paintRespawnGlowOn(ctx: GlowCtx, view: PeachView, nowMs: number): void {
+    if (!paintRespawnGlow(ctx, respawnGlow, view, nowMs) && respawnGlow !== null && nowMs - respawnGlow.at >= RESPAWN_GLOW_MS) {
+      respawnGlow = null;
+    }
+  }
+
   function endDeath(): void {
     deathHold = null;
+    // The avatar is already standing in town: mark the spot with a light so it is found at once.
+    const self = orchard.players.find((fig) => fig.id === selfId);
+    const feet = self === undefined ? undefined : citrusShown.get(citrusKey('player', self.id));
+    const spot = townSpawn;
+    respawnGlow = { x: feet?.x ?? self?.x ?? spot[0], y: feet?.y ?? self?.y ?? spot[1], at: Date.now() };
   }
 
   function camera(): PeachView {
@@ -831,6 +850,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     setMenu,
     endDeath,
     paintGraves: paintGravesOn,
+    paintRespawnGlow: paintRespawnGlowOn,
     haltLemon,
     get smithOpen() {
       return quinceOpen;
@@ -1376,6 +1396,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     const screen = ctx as BlitCtx & ScreenCtx;
     if (typeof screen.fillRect === 'function') {
       board.paintGraves(screen as unknown as GraveCtx, view, nowMs);
+      board.paintRespawnGlow(screen as unknown as GlowCtx, view, nowMs);
     }
     if (typeof screen.fillRect === 'function' && typeof screen.fillText === 'function') {
       paintHealth(screen, board.health());

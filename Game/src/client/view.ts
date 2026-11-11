@@ -1354,3 +1354,44 @@ export function paintGraves(ctx: GraveCtx, graves: readonly Grave[], view: Peach
   }
   return drawn;
 }
+
+
+// A soft pulsing light on the spot where the avatar comes back in town, so the player finds it at once.
+export const RESPAWN_GLOW_MS = 3500;
+
+export interface GlowCtx {
+  globalAlpha?: number;
+  fillStyle: string | CanvasGradient | CanvasPattern;
+  fillRect(x: number, y: number, w: number, h: number): void;
+  createRadialGradient?: (x0: number, y0: number, r0: number, x1: number, y1: number, r1: number) => CanvasGradient;
+}
+
+// Draws the glow (a warm radial light that breathes) at the map spot for RESPAWN_GLOW_MS. Returns whether it drew.
+export function paintRespawnGlow(ctx: GlowCtx, glow: { readonly x: number; readonly y: number; readonly at: number } | null, view: PeachView, nowMs: number): boolean {
+  if (glow === null) return false;
+  const age = nowMs - glow.at;
+  if (age < 0 || age >= RESPAWN_GLOW_MS) return false;
+  const spot = mapToCanvas(view, glow.x, glow.y);
+  const k = Math.max(0.6, view.scale);
+  // Breathes about twice a second and fades out over the last second.
+  const pulse = 0.65 + 0.35 * Math.sin((age / 1000) * Math.PI * 4);
+  const fade = Math.min(1, (RESPAWN_GLOW_MS - age) / 1000);
+  const radius = (54 + 10 * pulse) * k;
+  const centreY = spot.y - 14 * k;
+  if (typeof ctx.createRadialGradient === 'function') {
+    const gradient = ctx.createRadialGradient(spot.x, centreY, 2, spot.x, centreY, radius);
+    gradient.addColorStop(0, 'rgba(255, 236, 160, 0.85)');
+    gradient.addColorStop(0.45, 'rgba(255, 214, 110, 0.35)');
+    gradient.addColorStop(1, 'rgba(255, 200, 80, 0)');
+    const before = ctx.globalAlpha ?? 1;
+    ctx.globalAlpha = before * fade * (0.7 + 0.3 * pulse);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(spot.x - radius, centreY - radius, radius * 2, radius * 2);
+    ctx.globalAlpha = before;
+  } else {
+    // A plain ring of squares when the canvas has no gradients (older test doubles): still marks the spot.
+    ctx.fillStyle = 'rgba(255, 226, 140, 0.35)';
+    ctx.fillRect(spot.x - radius / 2, centreY - radius / 2, radius, radius);
+  }
+  return true;
+}

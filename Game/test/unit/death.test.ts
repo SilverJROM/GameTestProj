@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { CANVAS_HEIGHT, CANVAS_WIDTH, viewBox } from '../../src/client/camera';
 import { plantFigBoard } from '../../src/client/main';
-import { GRAVE_LIFETIME_MS, paintGraves } from '../../src/client/view';
+import { GRAVE_LIFETIME_MS, RESPAWN_GLOW_MS, paintGraves, paintRespawnGlow } from '../../src/client/view';
 import { ZOOM_CLOSE } from '../../src/rules/tables';
 import { stepAggro } from '../../src/world/combat';
 import { plantCabbage } from '../../src/world/monsters';
@@ -107,5 +107,38 @@ describe('death panel and cross', () => {
     expect(pageHtml).toContain('id="death-exit"');
     expect(pageHtml).toContain('Exit game');
     expect(readFileSync(new URL('../../assets/sounds/sfx/coin.mp3', import.meta.url)).length).toBeGreaterThan(10_000);
+  });
+
+  it('after respawn a pulsing light marks the avatar in town for a few seconds, then goes away', () => {
+    const view = viewBox('town', 300, 440, ZOOM_CLOSE);
+    const draws: string[] = [];
+    const gradient = { addColorStop() {} } as unknown as CanvasGradient;
+    const ctx = {
+      globalAlpha: 1,
+      fillStyle: '' as string | CanvasGradient,
+      fillRect: (x: number, y: number, w: number, h: number) => void draws.push(`${Math.round(x)},${Math.round(y)},${Math.round(w)},${Math.round(h)}`),
+      createRadialGradient: () => gradient,
+    };
+    const glow = { x: 300, y: 440, at: 1000 };
+    expect(paintRespawnGlow(ctx, null, view, 1000)).toBe(false);
+    expect(paintRespawnGlow(ctx, glow, view, 1500)).toBe(true);
+    expect(draws).toHaveLength(1);
+    expect(ctx.globalAlpha).toBe(1);
+    expect(paintRespawnGlow(ctx, glow, view, 1000 + RESPAWN_GLOW_MS)).toBe(false);
+    // Without gradients on the canvas it still marks the spot.
+    const plain = { fillStyle: '' as string | CanvasGradient, fillRect: (x: number, y: number, w: number, h: number) => void draws.push(`${x},${y},${w},${h}`) };
+    expect(paintRespawnGlow(plain, glow, view, 1500)).toBe(true);
+  });
+
+  it('ending the death sets the light on the avatar, which paints and then expires on the board', () => {
+    const board = plantFigBoard({ selfId: 'fig-self', selfPlace: 'town', createSocket: () => quietLemon() });
+    board.ingest(killedSnapshot({ fatal: true }));
+    board.endDeath();
+    const draws: number[] = [];
+    const ctx = { globalAlpha: 1, fillStyle: '' as string | CanvasGradient, fillRect: () => void draws.push(1) };
+    board.paintRespawnGlow(ctx, viewBox('town', 300, 440, ZOOM_CLOSE), Date.now() + 200);
+    expect(draws).toHaveLength(1);
+    board.paintRespawnGlow(ctx, viewBox('town', 300, 440, ZOOM_CLOSE), Date.now() + RESPAWN_GLOW_MS + 500);
+    expect(draws).toHaveLength(1);
   });
 });
