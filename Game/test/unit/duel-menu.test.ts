@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { viewBox } from '../../src/client/camera';
 import { figSpriteHolds, frontFig, peelClick } from '../../src/client/input';
 import { plantFigBoard } from '../../src/client/main';
-import { paintDuelDots } from '../../src/client/view';
+import { paintDuelDots, paintFigRim } from '../../src/client/view';
 import { ZOOM_CLOSE } from '../../src/rules/tables';
 
 const pageHtml = readFileSync(new URL('../../src/client/index.html', import.meta.url), 'utf8');
@@ -53,7 +53,7 @@ describe('the duel menu and the waiting dots', () => {
     board.click({ x: 380, y: 270, button: 2 });
     expect(onDuelMenu).toHaveBeenCalledWith('foe', 'foe');
     expect(sent).toHaveLength(0);
-    // Left click walks, it never opens the menu or attacks.
+    // Without a duel a left click walks: it never opens the menu or attacks.
     board.click({ x: 380, y: 270, button: 0 });
     expect(JSON.parse(sent[0]!).type).toBe('move');
     expect(onDuelMenu).toHaveBeenCalledTimes(1);
@@ -114,5 +114,35 @@ describe('the duel menu and the waiting dots', () => {
   it('a right click on the partner during a duel sends the walk-and-swing attack', () => {
     const orchard = { selfId: 'me', selfPlace: 'green' as const, duelPartnerId: 'foe', players: [{ id: 'me', x: 1, y: 1 }, { id: 'foe', x: 300, y: 300 }], monsters: [] };
     expect(peelClick({ x: 300, y: 280, button: 2 }, orchard).message).toEqual({ type: 'attack', playerId: 'foe', walk: true });
+  });
+
+  it('once the duel has started the partner is hit-tested like a monster: hover outline and hand cursor; before, nothing', () => {
+    const sent: string[] = [];
+    const board = plantFigBoard({ selfId: 'me', selfPlace: 'green', createSocket: () => lemon(sent) });
+    board.ingest(snap([fig('me', 300, 300), fig('foe', 380, 300)]));
+    expect(board.duelPartner()).toBeNull();
+    board.ingest(snap([fig('me', 300, 300, 'foe'), fig('foe', 380, 300, 'me')]));
+    expect(board.duelPartner()).toBe('foe');
+    // A left click on the partner: walk and swing once; the same click on someone else only walks.
+    board.click({ x: 380, y: 275, button: 0 });
+    expect(JSON.parse(sent[0]!)).toEqual({ type: 'attack', playerId: 'foe', once: true, walk: true });
+    board.click({ x: 480, y: 275, button: 0 });
+    expect(JSON.parse(sent[1]!).type).toBe('move');
+  });
+
+  it('paints the white rounded outline around the partner body', () => {
+    const calls: string[] = [];
+    const ctx = {
+      strokeStyle: '', lineWidth: 0, lineJoin: '',
+      save: () => void calls.push('save'), restore: () => void calls.push('restore'),
+      beginPath: () => void calls.push('begin'), stroke: () => void calls.push('stroke'),
+      moveTo: () => void calls.push('m'), lineTo: () => void calls.push('l'), arcTo: () => void calls.push('a'), closePath: () => void calls.push('c'),
+      quadraticCurveTo: () => void calls.push('q'), arc: () => void calls.push('arc'),
+    };
+    paintFigRim(ctx as never, 380, 300, viewBox('green', 300, 300, ZOOM_CLOSE));
+    expect(calls[0]).toBe('save');
+    expect(calls).toContain('stroke');
+    expect(calls[calls.length - 1]).toBe('restore');
+    expect(ctx.strokeStyle).not.toBe('');
   });
 });

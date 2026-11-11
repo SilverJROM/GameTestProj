@@ -26,7 +26,7 @@ import {
   type KeyAction,
   type ResolutionPreset,
 } from './settings';
-import { answerPlum, buyQuince, equipQuince, frontBeet, peelClick, unequipQuince, type ClickBerry } from './input';
+import { answerPlum, buyQuince, equipQuince, figSpriteHolds, frontBeet, peelClick, unequipQuince, type ClickBerry } from './input';
 import {
   CEMETERY_WALL_SRC,
   GROUND_SRC,
@@ -61,6 +61,7 @@ import {
   GRAVE_LIFETIME_MS,
   RESPAWN_GLOW_MS,
   paintDuelDots,
+  paintFigRim,
   paintGraves,
   paintRespawnGlow,
   type DotsCtx,
@@ -169,6 +170,8 @@ export interface FigBoard {
   // Opens or closes the fig menu. Opening it closes the Bag and the Blacksmith.
   setMenu(open: boolean): void;
   // Send a duel request to this player and show the waiting dots over them until they answer or it is cancelled.
+  // The player this one is dueling (both agreed), or null.
+  duelPartner(): string | null;
   requestDuel(playerId: string): void;
   // Withdraw the waiting request (the dots go away and the other player's offer panel closes).
   cancelDuelRequest(): void;
@@ -713,6 +716,10 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     duelWaiting = null;
   }
 
+  function duelPartner(): string | null {
+    return orchard.players.find((fig) => fig.id === selfId)?.duelPartnerId ?? null;
+  }
+
   function duelPending(): string | null {
     return duelWaiting === null ? null : duelWaiting.id;
   }
@@ -914,6 +921,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     closePanels,
     setMenu,
     endDeath,
+    duelPartner,
     requestDuel,
     paintDuelWaiting,
     cancelDuelRequest,
@@ -1444,7 +1452,15 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     const rows = stills
       .filter((still) => still.role === 'monster')
       .map((still) => ({ id: still.id, kind: still.kind, x: still.x, y: still.y, src: still.src }));
-    return frontBeet(mapX, mapY, rows)?.id ?? null;
+    const monster = frontBeet(mapX, mapY, rows)?.id ?? null;
+    if (monster !== null) return monster;
+    // Once a duel has started the partner is a target like a monster: the same outline and hand cursor on hover.
+    const partner = board.duelPartner();
+    if (partner !== null) {
+      const row = stills.find((still) => still.role === 'player' && still.id === partner);
+      if (row !== undefined && figSpriteHolds(row, mapX, mapY)) return row.id;
+    }
+    return null;
   }
 
   function show(stills: GuavaStill[], nowMs = Date.now()): void {
@@ -1469,6 +1485,10 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     ) {
       const beet = stills.find((still) => still.role === 'monster' && still.id === melonHoverId);
       if (beet !== undefined) paintBeetRim(rim, beet.x, beet.y, beet.kind, beet.src, view);
+      else {
+        const partner = stills.find((still) => still.role === 'player' && still.id === melonHoverId);
+        if (partner !== undefined) paintFigRim(rim, partner.x, partner.y, view);
+      }
     }
     const screen = ctx as BlitCtx & ScreenCtx;
     if (typeof screen.fillRect === 'function') {
