@@ -54,6 +54,18 @@ export function askDuel(
 }
 
 /**
+ * The asker withdraws their own waiting offer to targetId. Returns whether there was one.
+ */
+export function cancelDuel(duels: DuelOrchard, askerId: string, targetId: string): boolean {
+  const offer = duels.offers.find((row) => row.fromId === askerId && row.toId === targetId);
+  if (offer === undefined) {
+    return false;
+  }
+  duels.offers = duels.offers.filter((row) => row !== offer);
+  return true;
+}
+
+/**
  * The target answers the offer from fromId. Only the named target matches.
  * Accept pairs the two figs and drops every other offer that touches either one.
  * Decline drops just that offer. Returns whether an offer was answered.
