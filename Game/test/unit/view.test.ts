@@ -175,8 +175,8 @@ describe('health readout', () => {
 
 describe('hud readout', () => {
   it('formats a level 1 start, a mid level, and the level cap', () => {
-    expect(hudReadout({ level: 1, xp: 0, coins: 0 }).lines).toEqual(['Lv 1', 'XP 0 / 10', 'Coins 0']);
-    expect(hudReadout({ level: 3, xp: 7, coins: 12 }).lines).toEqual(['Lv 3', 'XP 7 / 20', 'Coins 12']);
+    expect(hudReadout({ level: 1, xp: 0, coins: 0 }).lines).toEqual(['Lv 1', 'XP 0 / 200', 'Coins 0']);
+    expect(hudReadout({ level: 3, xp: 7, coins: 12 }).lines).toEqual(['Lv 3', 'XP 7 / 900', 'Coins 12']);
     const cap = hudReadout({ level: 6, xp: 40, coins: 3 });
     expect(cap.lines).toEqual(['Lv 6', 'XP 40', 'Coins 3']);
     expect(cap.lines[1]).not.toContain('/');
@@ -198,14 +198,14 @@ describe('hud readout', () => {
     paintHud(ctx, row);
     expect(marks).toEqual([
       `Lv 1 ${row.x} ${row.y} 700 20px Georgia, serif #ffffff`,
-      `XP 0 / 10 ${row.x} ${row.y + row.lineGap} 700 20px Georgia, serif #ffffff`,
+      `XP 0 / 200 ${row.x} ${row.y + row.lineGap} 700 20px Georgia, serif #ffffff`,
       `Coins 0 ${row.x} ${row.y + row.lineGap * 2} 700 20px Georgia, serif #ffffff`,
     ]);
   });
 
   it('follows the latest snapshot on the board', () => {
     const { board } = openBoard();
-    expect(board.hud().lines).toEqual(['Lv 1', 'XP 0 / 10', 'Coins 0']);
+    expect(board.hud().lines).toEqual(['Lv 1', 'XP 0 / 200', 'Coins 0']);
     board.ingest({
       type: 'snapshot',
       character: { id: 'fig-self', place: 'town', gender: 'woman', level: 6, xp: 40, coins: 3, hp: 140, maxHp: 140 },
@@ -772,7 +772,7 @@ describe('blacksmith shop and inventory', () => {
         xp: 4,
         hp: 54,
         maxHp: 92,
-        coins: 48,
+        coins: 2400,
         sword: 'shortSword',
         armor: 'leather',
       }),
@@ -805,7 +805,7 @@ describe('blacksmith shop and inventory', () => {
     expect(board.pressScreen(bubble!.x + 4, bubble!.y + 4)).toBe(true);
     expect(board.smithOpen).toBe(true);
     const shop = board.shop();
-    expect(shop?.coins).toBe(48);
+    expect(shop?.coins).toBe(2400);
     expect(shop?.rows).toHaveLength(6);
     expect(shop?.rows.filter((row) => row.canBuy).map((row) => row.id)).toEqual([
       'shortSword',
@@ -840,7 +840,7 @@ describe('blacksmith shop and inventory', () => {
       level: 2,
       health: '54 / 92',
       strike: 7,
-      experience: '4 / 15',
+      experience: '4 / 400',
       tiles: [],
       portrait: '/avatars/warrior-f/stand.png',
     });
@@ -857,7 +857,7 @@ describe('blacksmith shop and inventory', () => {
       level: 1,
       health: '70 / 70',
       strike: 4,
-      experience: '0 / 10',
+      experience: '0 / 200',
       tiles: [],
       portrait: '/avatars/warrior-f/stand.png',
     });
@@ -875,8 +875,8 @@ describe('blacksmith shop and inventory', () => {
   });
 
   it('lists weapons then armor with buy, need, and owned', () => {
-    const sheet = shopSheet(48, ['shortSword', 'leather']);
-    expect(sheet.coins).toBe(48);
+    const sheet = shopSheet(2400, ['shortSword', 'leather']);
+    expect(sheet.coins).toBe(2400);
     expect(sheet.rows.map((row) => row.id)).toEqual(mangoGearRows.map((row) => row.id));
     expect(sheet.rows.map((row) => row.group)).toEqual([
       'Weapons',
@@ -899,7 +899,7 @@ describe('blacksmith shop and inventory', () => {
     expect(sheet.rows.every((row) => row.canBuy === (row.state === 'buy'))).toBe(true);
     expect(sheet.rows.every((row) => row.owned === (row.state === 'owned'))).toBe(true);
     expect(shopSheet(0).rows.every((row) => row.state === 'need')).toBe(true);
-    expect(shopSheet(100).rows.every((row) => row.state === 'buy')).toBe(true);
+    expect(shopSheet(4000).rows.every((row) => row.state === 'buy')).toBe(true);
   });
 });
 

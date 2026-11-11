@@ -89,7 +89,7 @@ line('## 2. Economy: coin income and time to afford gear');
 line();
 line('Retreat strategy, 100 fights per seed, each build in a zone it can handle. Includes the rules coin pickup plus the assumed walk; fountain trips are free and instant here.');
 line();
-line('| zone | build | coins per minute | minutes to buy short sword + leather (34 coins) | minutes to buy great sword + plate (134 coins) |');
+line(`| zone | build | coins per minute | minutes to afford short sword + leather (${price('shortSword') + price('leather')} coins) | minutes to afford great sword + plate (${price('greatSword') + price('plate')} coins) |`);
 line('|---|---|---|---|---|');
 const econ: Array<[string, number, Hero['sword'], Hero['armor']]> = [
   ['wolf', 1, null, null], ['wolf', 3, 'shortSword', 'leather'], ['bear', 3, 'longSword', 'chain'], ['bear', 5, 'longSword', 'chain'],
@@ -105,7 +105,7 @@ function cpmOf(mid: string, level: number, sword: Hero['sword'], armor: Hero['ar
 for (const [mid, level, sword, armor] of econ) {
   const row = onionMonsterRows.find((r) => r.id === mid)!;
   const cpm = cpmOf(mid, level, sword, armor);
-  line(`| ${row.zone} (${mid}) | L${level} ${sword ?? '-'}/${armor ?? '-'} | ${cpm.toFixed(1)} | ${(34 / cpm).toFixed(1)} | ${(134 / cpm).toFixed(1)} |`);
+  line(`| ${row.zone} (${mid}) | L${level} ${sword ?? '-'}/${armor ?? '-'} | ${cpm.toFixed(1)} | ${((price('shortSword') + price('leather')) / cpm).toFixed(1)} | ${((price('greatSword') + price('plate')) / cpm).toFixed(1)} |`);
 }
 line();
 line(`Coins expire ${COIN_LIFETIME_DAYS} days after pickup and are spent oldest first. A player who spends what they earn loses nothing; coins held a full week are lost. The dearest single item costs ${Math.max(...mangoGearRows.map((g) => g.price))} coins, so expiry never blocks a purchase and only punishes pure hoarding.`);
@@ -169,7 +169,7 @@ line(`Income used: wolves ${wolfCpm.toFixed(1)} coins/min, skeletons ${skelCpm.t
 line();
 line('| loser purse | payout to winner | equals minutes of wolf farming | equals minutes of skeleton farming |');
 line('|---|---|---|---|');
-for (const purse of [10, 40, 100, 200]) {
+for (const purse of [500, 2000, 5000, 10000]) {
   const p = duelPayout(purse);
   line(`| ${purse} | ${p} | ${(p / wolfCpm).toFixed(1)} | ${(p / skelCpm).toFixed(1)} |`);
 }

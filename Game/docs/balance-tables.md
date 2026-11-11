@@ -10,45 +10,45 @@ Per-kill overhead not modelled by the fight sim: 5.25 s (rules coin pickup 2.25 
 
 | zone | level | sword | armor | max HP | strike | kills before first death (stand) | retreat: kills / deaths per 100 fights | coins per minute (retreat) |
 |---|---|---|---|---|---|---|---|---|
-| green (wolf) | 1 | - | - | 70 | 4 | 4.0 | 100 / 0.0 | 39.1 |
-| green (wolf) | 1 | shortSword | leather | 82 | 6 | 9.0 | 100 / 0.0 | 40.2 |
-| green (wolf) | 3 | - | - | 92 | 6 | 9.0 | 100 / 0.0 | 40.0 |
-| green (wolf) | 3 | shortSword | leather | 104 | 8 | 14.0 | 100 / 0.0 | 40.7 |
-| green (wolf) | 3 | longSword | chain | 116 | 10 | 29.0 | 100 / 0.0 | 41.0 |
-| green (wolf) | 5 | longSword | chain | 146 | 14 | 32.0 | 100 / 0.0 | 41.0 |
-| green (wolf) | 5 | greatSword | plate | 162 | 17 | 35.0 | 100 / 0.0 | 41.0 |
+| green (wolf) | 1 | - | - | 70 | 4 | 4.0 | 100 / 0.0 | 33.6 |
+| green (wolf) | 1 | shortSword | leather | 82 | 6 | 8.0 | 100 / 0.0 | 35.6 |
+| green (wolf) | 3 | - | - | 92 | 6 | 9.0 | 100 / 0.0 | 35.6 |
+| green (wolf) | 3 | shortSword | leather | 104 | 8 | 10.0 | 100 / 0.0 | 38.4 |
+| green (wolf) | 3 | longSword | chain | 116 | 10 | 23.0 | 100 / 0.0 | 41.0 |
+| green (wolf) | 5 | longSword | chain | 146 | 14 | 29.0 | 100 / 0.0 | 41.0 |
+| green (wolf) | 5 | greatSword | plate | 162 | 17 | 32.0 | 100 / 0.0 | 41.0 |
 | green (wolf) | 6 | greatSword | plate | 180 | 19 | 35.0 | 100 / 0.0 | 41.0 |
-| grey (bear) | 1 | - | - | 70 | 4 | 1.0 | 75 / 25.0 | 56.0 |
-| grey (bear) | 1 | shortSword | leather | 82 | 6 | 1.3 | 100 / 0.3 | 87.0 |
-| grey (bear) | 3 | - | - | 92 | 6 | 2.0 | 100 / 0.0 | 86.9 |
-| grey (bear) | 3 | shortSword | leather | 104 | 8 | 3.0 | 100 / 0.0 | 88.1 |
-| grey (bear) | 3 | longSword | chain | 116 | 10 | 4.0 | 100 / 0.0 | 94.4 |
-| grey (bear) | 5 | longSword | chain | 146 | 14 | 5.0 | 100 / 0.0 | 95.4 |
-| grey (bear) | 5 | greatSword | plate | 162 | 17 | 9.0 | 100 / 0.0 | 96.0 |
+| grey (bear) | 1 | - | - | 70 | 4 | 1.0 | 98 / 2.0 | 57.8 |
+| grey (bear) | 1 | shortSword | leather | 82 | 6 | 1.3 | 88 / 12.3 | 66.6 |
+| grey (bear) | 3 | - | - | 92 | 6 | 2.0 | 100 / 0.0 | 70.2 |
+| grey (bear) | 3 | shortSword | leather | 104 | 8 | 3.0 | 100 / 0.0 | 78.4 |
+| grey (bear) | 3 | longSword | chain | 116 | 10 | 4.0 | 100 / 0.0 | 83.9 |
+| grey (bear) | 5 | longSword | chain | 146 | 14 | 5.0 | 100 / 0.0 | 88.9 |
+| grey (bear) | 5 | greatSword | plate | 162 | 17 | 8.0 | 100 / 0.0 | 96.0 |
 | grey (bear) | 6 | greatSword | plate | 180 | 19 | 9.0 | 100 / 0.0 | 96.0 |
 | cemetery (skeleton) | 1 | - | - | 70 | 4 | 0.0 | 0 / 100.0 | 0.0 |
 | cemetery (skeleton) | 1 | shortSword | leather | 82 | 6 | 0.0 | 0 / 100.0 | 0.0 |
-| cemetery (skeleton) | 3 | - | - | 92 | 6 | 1.0 | 75 / 25.0 | 101.1 |
+| cemetery (skeleton) | 3 | - | - | 92 | 6 | 1.0 | 99 / 1.0 | 104.2 |
 | cemetery (skeleton) | 3 | shortSword | leather | 104 | 8 | 1.0 | 50 / 50.0 | 95.2 |
 | cemetery (skeleton) | 3 | longSword | chain | 116 | 10 | 1.0 | 50 / 50.0 | 92.7 |
-| cemetery (skeleton) | 5 | longSword | chain | 146 | 14 | 3.0 | 100 / 0.0 | 150.6 |
-| cemetery (skeleton) | 5 | greatSword | plate | 162 | 17 | 4.0 | 100 / 0.0 | 159.6 |
+| cemetery (skeleton) | 5 | longSword | chain | 146 | 14 | 3.0 | 100 / 0.0 | 141.2 |
+| cemetery (skeleton) | 5 | greatSword | plate | 162 | 17 | 4.0 | 100 / 0.0 | 151.0 |
 | cemetery (skeleton) | 6 | greatSword | plate | 180 | 19 | 5.0 | 100 / 0.0 | 160.0 |
 
 ## 2. Economy: coin income and time to afford gear
 
 Retreat strategy, 100 fights per seed, each build in a zone it can handle. Includes the rules coin pickup plus the assumed walk; fountain trips are free and instant here.
 
-| zone | build | coins per minute | minutes to buy short sword + leather (34 coins) | minutes to buy great sword + plate (134 coins) |
+| zone | build | coins per minute | minutes to afford short sword + leather (1700 coins) | minutes to afford great sword + plate (6700 coins) |
 |---|---|---|---|---|
-| green (wolf) | L1 -/- | 39.1 | 0.9 | 3.4 |
-| green (wolf) | L3 shortSword/leather | 40.7 | 0.8 | 3.3 |
-| grey (bear) | L3 longSword/chain | 94.4 | 0.4 | 1.4 |
-| grey (bear) | L5 longSword/chain | 95.4 | 0.4 | 1.4 |
-| cemetery (skeleton) | L5 greatSword/plate | 159.6 | 0.2 | 0.8 |
-| cemetery (skeleton) | L6 greatSword/plate | 160.0 | 0.2 | 0.8 |
+| green (wolf) | L1 -/- | 33.6 | 50.6 | 199.6 |
+| green (wolf) | L3 shortSword/leather | 38.4 | 44.3 | 174.5 |
+| grey (bear) | L3 longSword/chain | 83.9 | 20.3 | 79.8 |
+| grey (bear) | L5 longSword/chain | 88.9 | 19.1 | 75.4 |
+| cemetery (skeleton) | L5 greatSword/plate | 151.0 | 11.3 | 44.4 |
+| cemetery (skeleton) | L6 greatSword/plate | 160.0 | 10.6 | 41.9 |
 
-Coins expire 7 days after pickup and are spent oldest first. A player who spends what they earn loses nothing; coins held a full week are lost. The dearest single item costs 70 coins, so expiry never blocks a purchase and only punishes pure hoarding.
+Coins expire 7 days after pickup and are spent oldest first. A player who spends what they earn loses nothing; coins held a full week are lost. The dearest single item costs 3500 coins, so expiry never blocks a purchase and only punishes pure hoarding.
 
 ## 3. Duels: all 16 gear builds against each other at duel level 3
 
@@ -57,21 +57,21 @@ Both duelists fight with level 3 base stats (92 HP, strike 6) plus their own swo
 | build (sword / armor) | cost | duel HP | duel strike | swings to kill a bare duelist | average win rate vs the other 15 builds | win-rate points per coin |
 |---|---|---|---|---|---|---|
 | - / - | 0 | 92 | 6 | 16 | 0% | n/a |
-| - / leather | 16 | 104 | 6 | 16 | 7% | 0.42 |
-| - / chain | 36 | 116 | 6 | 16 | 13% | 0.37 |
-| - / plate | 64 | 132 | 6 | 16 | 27% | 0.42 |
-| shortSword / - | 18 | 92 | 8 | 12 | 20% | 1.11 |
-| shortSword / leather | 34 | 104 | 8 | 12 | 33% | 0.98 |
-| shortSword / chain | 54 | 116 | 8 | 12 | 42% | 0.78 |
-| shortSword / plate | 82 | 132 | 8 | 12 | 60% | 0.73 |
-| longSword / - | 40 | 92 | 10 | 10 | 42% | 1.05 |
-| longSword / leather | 56 | 104 | 10 | 10 | 53% | 0.95 |
-| longSword / chain | 76 | 116 | 10 | 10 | 67% | 0.88 |
-| longSword / plate | 104 | 132 | 10 | 10 | 83% | 0.80 |
-| greatSword / - | 70 | 92 | 13 | 8 | 77% | 1.10 |
-| greatSword / leather | 86 | 104 | 13 | 8 | 80% | 0.93 |
-| greatSword / chain | 106 | 116 | 13 | 8 | 93% | 0.88 |
-| greatSword / plate | 134 | 132 | 13 | 8 | 100% | 0.75 |
+| - / leather | 800 | 104 | 6 | 16 | 7% | 0.01 |
+| - / chain | 1800 | 116 | 6 | 16 | 13% | 0.01 |
+| - / plate | 3200 | 132 | 6 | 16 | 27% | 0.01 |
+| shortSword / - | 900 | 92 | 8 | 12 | 20% | 0.02 |
+| shortSword / leather | 1700 | 104 | 8 | 12 | 33% | 0.02 |
+| shortSword / chain | 2700 | 116 | 8 | 12 | 42% | 0.02 |
+| shortSword / plate | 4100 | 132 | 8 | 12 | 60% | 0.01 |
+| longSword / - | 2000 | 92 | 10 | 10 | 42% | 0.02 |
+| longSword / leather | 2800 | 104 | 10 | 10 | 53% | 0.02 |
+| longSword / chain | 3800 | 116 | 10 | 10 | 67% | 0.02 |
+| longSword / plate | 5200 | 132 | 10 | 10 | 83% | 0.02 |
+| greatSword / - | 3500 | 92 | 13 | 8 | 77% | 0.02 |
+| greatSword / leather | 4300 | 104 | 13 | 8 | 80% | 0.02 |
+| greatSword / chain | 5300 | 116 | 13 | 8 | 93% | 0.02 |
+| greatSword / plate | 6700 | 132 | 13 | 8 | 100% | 0.01 |
 
 Builds that beat another build in every seed at equal or lower price: 9.
 - shortSword/- beats -/chain in every seed at equal or lower cost
@@ -92,14 +92,14 @@ Real level no longer matters in a duel: a level 1, 3 and 6 character with the sa
 
 Payout is half of the loser's purse, rounded down. Each payout is compared with the farming income of a mid build (level 3, short sword + leather, wolves) and a top build (level 6, great sword + plate, skeletons).
 
-Income used: wolves 40.7 coins/min, skeletons 160.0 coins/min.
+Income used: wolves 38.4 coins/min, skeletons 160.0 coins/min.
 
 | loser purse | payout to winner | equals minutes of wolf farming | equals minutes of skeleton farming |
 |---|---|---|---|
-| 10 | 5 | 0.1 | 0.0 |
-| 40 | 20 | 0.5 | 0.1 |
-| 100 | 50 | 1.2 | 0.3 |
-| 200 | 100 | 2.5 | 0.6 |
+| 500 | 250 | 6.5 | 1.6 |
+| 2000 | 1000 | 26.0 | 6.3 |
+| 5000 | 2500 | 65.1 | 15.6 |
+| 10000 | 5000 | 130.2 | 31.3 |
 
 ## 5. Sustained play: levels and gear from a fresh character
 
@@ -107,15 +107,15 @@ Greedy policy with the retreat strategy: hunt wolves below level 3, bears at lev
 
 | milestone | 0.00 s per kill | 5.25 s per kill | 15.00 s per kill |
 |---|---|---|---|
-| level 2 | 0.2 | 0.6 | 1.4 |
-| level 3 | 0.3 | 1.5 | 3.6 |
-| level 4 | 0.5 | 2.0 | 4.7 |
-| level 5 | 0.6 | 2.7 | 6.4 |
-| level 6 | 0.8 | 3.2 | 7.5 |
-| bought shortSword | 0.3 | 1.0 | 2.5 |
-| bought leather | 0.1 | 0.5 | 1.1 |
-| bought longSword | 0.5 | 2.2 | 5.3 |
-| bought chain | 0.4 | 1.7 | 4.2 |
-| bought greatSword | 0.7 | 2.9 | 7.0 |
-| bought plate | 0.8 | 3.4 | 8.1 |
+| level 2 | 3.2 | 11.9 | 28.2 |
+| level 3 | 8.2 | 34.4 | 83.2 |
+| level 4 | 16.1 | 58.1 | 136.1 |
+| level 5 | 28.8 | 109.3 | 258.8 |
+| level 6 | 44.9 | 163.9 | 384.9 |
+| bought shortSword | 10.9 | 41.5 | 98.4 |
+| bought leather | 5.7 | 23.2 | 55.7 |
+| bought longSword | 24.0 | 87.9 | 206.5 |
+| bought chain | 17.7 | 64.1 | 150.2 |
+| bought greatSword | 39.5 | 143.3 | 336.2 |
+| bought plate | 31.7 | 118.6 | 280.0 |
 

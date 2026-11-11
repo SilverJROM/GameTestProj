@@ -38,24 +38,24 @@ export interface MonsterRow {
 // Highest level a character can reach.
 export const LEVEL_CAP = 6;
 
-// Papaya ladder: the level rows. The five xpToNext costs sum to 115.
+// Papaya ladder: the level rows. The five xpToNext costs sum to 8,100 (plan 10: hours of play, was 115).
 export const papayaLevelRows: readonly LevelRow[] = [
-  { level: 1, baseHp: 70, strike: 4, xpToNext: 10 },
-  { level: 2, baseHp: 80, strike: 5, xpToNext: 15 },
-  { level: 3, baseHp: 92, strike: 6, xpToNext: 20 },
-  { level: 4, baseHp: 106, strike: 8, xpToNext: 30 },
-  { level: 5, baseHp: 122, strike: 10, xpToNext: 40 },
+  { level: 1, baseHp: 70, strike: 4, xpToNext: 200 },
+  { level: 2, baseHp: 80, strike: 5, xpToNext: 400 },
+  { level: 3, baseHp: 92, strike: 6, xpToNext: 900 },
+  { level: 4, baseHp: 106, strike: 8, xpToNext: 2200 },
+  { level: 5, baseHp: 122, strike: 10, xpToNext: 4400 },
   { level: 6, baseHp: 140, strike: 12, xpToNext: null },
 ];
 
 // Forge stock: two swords that add strike, three armors that add maximum health.
 export const mangoGearRows: readonly GearRow[] = [
-  { id: 'shortSword', slot: 'sword', effect: 'strike', amount: 2, price: 18 },
-  { id: 'longSword', slot: 'sword', effect: 'strike', amount: 4, price: 40 },
-  { id: 'greatSword', slot: 'sword', effect: 'strike', amount: 7, price: 70 },
-  { id: 'leather', slot: 'armor', effect: 'maxHp', amount: 12, price: 16 },
-  { id: 'chain', slot: 'armor', effect: 'maxHp', amount: 24, price: 36 },
-  { id: 'plate', slot: 'armor', effect: 'maxHp', amount: 40, price: 64 },
+  { id: 'shortSword', slot: 'sword', effect: 'strike', amount: 2, price: 900 },
+  { id: 'longSword', slot: 'sword', effect: 'strike', amount: 4, price: 2000 },
+  { id: 'greatSword', slot: 'sword', effect: 'strike', amount: 7, price: 3500 },
+  { id: 'leather', slot: 'armor', effect: 'maxHp', amount: 12, price: 800 },
+  { id: 'chain', slot: 'armor', effect: 'maxHp', amount: 24, price: 1800 },
+  { id: 'plate', slot: 'armor', effect: 'maxHp', amount: 40, price: 3200 },
 ];
 
 // Monsters by zone. Each zone keeps seven of its kind alive.
@@ -101,9 +101,11 @@ export const kaleConstants = {
 } as const;
 
 // Guava window: closest and widest area share of the section the fig stands in.
-// The camera is the only reader. 0.60 is the default; 0.75 is as wide as the slider goes.
-export const ZOOM_CLOSE = 0.60;
+// The camera is the only reader. 0.14 is the default (the avatar stands about 19% of the screen high, measured against the owner's reference screenshot); 0.75 is as wide as the slider goes.
+export const ZOOM_CLOSE = 0.14;
 export const ZOOM_FAR = 0.75;
+// A zone's window is never shorter than this many map pixels, so a small zone (the cemetery) is not zoomed tighter than the rest.
+export const MIN_VIEW_HEIGHT_PX = 215;
 
 // Fresh-start marker for the saved orchard. A room whose stored epoch is not this
 // number composts the old monster bed, ground coins, and anything keyed to pre-account figs.

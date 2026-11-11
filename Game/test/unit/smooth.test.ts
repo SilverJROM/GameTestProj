@@ -293,8 +293,8 @@ describe('displayed feet', () => {
     expect(board.camera()).toEqual(viewBox('town', shown.x, shown.y, board.zoom()));
     const bubble = board.controls().find((row) => row.id === 'bubble');
     expect(bubble).toEqual(townControls(board.camera()).find((row) => row.id === 'bubble'));
-    const serverBubble = townControls(viewBox('town', 430, 440, board.zoom())).find((row) => row.id === 'bubble');
-    expect(Math.abs((bubble?.x ?? 0) - (serverBubble?.x ?? 0))).toBeGreaterThan(1);
+    // The camera follows the displayed feet (x 400), not the server's latest position (x 430).
+    expect(Math.abs(board.camera().x - viewBox('town', 430, 440, board.zoom()).x)).toBeGreaterThan(1);
 
     const coin = feet(board.pose(), 'coin', 'seed');
     expect(coin).toMatchObject({ x: 450, y: 460 });

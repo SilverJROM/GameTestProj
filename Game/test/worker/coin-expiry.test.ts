@@ -196,11 +196,11 @@ describe('coin expiry', () => {
 
   it('a purchase spends the oldest coins first and leaves the younger lot partly spent', async () => {
     const fig = await withLots('Spender', [
-      { amount: 14, ageDays: 1 },
+      { amount: 798, ageDays: 1 },
       { amount: 4, ageDays: 6 },
     ]);
     const joined = await join(fig.grape);
-    expect(joined.welcome.character.coins).toBe(18);
+    expect(joined.welcome.character.coins).toBe(802);
     const snap = await ask(joined.socket, { type: 'buy', item: 'leather' });
     expect(snap.character.coins).toBe(2);
     const lots = await readCoinLots(kiwiDb, fig.facts.id);
@@ -229,14 +229,14 @@ describe('coin expiry', () => {
   }, 60_000);
 
   it('a purchase that overlaps the expiry sweep never brings expired coins back', async () => {
-    // 100 good coins and 30 that run out in about 2.5 seconds; the purchase and the sweep arrive together.
+    // 884 good coins and 30 that run out in about 2.5 seconds; the purchase and the sweep arrive together.
     for (let round = 0; round < 3; round += 1) {
       const fig = await withLots(`Overlap${round}`, [
-        { amount: 100, ageDays: 1 },
+        { amount: 884, ageDays: 1 },
         { amount: 30, ageDays: 7 - 2500 / DAY },
       ]);
       const joined = await join(fig.grape);
-      expect(joined.welcome.character.coins).toBe(130);
+      expect(joined.welcome.character.coins).toBe(914);
       await new Promise((resolve) => setTimeout(resolve, 3000));
       joined.socket.send(JSON.stringify({ type: 'ripen', steps: 1 }));
       joined.socket.send(JSON.stringify({ type: 'buy', item: 'leather' }));
@@ -385,7 +385,7 @@ describe('coin expiry', () => {
     const joined = await join(fig.grape);
     expect(joined.welcome.character.coins).toBe(40);
     await new Promise((resolve) => setTimeout(resolve, 3000));
-    // Leather costs 16: only 10 live coins are left, so the purchase is refused.
+    // Leather costs 800: only 10 live coins are left, so the purchase is refused.
     let snap = await ask(joined.socket, { type: 'buy', item: 'leather' });
     for (let tries = 0; tries < 4 && snap.character.coins !== 10; tries += 1) {
       snap = await ask(joined.socket, { type: 'ripen', steps: 1 });

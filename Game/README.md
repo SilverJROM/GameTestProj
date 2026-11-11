@@ -15,7 +15,7 @@ Documents in `docs/`: `game_reqts.md` (the rules, current), `balance.md` and `ba
 2. Cloudflare Access asks for an email address. Enter an address that is on the allowed list. A six-digit one-time PIN is emailed to it; type the PIN. (Only allowed addresses get a PIN. Credentials are never kept in this repository; the project owner gives them to evaluators privately.)
 3. The game's own page asks for a **username and password**. Choose "sign up" the first time. Passwords are hashed and cannot be recovered.
 4. Create an avatar (pick woman or man, type a unique name). Each account has up to two avatars. Press Play.
-5. The live site accepts at most **6 accounts** in total. If sign-up says the limit is reached, ask the owner to raise it (see below).
+5. The live site accepts at most **20 accounts** in total. If sign-up says the limit is reached, ask the owner to raise it (see below).
 
 To test duels you need two browsers (or two windows with different accounts, for example one normal and one private window).
 
@@ -53,7 +53,7 @@ It takes effect on the next request. (`MAX_ACCOUNTS` is a secret so that it can 
 | Bag | The Bag button. Shows coins (and which expire soon), worn gear, level, health, strike, experience. |
 | Challenge a player | Right click the player, then Duel. You can Cancel while it waits. |
 | Fight your duel partner | Left click (one swing) or right click (swing until one falls) on them. |
-| Camera | The zoom slider widens the view. Menu button: settings and sound. |
+| Camera | Close view by default; the zoom slider widens it. Monsters only move while someone can see them. Menu button: settings and sound. |
 
 ### The world
 
@@ -64,9 +64,9 @@ It takes effect on the next request. (`MAX_ACCOUNTS` is a secret so that it can 
 
 ### Progress and money
 
-- Levels 1 to 6; experience comes only from monsters. Max health is the level's base plus your armor; strike is the level's base plus your sword. Armor does not reduce damage.
+- Levels 1 to 6; experience comes only from monsters, and the ladder takes hours (200, 400, 900, 2,200, 4,400 xp per level). Max health is the level's base plus your armor; strike is the level's base plus your sword. Armor does not reduce damage.
 - A kill drops a coin; your axolotl pet fetches it (a short pickup) and the coin is added to your purse.
-- Forge: short sword 18, long sword 40, great sword 70 (more strike); leather 16, chain 36, plate 64 (more max health).
+- Forge: short sword 900, long sword 2,000, great sword 3,500 (more strike); leather 800, chain 1,800, plate 3,200 (more max health).
 - Coins expire 7 days after you get them (spent oldest first). The Bag warns two days ahead.
 - The bag of items belongs to the account and is shared by its two avatars (one piece is worn by one avatar at a time).
 
@@ -120,7 +120,7 @@ npx wrangler login                              # or export CLOUDFLARE_API_TOKEN
 npx wrangler d1 create game-db                  # copy the database_id it prints into wrangler.jsonc
 npx wrangler d1 migrations apply game-db --remote
 npx wrangler secret put SESSION_SECRET          # a new long random string
-npx wrangler secret put MAX_ACCOUNTS            # for example 6
+npx wrangler secret put MAX_ACCOUNTS            # the live site uses 20
 npx wrangler deploy
 ```
 
@@ -143,4 +143,4 @@ docs           requirements, balance, security, limits, plans
 
 ## Known limits
 
-Short version (details in `docs/limits.md`, `docs/security.md`, `docs/balance.md`): the progression is very short, top gear dominates duels, Free-plan load is not measured on a live session, password hashing is deliberately light.
+Short version (details in `docs/limits.md`, `docs/security.md`, `docs/balance.md`): the pacing is modelled but not measured with players, top gear dominates duels, Free-plan load is not measured on a live session, password hashing is deliberately light.

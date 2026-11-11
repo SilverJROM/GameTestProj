@@ -462,14 +462,14 @@ describe('live bag and blacksmith panels', () => {
       xp: 2,
       hp: 70,
       maxHp: 70,
-      coins: 200,
+      coins: 5000,
       sword: null,
       armor: null,
     };
 
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(false);
-    expect(xp.textContent).toBe('0 / 10');
+    expect(xp.textContent).toBe('0 / 200');
     expect(coins.textContent).toBe('Coins: 0');
     expect(fieldText(sword, 'name')).toBe('Nothing worn');
     expect((elements.get('olive-fig') as FakeEl).src).toBe('/avatars/warrior-f/stand.png');
@@ -477,8 +477,8 @@ describe('live bag and blacksmith panels', () => {
     deliver(figSnapshot(rich));
 
     expect(sheet.hidden).toBe(false);
-    expect(xp.textContent).toBe('2 / 10');
-    expect(coins.textContent).toBe('Coins: 200');
+    expect(xp.textContent).toBe('2 / 200');
+    expect(coins.textContent).toBe('Coins: 5000');
     const xpWrites = xp.writes;
     const coinWrites = coins.writes;
     const swordWrites = sword.writes;
@@ -486,11 +486,11 @@ describe('live bag and blacksmith panels', () => {
     expect(xp.writes).toBe(xpWrites);
     expect(coins.writes).toBe(coinWrites);
     expect(sword.writes).toBe(swordWrites);
-    expect(xp.textContent).toBe('2 / 10');
+    expect(xp.textContent).toBe('2 / 200');
 
     const lv = painted.filter((mark) => mark.text === 'Lv 1');
-    const xpLine = painted.filter((mark) => mark.text === 'XP 2 / 10');
-    const coinLine = painted.filter((mark) => mark.text === 'Coins 200');
+    const xpLine = painted.filter((mark) => mark.text === 'XP 2 / 200');
+    const coinLine = painted.filter((mark) => mark.text === 'Coins 5000');
     expect(lv.length).toBeGreaterThan(0);
     expect(xpLine.length).toBeGreaterThan(0);
     expect(coinLine.length).toBeGreaterThan(0);
@@ -509,52 +509,52 @@ describe('live bag and blacksmith panels', () => {
     press(canvas, bubble!.x + 4, bubble!.y + 4);
     expect(smith.hidden).toBe(false);
     expect(sheet.hidden).toBe(true);
-    expect(purse.textContent).toBe('Your coins: 200');
+    expect(purse.textContent).toBe('Your coins: 5000');
     expect(list.children.map((child) => child.textContent).filter((text) => text === 'Weapons' || text === 'Armor')).toEqual([
       'Weapons',
       'Armor',
     ]);
     expect(shopRows(list).map(rowState)).toEqual([
-      { name: 'Short sword', effect: 'Strike +2', price: '18', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
-      { name: 'Long sword', effect: 'Strike +4', price: '40', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
-      { name: 'Great sword', effect: 'Strike +7', price: '70', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
-      { name: 'Leather', effect: 'Max HP +12', price: '16', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
-      { name: 'Chain', effect: 'Max HP +24', price: '36', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
-      { name: 'Plate', effect: 'Max HP +40', price: '64', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
+      { name: 'Short sword', effect: 'Strike +2', price: '900', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
+      { name: 'Long sword', effect: 'Strike +4', price: '2000', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
+      { name: 'Great sword', effect: 'Strike +7', price: '3500', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
+      { name: 'Leather', effect: 'Max HP +12', price: '800', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
+      { name: 'Chain', effect: 'Max HP +24', price: '1800', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
+      { name: 'Plate', effect: 'Max HP +40', price: '3200', action: 'Buy', disabled: false, className: 'buy', tag: 'BUTTON' },
     ]);
     const keptRows = shopRows(list);
     const keptActions = keptRows.map(actionOf);
     const listWrites = list.writes;
     expect(listWrites).toBe(0);
 
-    deliver(figSnapshot({ ...rich, coins: 100 }));
+    deliver(figSnapshot({ ...rich, coins: 4000 }));
     expect(smith.hidden).toBe(false);
-    expect(purse.textContent).toBe('Your coins: 100');
+    expect(purse.textContent).toBe('Your coins: 4000');
     expect(list.writes).toBe(listWrites);
     expect(shopRows(list)[0]).toBe(keptRows[0]);
     expect(shopRows(list)[5]).toBe(keptRows[5]);
     expect(actionOf(shopRows(list)[0]!)).toBe(keptActions[0]);
     expect(rowState(shopRows(list)[0]!).action).toBe('Buy');
 
-    deliver(figSnapshot({ ...rich, coins: 30 }));
+    deliver(figSnapshot({ ...rich, coins: 1000 }));
     expect(smith.hidden).toBe(false);
-    expect(purse.textContent).toBe('Your coins: 30');
+    expect(purse.textContent).toBe('Your coins: 1000');
     expect(list.writes).toBe(listWrites);
     expect(shopRows(list)[0]).toBe(keptRows[0]);
     expect(actionOf(shopRows(list)[0]!)).toBe(keptActions[0]);
     expect(actionOf(shopRows(list)[1]!)).toBe(keptActions[1]);
     expect(shopRows(list).map(rowState).map((row) => ({ action: row.action, disabled: row.disabled, className: row.className }))).toEqual([
       { action: 'Buy', disabled: false, className: 'buy' },
-      { action: 'Need 40 coins', disabled: true, className: 'buy no' },
-      { action: 'Need 70 coins', disabled: true, className: 'buy no' },
+      { action: 'Need 2000 coins', disabled: true, className: 'buy no' },
+      { action: 'Need 3500 coins', disabled: true, className: 'buy no' },
       { action: 'Buy', disabled: false, className: 'buy' },
-      { action: 'Need 36 coins', disabled: true, className: 'buy no' },
-      { action: 'Need 64 coins', disabled: true, className: 'buy no' },
+      { action: 'Need 1800 coins', disabled: true, className: 'buy no' },
+      { action: 'Need 3200 coins', disabled: true, className: 'buy no' },
     ]);
     const purseWrites = purse.writes;
     const shortWrites = actionOf(shopRows(list)[0]!).writes;
     const longWrites = actionOf(shopRows(list)[1]!).writes;
-    deliver(figSnapshot({ ...rich, coins: 30 }));
+    deliver(figSnapshot({ ...rich, coins: 1000 }));
     expect(purse.writes).toBe(purseWrites);
     expect(list.writes).toBe(listWrites);
     expect(actionOf(shopRows(list)[0]!).writes).toBe(shortWrites);
@@ -565,7 +565,7 @@ describe('live bag and blacksmith panels', () => {
     expect(smith.hidden).toBe(false);
     const bought = JSON.parse(FakeSocket.open?.sent.at(-1) ?? 'null') as { type: string; item: string };
     expect(bought).toEqual({ type: 'buy', item: 'shortSword' });
-    expect(purse.textContent).toBe('Your coins: 30');
+    expect(purse.textContent).toBe('Your coins: 1000');
 
     const leatherAction = actionOf(shopRows(list)[3]!);
     deliver(figSnapshot({ ...rich, coins: 12, items: ['shortSword'] }));
@@ -576,7 +576,7 @@ describe('live bag and blacksmith panels', () => {
     expect(actionOf(shopRows(list)[0]!).tagName).toBe('SPAN');
     expect(actionOf(shopRows(list)[0]!).className).toBe('buy own');
     expect(actionOf(shopRows(list)[3]!)).toBe(leatherAction);
-    expect(rowState(shopRows(list)[3]!)).toMatchObject({ action: 'Need 16 coins', disabled: true, className: 'buy no' });
+    expect(rowState(shopRows(list)[3]!)).toMatchObject({ action: 'Need 800 coins', disabled: true, className: 'buy no' });
     const sentAfterBuy = FakeSocket.open?.sent.length ?? 0;
     click(actionOf(shopRows(list)[0]!));
     click(leatherAction);
@@ -601,17 +601,17 @@ describe('live bag and blacksmith panels', () => {
 
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(false);
-    expect(xp.textContent).toBe('2 / 10');
-    expect(coins.textContent).toBe('Coins: 200');
+    expect(xp.textContent).toBe('2 / 200');
+    expect(coins.textContent).toBe('Coins: 5000');
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(true);
     deliver(figSnapshot({ ...rich, xp: 9, coins: 1 }));
-    expect(xp.textContent).toBe('2 / 10');
-    expect(coins.textContent).toBe('Coins: 200');
+    expect(xp.textContent).toBe('2 / 200');
+    expect(coins.textContent).toBe('Coins: 5000');
 
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(false);
-    expect(xp.textContent).toBe('9 / 10');
+    expect(xp.textContent).toBe('9 / 200');
     expect(coins.textContent).toBe('Coins: 1');
     click(oliveClose);
     expect(sheet.hidden).toBe(true);
@@ -630,7 +630,7 @@ describe('live bag and blacksmith panels', () => {
       xp: 0,
       hp: 40,
       maxHp: 70,
-      coins: 200,
+      coins: 5000,
       sword: null,
       armor: null,
       items: ['shortSword', 'leather'],

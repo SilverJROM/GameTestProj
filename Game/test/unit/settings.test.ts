@@ -501,7 +501,7 @@ describe('settings on the page', () => {
     for (const listener of slider.listeners.input ?? []) {
       listener({ preventDefault() {}, stopPropagation() {} });
     }
-    expect(page.jar.get('game.zoom')).toBe('70');
+    expect(page.jar.get('game.zoom.v2')).toBe('70');
   });
 
   it('rebinds, refuses clashes and forbidden keys, toggles panels, and ignores typing', async () => {

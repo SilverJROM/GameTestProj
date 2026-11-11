@@ -84,11 +84,10 @@ function dropBlocked(beet: Beet): Beet {
   return rest;
 }
 
-// A beet patrols when a connected fig stands in its zone, or the beet sits in any fig's widest window plus the pad.
+// A beet patrols only while it sits inside some connected player's own view window plus the pad. A monster nobody sees stands still.
 export function beetIsWatched(beet: Pick<Beet, 'zone' | 'x' | 'y'>, figs: ReadonlyMap<string, FigWalk>): boolean {
   for (const fig of figs.values()) {
-    if (fig.facts.place === beet.zone) return true;
-    if (figSeesBeet(fig.facts.place, fig.facts.x, fig.facts.y, beet.x, beet.y)) return true;
+    if (figSeesBeet(fig.facts.place, fig.facts.x, fig.facts.y, beet.x, beet.y, fig.viewZoom)) return true;
   }
   return false;
 }

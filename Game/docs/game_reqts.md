@@ -20,7 +20,7 @@ The stack shares one 1280×720 origin:
 
 `houses/forge.png` is not drawn again. The forge building is already in `town-behind.png`. The blacksmith is a separate sprite and is drawn with the avatars.
 
-The camera shows 60 percent of the current zone's area by default, and a slider can zoom out to 75 percent of that area. The window keeps the 1280×720 shape (16:9) with one scale, so the picture is not stretched and there are no dark bars. It stays centered on the player and does not slide past the map edge. A click is converted through that same camera onto the map.
+The camera defaults to a close view (14 percent of the zone's area, never less than 215 map pixels tall, so the avatar is about a fifth of the screen high), and a slider zooms out to 75 percent of the zone's area. The chosen zoom is reported to the server. The window keeps the 1280×720 shape (16:9) with one scale, so the picture is not stretched and there are no dark bars. It stays centered on the player and does not slide past the map edge. A click is converted through that same camera onto the map.
 
 Walls are solid. Fence pixels, and the uneven top of the near town wall, are paint, not collision. The town gate is open from (444, 574) to (410, 593). The short run from (410, 593) to (400, 598) stays solid. The road through the gate is around (425, 584). The cemetery gate is open from (317, 229) to (365, 217). The road through it is around (340, 222). The west cemetery chain, the east chain, and the pine edge through (542, 105), (548, 95), (520, 60), (470, 30), and (432, 0) are solid. A player stops at a solid wall. A monster does not step through a wall or out of its zone.
 
@@ -63,7 +63,7 @@ The first screen is character setup, before the map.
 
 A player signs in to an account with a username and a password. The password is stored only as a PBKDF2-SHA-256 hash (10,000 rounds, kept low because the Workers Free plan allows 10 ms of CPU per request), so a forgotten password cannot be recovered. Each account has at most two avatars. A character name is still unique in the whole world. Signing in lists those avatars, and playing one enters the world as that character with the coins, gear, level, experience, place, and position already stored. Deleting an avatar removes it, including while it is connected. Characters from before accounts were discarded.
 
-The deployed game is limited on purpose. A secret, `MAX_ACCOUNTS` (6 on the live site), caps the number of accounts; the site is also behind Cloudflare Access, which asks an allowed email address for a one-time PIN before the page loads. See `docs/security.md`.
+The deployed game is limited on purpose. A secret, `MAX_ACCOUNTS` (20 on the live site), caps the number of accounts; the site is also behind Cloudflare Access, which asks an allowed email address for a one-time PIN before the page loads. See `docs/security.md`.
 
 ## Character numbers
 
@@ -71,14 +71,14 @@ The level cap is 6. Experience to the next level is spent when the bar is reache
 
 | Level | Base HP | Strike | Experience to next |
 | --- | --- | --- | --- |
-| 1 | 70 | 4 | 10 |
-| 2 | 80 | 5 | 15 |
-| 3 | 92 | 6 | 20 |
-| 4 | 106 | 8 | 30 |
-| 5 | 122 | 10 | 40 |
+| 1 | 70 | 4 | 200 |
+| 2 | 80 | 5 | 400 |
+| 3 | 92 | 6 | 900 |
+| 4 | 106 | 8 | 2,200 |
+| 5 | 122 | 10 | 4,400 |
 | 6 | 140 | 12 | — |
 
-Total experience from level 1 to level 6 is 115.
+Total experience from level 1 to level 6 is 8,100. The ladder takes hours of play (plan 10; it was 115). Avatars saved under the old ladder keep the experience they had earned and their level is recalculated on this ladder; strike and maximum health follow it, and coins, gear and place are kept.
 
 Maximum health is base HP plus the worn armor's HP. Current health never sits above that maximum. A new character is at maximum. On level-up, current health increases by the base HP that was gained, then clamps to the new maximum.
 
@@ -114,7 +114,7 @@ An unaggroed monster patrols from its spawn to the next spawn in that zone, then
 
 While a monster is aggroed, a red glow is drawn behind its head and the head art is drawn on top. That glow is separate from the duel glow. Wolves and bears glow only after a hit. A skeleton glows when a player is within 100 pixels in the cemetery.
 
-If no player is connected, the room does not tick. Monsters do not patrol, chase, bite, or appear in a broadcast. The login screen leaves them frozen. Only monsters in a zone that contains a connected player are stepped. Standing in town does not move wolves, bears, or skeletons. To fit the Cloudflare Free plan the room ticks in memory every 100 ms only while someone is connected, saves positions at most every 1.5 s, and closes a connection that has been idle for a while. A monster that is already chasing a connected player keeps being stepped until that chase ends. Patrol by itself does not write storage.
+If no player is connected, the room does not tick. Monsters do not patrol, chase, bite, or appear in a broadcast. The login screen leaves them frozen. **A monster patrols only while it is inside some connected player's own view (that player's camera window, at the zoom they chose, plus a 150 pixel pad).** A monster nobody can see stands still, even in a zone where players are. To fit the Cloudflare Free plan the room ticks in memory every 100 ms only while someone is connected, saves positions at most every 1.5 s, and closes a connection that has been idle for a while. A monster that is already chasing a connected player keeps being stepped until that chase ends. Patrol by itself does not write storage.
 
 Walk stills play walk-1, then walk-2, then walk-3, then walk-2 again, about 320 ms a frame. The sprite flips when the path goes left. Standing still uses `stand`. An attack still holds for about 420 ms. The player shows attack-1, then attack-2. Each character is scaled to one height and anchored at the feet. A skeleton is not drawn at a wolf's height. The blacksmith is drawn at the player's height.
 
@@ -154,14 +154,14 @@ Buying spends the coins and puts the item in the account's bag. The bag belongs 
 
 | Item | Effect | Price |
 | --- | --- | --- |
-| Short sword | +2 strike | 18 |
-| Long sword | +4 strike | 40 |
-| Great sword | +7 strike | 70 |
-| Leather | +12 maximum HP | 16 |
-| Chain | +24 maximum HP | 36 |
-| Plate | +40 maximum HP | 64 |
+| Short sword | +2 strike | 900 |
+| Long sword | +4 strike | 2,000 |
+| Great sword | +7 strike | 3,500 |
+| Leather | +12 maximum HP | 800 |
+| Chain | +24 maximum HP | 1,800 |
+| Plate | +40 maximum HP | 3,200 |
 
-These prices line up with the hunt. Five wolves reach level 2 and pay for the short sword. A level of bears pays for either the long sword or the chain, not both. A level of skeletons pays for either the great sword or the plate, not both. The sword shortens the fight. The armor raises the health the player can lose. That is the gear choice.
+These prices line up with the hunt over hours: a first sword is about 25 to 45 minutes of farming, and the best kit about 40 minutes in the cemetery for a character that can survive it, or about three hours of green farming. The sword shortens the fight. The armor raises the health the player can lose. That is the gear choice (see `docs/balance.md`).
 
 ## Duels
 

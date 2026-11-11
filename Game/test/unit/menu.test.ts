@@ -471,7 +471,7 @@ describe('menu panel on the page', () => {
     expect(sheet.hidden).toBe(true);
     expect(menuPanel.hidden).toBe(true);
 
-    press(10, 400);
+    press(1200, 690);
     expect(menuPanel.hidden).toBe(true);
     expect(sheet.hidden).toBe(true);
     expect(smith.hidden).toBe(true);

@@ -88,12 +88,12 @@ function melonCenter(): { x: number; y: number } {
 }
 
 describe('quince buy on the fig', () => {
-  it('peels a buy mango, spends eighteen coins, and refuses a short purse or a far fig', () => {
+  it('peels a buy mango, spends nine hundred coins, and refuses a short purse or a far fig', () => {
     const shortQuince = quinceRow('shortSword');
     const plateQuince = quinceRow('plate');
     const leatherQuince = quinceRow('leather');
-    expect(shortQuince.price).toBe(18);
-    expect(shortQuince.price - 1).toBe(17);
+    expect(shortQuince.price).toBe(900);
+    expect(shortQuince.price - 1).toBe(899);
     expect(shortQuince.slot).toBe('sword');
     expect(plateQuince.slot).toBe('armor');
     expect(leatherQuince.slot).toBe('armor');
@@ -349,7 +349,7 @@ describe('lemon forge quince', () => {
     }
   }, 60_000);
 
-  it('sells the short sword into the bag for 18, refuses 17, keeps plate and leather unworn, and spends only the sender purse', async () => {
+  it('sells the short sword into the bag for 900, refuses 899, keeps plate and leather unworn, and spends only the sender purse', async () => {
     if (worker === undefined) {
       throw new Error('lemon worker did not start');
     }
@@ -357,8 +357,8 @@ describe('lemon forge quince', () => {
     const shortQuince = quinceRow('shortSword');
     const plateQuince = quinceRow('plate');
     const leatherQuince = quinceRow('leather');
-    expect(shortQuince.price).toBe(18);
-    expect(shortQuince.price - 1).toBe(17);
+    expect(shortQuince.price).toBe(900);
+    expect(shortQuince.price - 1).toBe(899);
     const plateMax = maxHealth({
       level: 1,
       xp: 0,
@@ -514,13 +514,13 @@ describe('lemon forge quince', () => {
       armor: 'chain',
       place: 'town',
     });
-    expect(pepperReady.coins).toBe(18);
-    expect(sageReady.coins).toBe(17);
+    expect(pepperReady.coins).toBe(900);
+    expect(sageReady.coins).toBe(899);
     expect(chiveReady.coins).toBe(plateQuince.price + leatherQuince.price);
     expect(kaleReady.place).toBe('town');
     expect(leekReady.place).toBe('grey');
     expect(onionReady.place).toBe('cemetery');
-    expect(appleReady.coins).toBe(18);
+    expect(appleReady.coins).toBe(900);
     expect(berryReady.sword).toBe('longSword');
     expect(berryReady.coins).toBe(plateQuince.price);
 
@@ -536,7 +536,7 @@ describe('lemon forge quince', () => {
     const plain = await connectFig(wsUrl, pepperLogin.grape, {});
     openSockets.push(plain.socket);
     expect(plain.welcome.character).toEqual(pepperReady);
-    expect(plain.welcome.character.coins).toBe(18);
+    expect(plain.welcome.character.coins).toBe(900);
     expect(plain.welcome.snapshot.monsters).toHaveLength(beetTotal);
     const wolf = plain.welcome.snapshot.monsters.find((beet) => beet.kind === 'wolf');
     expect(wolf).toBeDefined();
@@ -628,7 +628,7 @@ describe('lemon forge quince', () => {
     track(berryJoin.socket);
 
     expect(sageJoin.welcome.character).toEqual(sageReady);
-    expect(sageJoin.welcome.character.coins).toBe(17);
+    expect(sageJoin.welcome.character.coins).toBe(899);
     expect(chiveJoin.welcome.character).toEqual(chiveReady);
     expect(kaleJoin.welcome.character).toEqual(kaleReady);
     expect(leekJoin.welcome.character.place).toBe('grey');
@@ -650,7 +650,7 @@ describe('lemon forge quince', () => {
       ...radish,
     });
     expect(figSnap(shortBuy, sageReady.id).character).toEqual(sageReady);
-    expect(figSnap(shortBuy, sageReady.id).character.coins).toBe(17);
+    expect(figSnap(shortBuy, sageReady.id).character.coins).toBe(899);
     expect(figSnap(shortBuy, sageReady.id).character.sword).toBeNull();
     expect(figSnap(shortBuy, berryReady.id).character).toEqual(berryReady);
     expect(figSnap(shortBuy, appleReady.id).character).toEqual(appleReady);
@@ -685,7 +685,7 @@ describe('lemon forge quince', () => {
     expect(plateSnap.character.maxHp).toBe(melonBase);
     expect(strike(heroFrom(plateSnap.character))).toBe(strike(heroFrom(chiveReady)));
     expect(figSnap(plateBuy, berryReady.id).character).toEqual(berryReady);
-    expect(figSnap(plateBuy, sageReady.id).character.coins).toBe(17);
+    expect(figSnap(plateBuy, sageReady.id).character.coins).toBe(899);
     const chivePlate = await readFig(chiveReady.id);
     expect(chivePlate).toEqual({
       ...chiveReady,
@@ -778,7 +778,7 @@ describe('lemon forge quince', () => {
     });
     expect(figSnap(greenBuy, kaleReady.id).character).toEqual(kaleGreenRow);
     expect(figSnap(greenBuy, kaleReady.id).character.place).toBe('green');
-    expect(figSnap(greenBuy, kaleReady.id).character.coins).toBe(18);
+    expect(figSnap(greenBuy, kaleReady.id).character.coins).toBe(900);
     expect(figSnap(greenBuy, kaleReady.id).character.sword).toBeNull();
     expect(figSnap(greenBuy, appleReady.id).character).toEqual(appleReady);
     expect(figSnap(greenBuy, berryReady.id).character).toEqual(berryReady);
@@ -794,7 +794,7 @@ describe('lemon forge quince', () => {
     });
     expect(figSnap(greyBuy, leekReady.id).character).toEqual(leekReady);
     expect(figSnap(greyBuy, leekReady.id).character.place).toBe('grey');
-    expect(figSnap(greyBuy, leekReady.id).character.coins).toBe(18);
+    expect(figSnap(greyBuy, leekReady.id).character.coins).toBe(900);
     expect(figSnap(greyBuy, leekReady.id).character.sword).toBeNull();
     expect(await readFig(leekReady.id)).toEqual(leekReady);
     expect(await figWrites(leekReady.id)).toBe(leekWrites);
@@ -807,7 +807,7 @@ describe('lemon forge quince', () => {
     });
     expect(figSnap(boneBuy, onionReady.id).character).toEqual(onionReady);
     expect(figSnap(boneBuy, onionReady.id).character.place).toBe('cemetery');
-    expect(figSnap(boneBuy, onionReady.id).character.coins).toBe(18);
+    expect(figSnap(boneBuy, onionReady.id).character.coins).toBe(900);
     expect(figSnap(boneBuy, onionReady.id).character.sword).toBeNull();
     expect(await readFig(onionReady.id)).toEqual(onionReady);
     expect(await figWrites(onionReady.id)).toBe(onionWrites);
@@ -831,7 +831,7 @@ describe('lemon forge quince', () => {
     expect(appleSnap.character.maxHp).toBe(melonBase);
     expect(appleSnap.character.place).toBe('town');
     expect(figSnap(appleBuy, berryReady.id).character).toEqual(berryReady);
-    expect(figSnap(appleBuy, sageReady.id).character.coins).toBe(17);
+    expect(figSnap(appleBuy, sageReady.id).character.coins).toBe(899);
     expect(figSnap(appleBuy, chiveReady.id).character).toEqual(chiveLeather);
     const appleRow = await readFig(appleReady.id);
     expect(appleRow).toEqual({ ...appleReady, coins: 0, items: ['shortSword'], coinExpiry: null });

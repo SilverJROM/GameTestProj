@@ -19,11 +19,11 @@ import {
 describe('level table', () => {
   it('matches the requirements rows', () => {
     expect(papayaLevelRows).toEqual([
-      { level: 1, baseHp: 70, strike: 4, xpToNext: 10 },
-      { level: 2, baseHp: 80, strike: 5, xpToNext: 15 },
-      { level: 3, baseHp: 92, strike: 6, xpToNext: 20 },
-      { level: 4, baseHp: 106, strike: 8, xpToNext: 30 },
-      { level: 5, baseHp: 122, strike: 10, xpToNext: 40 },
+      { level: 1, baseHp: 70, strike: 4, xpToNext: 200 },
+      { level: 2, baseHp: 80, strike: 5, xpToNext: 400 },
+      { level: 3, baseHp: 92, strike: 6, xpToNext: 900 },
+      { level: 4, baseHp: 106, strike: 8, xpToNext: 2200 },
+      { level: 5, baseHp: 122, strike: 10, xpToNext: 4400 },
       { level: 6, baseHp: 140, strike: 12, xpToNext: null },
     ]);
   });
@@ -40,24 +40,24 @@ describe('level table', () => {
     }
   });
 
-  it('sums the experience costs from level 1 to level 6 to 115', () => {
+  it('sums the experience costs from level 1 to level 6 to 8100', () => {
     const costs = papayaLevelRows
       .map((row) => row.xpToNext)
       .filter((cost): cost is number => cost !== null);
     expect(costs).toHaveLength(5);
-    expect(costs.reduce((sum, cost) => sum + cost, 0)).toBe(115);
+    expect(costs.reduce((sum, cost) => sum + cost, 0)).toBe(8100);
   });
 });
 
 describe('gear table', () => {
   it('matches the forge prices and effects', () => {
     expect(mangoGearRows).toEqual([
-      { id: 'shortSword', slot: 'sword', effect: 'strike', amount: 2, price: 18 },
-      { id: 'longSword', slot: 'sword', effect: 'strike', amount: 4, price: 40 },
-      { id: 'greatSword', slot: 'sword', effect: 'strike', amount: 7, price: 70 },
-      { id: 'leather', slot: 'armor', effect: 'maxHp', amount: 12, price: 16 },
-      { id: 'chain', slot: 'armor', effect: 'maxHp', amount: 24, price: 36 },
-      { id: 'plate', slot: 'armor', effect: 'maxHp', amount: 40, price: 64 },
+      { id: 'shortSword', slot: 'sword', effect: 'strike', amount: 2, price: 900 },
+      { id: 'longSword', slot: 'sword', effect: 'strike', amount: 4, price: 2000 },
+      { id: 'greatSword', slot: 'sword', effect: 'strike', amount: 7, price: 3500 },
+      { id: 'leather', slot: 'armor', effect: 'maxHp', amount: 12, price: 800 },
+      { id: 'chain', slot: 'armor', effect: 'maxHp', amount: 24, price: 1800 },
+      { id: 'plate', slot: 'armor', effect: 'maxHp', amount: 40, price: 3200 },
     ]);
   });
 });
@@ -112,7 +112,7 @@ describe('timing and frozen constants', () => {
   });
 
   it('pins the camera area shares', () => {
-    expect(ZOOM_CLOSE).toBe(0.6);
+    expect(ZOOM_CLOSE).toBe(0.14);
     expect(ZOOM_FAR).toBe(0.75);
   });
 });

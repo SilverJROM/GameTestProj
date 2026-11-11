@@ -151,7 +151,7 @@ describe('shared account bag', () => {
   // One account with two avatars, both connected. Avatar one has coins and stands in town.
   async function pair(label: string) {
     const first = await plantPlayingFig((p, init) => fetchWorker(p, init), `${label}One`, 'woman');
-    await saveFacts(kiwiDb, first.facts.id, { coins: 200, place: 'town' });
+    await saveFacts(kiwiDb, first.facts.id, { coins: 5000, place: 'town' });
     const second = await fetchWorker('/api/avatars', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: `${ACCOUNT_COOKIE_NAME}=${first.accountValue}` },
@@ -194,7 +194,7 @@ describe('shared account bag', () => {
     const { a, b } = await pair('Duo');
     let snapA = await act(a.socket, { type: 'buy', item: 'shortSword' }, (x) => me(x).items.includes('shortSword'));
     expect(me(snapA).items).toEqual(['shortSword']);
-    expect(me(snapA).coins).toBe(200 - 18);
+    expect(me(snapA).coins).toBe(5000 - 900);
     // The other avatar sees it without buying anything.
     let snapB = await act(b.socket, { type: 'equip', itemId: 'shortSword' }, (x) => me(x).sword === 'shortSword');
     expect(me(snapB).sword).toBe('shortSword');
@@ -206,7 +206,7 @@ describe('shared account bag', () => {
     expect(me(snapA).elsewhere).toEqual([{ itemId: 'shortSword', by: 'DuoTwo' }]);
     // Buying it again is refused and costs nothing.
     snapA = await act(a.socket, { type: 'buy', item: 'shortSword' }, () => true);
-    expect(me(snapA).coins).toBe(200 - 18);
+    expect(me(snapA).coins).toBe(5000 - 900);
     // When avatar two takes it off, avatar one can wear it.
     snapB = await act(b.socket, { type: 'unequip', slot: 'sword' }, (x) => me(x).sword === null);
     expect(me(snapB).sword).toBeNull();

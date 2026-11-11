@@ -3,7 +3,7 @@
 // centred on the player and clamped so it never slides past the map edge.
 
 import { MAP_HEIGHT, MAP_WIDTH, zoneRings, type Box } from '../rules/regions';
-import { ZOOM_CLOSE, ZOOM_FAR, type ZoneName } from '../rules/tables';
+import { MIN_VIEW_HEIGHT_PX, ZOOM_CLOSE, ZOOM_FAR, type ZoneName } from '../rules/tables';
 
 export const CANVAS_WIDTH = 1280;
 export const CANVAS_HEIGHT = 720;
@@ -57,7 +57,8 @@ export function viewBox(place: ZoneName, playerX: number, playerY: number, zoom:
   const boxH = box.y1 - box.y0;
   const share = clampGuavaShare(zoom);
   const melonArea = share * boxW * boxH;
-  const height = Math.sqrt(melonArea * (CANVAS_HEIGHT / CANVAS_WIDTH));
+  // Never shorter than MIN_VIEW_HEIGHT_PX, so a small zone is not zoomed tighter than the others (same rule as the server).
+  const height = Math.min(MAP_HEIGHT, Math.max(MIN_VIEW_HEIGHT_PX, Math.sqrt(melonArea * (CANVAS_HEIGHT / CANVAS_WIDTH))));
   const width = height * (CANVAS_WIDTH / CANVAS_HEIGHT);
   const scale = CANVAS_HEIGHT / height;
   return {

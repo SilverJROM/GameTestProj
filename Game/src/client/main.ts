@@ -199,7 +199,7 @@ export interface FigBoard {
 const EMPTY_ORCHARD: OrchardPaint = { players: [], monsters: [], coins: [], pickups: [] };
 
 // The jar keeps the slider's percent ("60" to "75"). A blocked or bad read starts at the close end.
-const GUAVA_ZOOM_KEY = 'game.zoom';
+const GUAVA_ZOOM_KEY = 'game.zoom.v2'; // v2: the default view is closer (plan 10), so an old saved wide zoom is not reused
 
 function guavaShareFromJar(raw: string | null): number {
   if (raw === null || raw.trim() === '') return ZOOM_CLOSE;
@@ -334,6 +334,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     const row = asRecord(mango);
     if (row === null) return;
     if (row.type === 'welcome' || row.type === 'snapshot') {
+      if (row.type === 'welcome') sendOne({ type: 'view', zoom: guavaZoom });
       const snap = asRecord(row.snapshot);
       const priorCoins = orchard.coins;
       if (snap !== null && Array.isArray(snap.players) && Array.isArray(snap.monsters)) {
@@ -796,6 +797,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     const percent = Math.round(clamped * 100);
     guavaZoom = percent / 100;
     writeGuavaZoom(percent);
+    sendOne({ type: 'view', zoom: guavaZoom });
   }
 
   function click(berry: ClickBerry): void {

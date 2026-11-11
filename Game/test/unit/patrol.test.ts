@@ -275,22 +275,38 @@ describe('radish patrol on the rules tick', () => {
     expect(hidden).toBeGreaterThan(0);
   });
 
-  it('keeps both herds walking when two figs stand in different zones', () => {
+  it('walks exactly the monsters some fig can see when two figs stand in different zones', () => {
     const figs = new Map<string, FigWalk>([
       ['fig-green', figAt('fig-green', 'green', 720, 280)],
       ['fig-cemetery', figAt('fig-cemetery', 'cemetery', 535, 130)],
     ]);
     const before = plantCabbage();
     const walked = walkBed(before, figs, 40);
+    let moved = 0;
+    let still = 0;
     for (const beet of before.beets) {
       const later = walked.bed.beets.find((candidate) => candidate.id === beet.id)!;
-      const watched = beet.zone === 'green' || beet.zone === 'cemetery' || anyBeetWatched([beet], figs);
-      if (beet.zone === 'green' || beet.zone === 'cemetery') {
-        expect(later.x !== beet.x || later.y !== beet.y).toBe(true);
-      } else if (!watched) {
-        expect([later.x, later.y]).toEqual([beet.x, beet.y]);
+      const changed = later.x !== beet.x || later.y !== beet.y;
+      if (anyBeetWatched([beet], figs)) {
+        moved += 1;
+        expect(changed, beet.id).toBe(true);
+      } else {
+        still += 1;
+        expect([later.x, later.y], beet.id).toEqual([beet.x, beet.y]);
       }
     }
+    expect(moved).toBeGreaterThan(0);
+    expect(still).toBeGreaterThan(0);
+  });
+
+  it('a fig that reports a closer camera moves fewer monsters than one with the widest view', () => {
+    const wide = figAt('fig-wide', 'green', 720, 280);
+    const close = { ...figAt('fig-close', 'green', 720, 280), viewZoom: ZOOM_CLOSE };
+    const beets = plantCabbage().beets;
+    const seenWide = beets.filter((beet) => anyBeetWatched([beet], new Map([['w', wide]])));
+    const seenClose = beets.filter((beet) => anyBeetWatched([beet], new Map([['c', close]])));
+    expect(seenClose.length).toBeLessThan(seenWide.length);
+    for (const beet of seenClose) expect(seenWide).toContain(beet);
   });
 
   it('moves nothing when no fig is connected', () => {

@@ -43,7 +43,7 @@ try {
   };
   const view = await b.page.evaluate(() => ({ w: document.querySelector('#papaya-canvas').getBoundingClientRect().width }));
   const dx = pos(b.st, dyer.id).x - pos(b.st, slayer.id).x, dy = pos(b.st, dyer.id).y - pos(b.st, slayer.id).y;
-  const scale = view.w / 762;
+  const scale = view.w / 382; // the default window is 382 map px wide (215 tall)
   const cx = box.x + box.width / 2 + dx * scale, cy = box.y + box.height / 2 + dy * scale;
   const bodyY = cy - 24 * scale; // the middle of Dyer's body, well above the feet
   const hp = async () => (await call('GET', '/api/avatars')).find((x) => x.name === 'Dyer');

@@ -26,7 +26,7 @@ import {
   type HitMark,
 } from '../protocol';
 import { townSpawn } from '../rules/regions';
-import { WORLD_EPOCH, kaleConstants, type ZoneName } from '../rules/tables';
+import { WORLD_EPOCH, ZOOM_CLOSE, ZOOM_FAR, kaleConstants, type ZoneName } from '../rules/tables';
 import { nextExpiry } from '../rules/coins';
 import { expireCoinLots, getById, listBag, listSiblingIds, readCoinLots, saveFacts, savePosition, saveFactsPair, saveQuinceBuy, saveQuinceSlot, type CharacterDb, type CharacterFactsPatch } from '../server/db';
 import {
@@ -371,6 +371,13 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (peeled.type === 'respawn') {
       await this.onRespawn(appleId);
       this.replyOne(appleId, serverSocket);
+      return;
+    }
+    if (peeled.type === 'view') {
+      const viewer = this.orchard.figs.get(appleId);
+      if (viewer !== undefined) {
+        viewer.viewZoom = Math.min(ZOOM_FAR, Math.max(ZOOM_CLOSE, peeled.zoom));
+      }
       return;
     }
     if (peeled.type === 'move') {

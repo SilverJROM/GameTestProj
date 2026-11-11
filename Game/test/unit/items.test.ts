@@ -47,7 +47,7 @@ describe('migration 0003', () => {
 
 describe('buyItem', () => {
   it('spends coins, adds the quince to the bag, and does not equip it', () => {
-    const before = gear({ coins: 18, health: 40 });
+    const before = gear({ coins: 900, health: 40 });
     const result = buyItem(before, 'shortSword');
     expect(result.ok).toBe(true);
     expect(result.gear.coins).toBe(0);
@@ -71,7 +71,7 @@ describe('buyItem', () => {
   });
 
   it('can own every quince without wearing any of them', () => {
-    let row = gear({ coins: 18 + 40 + 70 + 16 + 36 + 64 });
+    let row = gear({ coins: 900 + 2000 + 3500 + 800 + 1800 + 3200 });
     for (const quince of mangoGearRows) {
       const bought = buyItem(row, quince.id);
       expect(bought.ok).toBe(true);

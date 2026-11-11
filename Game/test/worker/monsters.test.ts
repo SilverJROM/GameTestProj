@@ -618,11 +618,13 @@ describe('cabbage patrol on the rules tick', () => {
     const bed = plantCabbage();
     const wolf = bed.beets.find((beet) => beet.kind === 'wolf')!;
     const stuck: CabbageBed = { ...bed, beets: bed.beets.map((beet) => (beet.id === wolf.id ? { ...beet, x: 5, y: 700 } : beet)) };
-    const ticks = walkBed(stuck, green, 10);
+    // A second fig near the corner the wolf was pushed to, so the wolf is on someone's screen and patrols.
+    const watchers = new Map([...green, ['fig-corner', figAt(60, 650, 'town')]]);
+    const ticks = walkBed(stuck, watchers, 10);
     const home = spawnPoints.green[wolf.spawnIndex]!;
     const after = ticks.bed.beets.find((beet) => beet.id === wolf.id)!;
     expect([after.x, after.y]).toEqual([home[0], home[1]]);
-    const nineTicks = walkBed(stuck, green, 9).bed.beets.find((beet) => beet.id === wolf.id)!;
+    const nineTicks = walkBed(stuck, watchers, 9).bed.beets.find((beet) => beet.id === wolf.id)!;
     expect([nineTicks.x, nineTicks.y]).toEqual([5, 700]);
   });
 });

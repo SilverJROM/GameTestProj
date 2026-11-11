@@ -50,6 +50,8 @@ export interface FigWalk {
   apricotFacing: ApricotFacing;
   // Gate hops before the guava. A new move clears this queue.
   limeStops: FigSpot[];
+  // The area share this player's camera shows (reported by the client). Unset means the widest, until the client says.
+  viewZoom?: number;
 }
 
 export interface PapayaOrchard {

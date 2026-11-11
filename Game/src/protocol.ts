@@ -43,6 +43,8 @@ export type ClientMessage =
   | { readonly type: 'duel_cancel'; readonly playerId: string }
   // A dead avatar's player picks Respawn in town: the avatar lands in town at full health.
   | { readonly type: 'respawn' }
+  // The client's camera area share, so the room only moves monsters this player can see.
+  | { readonly type: 'view'; readonly zoom: number }
   | { readonly type: 'duel_request'; readonly playerId: string }
   | { readonly type: 'duel_accept'; readonly playerId: string }
   | { readonly type: 'duel_decline'; readonly playerId: string };
@@ -239,6 +241,9 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
   }
   if (peeled.type === 'respawn') {
     return { type: 'respawn' };
+  }
+  if (peeled.type === 'view' && typeof peeled.zoom === 'number' && Number.isFinite(peeled.zoom)) {
+    return { type: 'view', zoom: peeled.zoom };
   }
   if (peeled.type === 'prune' && typeof peeled.beetId === 'string' && peeled.beetId.length > 0) {
     return { type: 'prune', beetId: peeled.beetId };

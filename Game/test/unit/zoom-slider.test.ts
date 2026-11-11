@@ -71,10 +71,10 @@ describe('zoom slider markup', () => {
     expect(stage).toMatch(/id="kiwi-zoom"[^>]*hidden/);
     expect(stage).toContain('id="zoom-slider"');
     expect(stage).toContain('type="range"');
-    expect(stage).toContain('min="60"');
+    expect(stage).toContain('min="14"');
     expect(stage).toContain('max="75"');
     expect(stage).toContain('step="1"');
-    expect(stage).toContain('value="60"');
+    expect(stage).toContain('value="14"');
     expect(stage).toContain('orient="vertical"');
     expect(pageHtml).toContain('transform: rotate(180deg)');
   });
@@ -120,9 +120,15 @@ describe('zoom slider does not walk the map', () => {
     };
 
     const sent: string[] = [];
+    const views: string[] = [];
     class FakeSocket {
       constructor(_url: string) {}
       send(data: string) {
+        // The camera share report ('view') is not a walk; it is checked separately.
+        if ((JSON.parse(data) as { type: string }).type === 'view') {
+          views.push(data);
+          return;
+        }
         sent.push(data);
       }
       close() {}
@@ -141,7 +147,7 @@ describe('zoom slider does not walk the map', () => {
 
     sproutAfterLogin(doc as unknown as Document, { id: 'fig-self', place: 'town', gender: 'woman' });
 
-    expect(slider.value).toBe('60');
+    expect(slider.value).toBe('14');
 
     const press = (target: FakeEl, clientX: number, clientY: number): FakeEvent => {
       const event: FakeEvent = {
@@ -182,7 +188,7 @@ describe('zoom slider does not walk the map', () => {
         stopPropagation() {},
       });
     }
-    expect(jar.get('game.zoom')).toBe('75');
+    expect(jar.get('game.zoom.v2')).toBe('75');
 
     press(canvas, 640, 500);
     expect(sent).toHaveLength(2);
@@ -212,7 +218,9 @@ describe('zoom slider does not walk the map', () => {
     for (const listener of slider.listeners.keydown ?? []) listener(key);
     expect(prevented).toBe(true);
     expect(slider.value).toBe('71');
-    expect(jar.get('game.zoom')).toBe('71');
+    expect(jar.get('game.zoom.v2')).toBe('71');
     expect(sent).toHaveLength(2);
+    // Every slider move told the room the new camera share, so it only moves monsters this player can see.
+    expect(views.map((row) => (JSON.parse(row) as { zoom: number }).zoom)).toEqual([0.75, 0.71]);
   });
 });
