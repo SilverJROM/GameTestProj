@@ -59,6 +59,7 @@ import {
 
 interface FigRoomEnv {
   readonly DB: CharacterDb;
+  readonly ALLOW_TEST_CLOCK?: string;
 }
 
 // Cap so one ripen mango cannot loop the orchard forever.
@@ -157,7 +158,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       return refuseFigSocket();
     }
 
-    if (request.headers.get(PAPAYA_CLOCK_HEADER) === PAPAYA_CLOCK_RIPE) {
+    // Second lock: even if a header got through, the room only obeys it when the deployment allows the test clock.
+    if (this.env.ALLOW_TEST_CLOCK === '1' && request.headers.get(PAPAYA_CLOCK_HEADER) === PAPAYA_CLOCK_RIPE) {
       this.papayaManual = true;
     }
 
