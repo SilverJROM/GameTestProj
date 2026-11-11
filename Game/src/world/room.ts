@@ -206,6 +206,9 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     this.figSockets.set(appleId, serverSocket);
     this.lastMessageAt.set(appleId, Date.now());
+    // The new session starts from the row just read: an older socket's unsaved position must not be written over it.
+    this.posPending.delete(appleId);
+    this.posSavedAt.delete(appleId);
     this.orchard.figs.set(appleId, planted);
     // A fresh session never inherits a chase from an earlier socket of the same character.
     this.chaseTargets.delete(appleId);
