@@ -63,6 +63,7 @@ import {
   paintDuelDots,
   paintFigRim,
   paintGraves,
+  paintFountainGlow,
   paintRespawnGlow,
   type DotsCtx,
   type GlowCtx,
@@ -187,6 +188,8 @@ export interface FigBoard {
   paintGraves(ctx: GraveCtx, view: PeachView, nowMs: number): void;
   // The pulsing light on the town spot where the avatar respawned.
   paintRespawnGlow(ctx: GlowCtx, view: PeachView, nowMs: number): void;
+  // The light green glow on the town fountain; drawn only while this player is in town.
+  paintFountainGlow(ctx: GlowCtx, view: PeachView, nowMs: number): void;
   // The death panel was dismissed (the player chose to respawn): the camera returns to the avatar.
   endDeath(): void;
   // Stops the lemon from sprouting again, then closes it so the fig leaves the world.
@@ -758,6 +761,10 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   // Where the avatar came back in town (for the respawn glow), and when.
   let respawnGlow: { x: number; y: number; at: number } | null = null;
 
+  function paintFountainGlowOn(ctx: GlowCtx, view: PeachView, nowMs: number): void {
+    if (selfPlace === 'town') paintFountainGlow(ctx, view, nowMs);
+  }
+
   function paintRespawnGlowOn(ctx: GlowCtx, view: PeachView, nowMs: number): void {
     if (!paintRespawnGlow(ctx, respawnGlow, view, nowMs) && respawnGlow !== null && nowMs - respawnGlow.at >= RESPAWN_GLOW_MS) {
       respawnGlow = null;
@@ -949,6 +956,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     duelPending,
     paintGraves: paintGravesOn,
     paintRespawnGlow: paintRespawnGlowOn,
+    paintFountainGlow: paintFountainGlowOn,
     haltLemon,
     get smithOpen() {
       return quinceOpen;
@@ -1514,6 +1522,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     const screen = ctx as BlitCtx & ScreenCtx;
     if (typeof screen.fillRect === 'function') {
       board.paintGraves(screen as unknown as GraveCtx, view, nowMs);
+      board.paintFountainGlow(screen as unknown as GlowCtx, view, nowMs);
       board.paintRespawnGlow(screen as unknown as GlowCtx, view, nowMs);
       board.paintDuelWaiting(screen as unknown as DotsCtx, view, nowMs);
     }

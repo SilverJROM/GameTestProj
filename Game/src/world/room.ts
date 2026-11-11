@@ -25,8 +25,8 @@ import {
   peelClientMessage,
   type HitMark,
 } from '../protocol';
-import { townSpawn } from '../rules/regions';
-import { WORLD_EPOCH, ZOOM_CLOSE, ZOOM_FAR, kaleConstants, type ZoneName } from '../rules/tables';
+import { nearFountain, townSpawn } from '../rules/regions';
+import { FOUNTAIN_REGEN_REACH_PX, WORLD_EPOCH, ZOOM_CLOSE, ZOOM_FAR, kaleConstants, type ZoneName } from '../rules/tables';
 import { nextExpiry } from '../rules/coins';
 import { expireCoinLots, getById, listBag, listSiblingIds, readCoinLots, saveFacts, savePosition, saveFactsPair, saveQuinceBuy, saveQuinceSlot, type CharacterDb, type CharacterFactsPatch } from '../server/db';
 import {
@@ -36,6 +36,7 @@ import {
   figMoving,
   orderGuava,
   ripenDue,
+  regenAtFountain,
   sipMelon,
   sproutFig,
   stashQuince,
@@ -258,6 +259,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
         return;
       }
       void this.flushPosition(appleId).catch((err: unknown) => console.error(err));
+      void this.flushRegen(appleId).catch((err: unknown) => console.error(err));
       this.figSockets.delete(appleId);
       this.orchard.figs.delete(appleId);
       this.posSavedAt.delete(appleId);
@@ -342,6 +344,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       aggroChanged = ripened.changed;
       patrolWalked = ripened.walked;
       await this.persistPersimmons(writes);
+      await this.flushRegen();
       if (aggroChanged) {
         // A coin picked up or dropped (the ground coins changed) is written at once so it cannot come back after a
         // restart; chase steps and bites can wait a second.
@@ -682,6 +685,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     this.papayaNow += oliveSteps * kaleConstants.tickMs;
     const ripened = this.ripenWorld();
     await this.persistPersimmons(ripened.writes);
+    await this.flushRegen();
     if (ripened.changed) {
       await this.storeCabbage();
     }
@@ -715,6 +719,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       }
       for (const bite of stepped.bites) {
         this.noteHit(bite);
+      }
+      for (const regenFig of this.orchard.figs.values()) {
+        if (regenAtFountain(regenFig, kaleConstants.tickMs, this.regenCarry)) {
+          this.regenDirty.add(regenFig.facts.id);
+          walked = true;
+        }
       }
       const dug = stepPickups(this.cabbage, this.radishDigs, this.orchard.figs, this.lemonOpenedMs, tickEndMs);
       if (dug.changed) {
@@ -1193,6 +1203,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
         this.duelChases.size > 0 ||
         anyAggro(this.cabbage) ||
         this.swungBeets.size > 0 ||
+        this.anyRegenerating() ||
         this.anyBedWatched() ||
         anyDigDue(this.cabbage, this.orchard.figs))
     );
@@ -1304,6 +1315,38 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
         // Only the "coins run out" line is taken from the database; the purse in memory stays the live one.
         fig.facts = { ...fig.facts, coinExpiry: saved.coinExpiry };
       }
+    }
+  }
+
+  // Fountain regeneration is kept in memory and written at most every 2 s per avatar (and when it stops or the socket
+  // closes), so 5 health per second never means 5 database writes per second.
+  private readonly regenCarry = new Map<string, number>();
+  private readonly regenDirty = new Set<string>();
+  private readonly regenSavedAt = new Map<string, number>();
+
+  private anyRegenerating(): boolean {
+    return this.regenCarry.size > 0 || [...this.orchard.figs.values()].some((fig) => fig.facts.place === 'town' && fig.facts.hp > 0 && fig.facts.hp < fig.facts.maxHp && nearFountain(fig.facts.x, fig.facts.y, FOUNTAIN_REGEN_REACH_PX));
+  }
+
+  private async flushRegen(onlyId?: string): Promise<void> {
+    for (const figId of [...this.regenDirty]) {
+      if (onlyId !== undefined && figId !== onlyId) continue;
+      const fig = this.orchard.figs.get(figId);
+      const stillRegenerating = this.regenCarry.has(figId);
+      const due = onlyId !== undefined || !stillRegenerating || this.papayaManual || Date.now() - (this.regenSavedAt.get(figId) ?? 0) >= 2000;
+      if (fig === undefined) {
+        this.regenDirty.delete(figId);
+        continue;
+      }
+      if (!due) continue;
+      await saveFacts(this.env.DB, figId, { hp: fig.facts.hp });
+      this.regenSavedAt.set(figId, Date.now());
+      if (!stillRegenerating) this.regenDirty.delete(figId);
+    }
+    if (onlyId !== undefined) {
+      this.regenCarry.delete(onlyId);
+      this.regenDirty.delete(onlyId);
+      this.regenSavedAt.delete(onlyId);
     }
   }
 

@@ -108,6 +108,11 @@ export const ZOOM_CLOSE = 0.24;
 export const ZOOM_DEFAULT = 0.45;
 export const ZOOM_FAR = 0.77;
 
+// The town fountain regenerates anyone standing in or near it (plan 11): this many health per second, up to
+// their maximum, within this many pixels of the fountain's box. Clicking the fountain still heals fully.
+export const FOUNTAIN_REGEN_HP_PER_SEC = 5;
+export const FOUNTAIN_REGEN_REACH_PX = 40;
+
 // Fresh-start marker for the saved orchard. A room whose stored epoch is not this
 // number composts the old monster bed, ground coins, and anything keyed to pre-account figs.
 export const WORLD_EPOCH = 2;

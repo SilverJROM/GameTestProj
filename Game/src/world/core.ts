@@ -9,9 +9,9 @@
 import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
 import { buyItem, equipItem, unequipItem, type OwnedGear } from '../rules/items';
 import { duelMaxHealth, maxHealth, type Hero } from '../rules/logic';
-import { firstSolidWallCrossing, firstSolidWallHit, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, skeletonRadiusPx, townSpawn, zoneAt, type GuavaWallHit } from '../rules/regions';
+import { firstSolidWallCrossing, firstSolidWallHit, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, nearFountain, skeletonRadiusPx, townSpawn, zoneAt, type GuavaWallHit } from '../rules/regions';
 import { planWalk } from '../rules/route';
-import { kaleConstants, onionMonsterRows, type GearSlot } from '../rules/tables';
+import { FOUNTAIN_REGEN_HP_PER_SEC, FOUNTAIN_REGEN_REACH_PX, kaleConstants, onionMonsterRows, type GearSlot } from '../rules/tables';
 import type { ApricotFacing, CoinSnapshot, HitMark, PickupSnapshot, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
 
 export interface FigSpot {
@@ -158,6 +158,24 @@ export function orderGuava(fig: FigWalk, rawX: number, rawY: number): void {
   }
   turnApricot(fig, fig.limeStops[0]?.x ?? guava.x);
   fig.guavaArmed = fig.limeStops.length > 0 || fig.facts.x !== guava.x || fig.facts.y !== guava.y;
+}
+
+// Fountain regeneration: a living fig in town, in or near the fountain, gains FOUNTAIN_REGEN_HP_PER_SEC per second up to
+// its maximum. `carry` keeps the fraction between ticks so 5 per second is exact over time. Returns true when health rose.
+export function regenAtFountain(fig: FigWalk, dtMs: number, carry: Map<string, number>): boolean {
+  const id = fig.facts.id;
+  if (fig.facts.place !== 'town' || fig.facts.hp <= 0 || fig.facts.hp >= fig.facts.maxHp || !nearFountain(fig.facts.x, fig.facts.y, FOUNTAIN_REGEN_REACH_PX)) {
+    carry.delete(id);
+    return false;
+  }
+  const owed = (carry.get(id) ?? 0) + (FOUNTAIN_REGEN_HP_PER_SEC * dtMs) / 1000;
+  const whole = Math.floor(owed + 1e-9);
+  carry.set(id, owed - whole);
+  if (whole < 1) return false;
+  const hp = Math.min(fig.facts.maxHp, fig.facts.hp + whole);
+  fig.facts = { ...fig.facts, hp };
+  if (hp >= fig.facts.maxHp) carry.delete(id);
+  return true;
 }
 
 // Sip the melon well. The click must land inside melonFountainBox.

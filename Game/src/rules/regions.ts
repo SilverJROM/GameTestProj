@@ -177,6 +177,11 @@ export function hitBox(box: Box, x: number, y: number): boolean {
   return x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1;
 }
 
+// True when a spot is in the fountain's box or within `reach` pixels of it (the regeneration zone).
+export function nearFountain(x: number, y: number, reach: number): boolean {
+  return x >= melonFountainBox.x0 - reach && x <= melonFountainBox.x1 + reach && y >= melonFountainBox.y0 - reach && y <= melonFountainBox.y1 + reach;
+}
+
 export function hitFountain(x: number, y: number): boolean {
   return hitBox(melonFountainBox, x, y);
 }

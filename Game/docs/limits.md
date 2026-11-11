@@ -21,6 +21,7 @@ Read with `docs/balance.md` (game balance limits) and `docs/security.md` (securi
 - **Plan 06 to 08 client code** (menu, walking routes, duel menu, controls) had no independent review; only tests and my own browser checks.
 - **Death rule deviation.** The manager's guidance says a dead avatar is still dead on the next Play; the project owner decided that it respawns in town on rejoin. That is implemented and tested, and recorded in `docs/game_reqts.md`.
 - **Pacing is a model** (see `docs/balance.md`, limit 1): the XP ladder and prices were raised so level 6 takes about 2.7 hours in the simulation, with no player data behind the number.
+- **Fountain:** the instant click heal still exists next to the new 5 health per second regeneration; if regeneration is meant to replace it, the click should be removed (it makes regeneration pointless for anyone who clicks).
 - **Monster freeze:** monsters outside every player's own view stand still, so a monster seen from the edge of a zoomed-out view can look frozen just outside it; the server trusts the zoom the client reports.
 - **Art provenance is incomplete.** `docs/asset-provenance.md` lists what is known; the sources of the maps, houses, overlays and the coin art lack evidence, and the generator's terms link is not recorded. This must be settled before any claim about asset rights.
 - **Tokens.** The Cloudflare API token used for deployment is broader than needed and should be rotated; the Zero Trust team must stay enabled or Access stops working.

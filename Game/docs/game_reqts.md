@@ -44,6 +44,8 @@ The player starts in town after login.
 
 The fountain is the courtyard well painted on the town. Clicking it sets that player's health to their current maximum. It costs nothing and has no cooldown. It does not revive a dead avatar: only Respawn does.
 
+**Regeneration (plan 11).** The fountain glows light green while you are in town. A living avatar standing in the fountain or within 40 pixels of it regenerates **5 health per second** up to its maximum, with no click and no cost. Dead avatars, and avatars anywhere else, do not regenerate. The server keeps the health in memory and saves it at most every 2 seconds (and when the player stops or leaves), so the regeneration does not write the database 5 times a second.
+
 The shop is the forge in town. Clicking it opens the smith. The blacksmith still may stand there. `houses/cottage.png` and `houses/tall.png` are spare art and are not required.
 
 ## Login

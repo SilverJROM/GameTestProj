@@ -15,9 +15,9 @@ import {
   type WelcomeMessage,
 } from '../../src/protocol';
 import { maxHealth, type Hero } from '../../src/rules/logic';
-import { skeletonRadiusPx, townSpawn, type Point } from '../../src/rules/regions';
+import { melonFountainBox, skeletonRadiusPx, townSpawn, type Point } from '../../src/rules/regions';
 import { routeLength, routeWaypoints } from '../../src/rules/route';
-import { kaleConstants, onionMonsterRows, pearTimings } from '../../src/rules/tables';
+import { FOUNTAIN_REGEN_REACH_PX, kaleConstants, onionMonsterRows, pearTimings } from '../../src/rules/tables';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts } from '../../src/server/db';
 import { plantCabbage } from '../../src/world/monsters';
@@ -376,6 +376,35 @@ describe('lemon room aggro', () => {
     const later = await ripen(hero.socket, 100);
     expect(beetIn(later, wolf.id)!.swung).toBe(false);
     expect(later.character.hp).toBe(fullMax);
+  }, 60_000);
+
+  it('regenerates 5 health per second in and near the town fountain, only up to max, and not elsewhere or when dead', async () => {
+    const mid = { x: (melonFountainBox.x0 + melonFountainBox.x1) / 2, y: (melonFountainBox.y0 + melonFountainBox.y1) / 2 };
+    const near = await joinFig('Spring', { x: mid.x, y: mid.y, place: 'town', hp: 40, maxHp: 70 });
+    const edge = await joinFig('Edge', { x: melonFountainBox.x1 + FOUNTAIN_REGEN_REACH_PX - 1, y: mid.y, place: 'town', hp: 40, maxHp: 70 });
+    const far = await joinFig('Far', { x: melonFountainBox.x1 + FOUNTAIN_REGEN_REACH_PX + 30, y: mid.y, place: 'town', hp: 40, maxHp: 70 });
+    const hpOf = (snap: SnapshotMessage) => snap.character.hp;
+    const others = async (steps: number) => ({
+      near: hpOf(await ripen(near.socket, steps)),
+      edge: hpOf(await ripen(edge.socket, 0 + 1)),
+      far: hpOf(await ripen(far.socket, 0 + 1)),
+    });
+    // Two seconds (20 ticks) of the shared clock: +10 for the two at the fountain, nothing for the one beyond 40 px.
+    // (The one-tick reads add a tick each to the shared clock; half a point a tick is carried, so the totals stay whole.)
+    const first = await others(20);
+    expect(first.near).toBe(50);
+    expect(first.edge).toBe(50);
+    expect(first.far).toBe(40);
+    expect((await getById(kiwiDb, near.id))!.hp).toBeGreaterThanOrEqual(50);
+    // Never past the maximum, and the stored row follows.
+    // (One ripen message is capped, so keep ripening in chunks.)
+    let last = await others(100);
+    for (let more = 0; more < 6 && last.near < 70; more += 1) last = await others(100);
+    expect(last.near).toBe(70);
+    expect(last.edge).toBe(70);
+    expect(last.far).toBe(40);
+    expect((await getById(kiwiDb, near.id))!.hp).toBe(70);
+    expect((await getById(kiwiDb, far.id))!.hp).toBe(40);
   }, 60_000);
 
   it('reports aggro false on an unhit wolf and bear, true after a hit, and true for a skeleton within 120 px in the cemetery', async () => {

@@ -18,13 +18,14 @@ import {
   inRing,
   limeTownGate,
   mangoForgeBox,
+  melonFountainBox,
   pearTownWalls,
   type Box,
   type Point,
 } from '../rules/regions';
 import { CANVAS_HEIGHT, CANVAS_WIDTH, mapToCanvas, type PeachView } from './camera';
 import { clampHealth, maxHealth, strike, type Hero } from '../rules/logic';
-import { mangoGearRows, papayaLevelRows, pearTimings, type ZoneName } from '../rules/tables';
+import { FOUNTAIN_REGEN_REACH_PX, mangoGearRows, papayaLevelRows, pearTimings, type ZoneName } from '../rules/tables';
 import {
   COIN_DRAW_PX,
   COIN_SRC,
@@ -1422,6 +1423,28 @@ export function paintRespawnGlow(ctx: GlowCtx, glow: { readonly x: number; reado
   return true;
 }
 
+
+// A light green glow on the town fountain (plan 11): it breathes slowly and marks where health regenerates.
+export function paintFountainGlow(ctx: GlowCtx, view: PeachView, nowMs: number): void {
+  const centre = mapToCanvas(view, (melonFountainBox.x0 + melonFountainBox.x1) / 2, (melonFountainBox.y0 + melonFountainBox.y1) / 2);
+  const k = Math.max(0.6, view.scale);
+  const pulse = 0.7 + 0.3 * Math.sin((nowMs / 1000) * Math.PI);
+  const radius = (FOUNTAIN_REGEN_REACH_PX + 36 + 6 * pulse) * k;
+  if (typeof ctx.createRadialGradient === 'function') {
+    const gradient = ctx.createRadialGradient(centre.x, centre.y, 2, centre.x, centre.y, radius);
+    gradient.addColorStop(0, 'rgba(170, 255, 190, 0.8)');
+    gradient.addColorStop(0.5, 'rgba(140, 240, 170, 0.42)');
+    gradient.addColorStop(1, 'rgba(120, 230, 160, 0)');
+    const before = ctx.globalAlpha ?? 1;
+    ctx.globalAlpha = before * (0.75 + 0.25 * pulse);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(centre.x - radius, centre.y - radius, radius * 2, radius * 2);
+    ctx.globalAlpha = before;
+  } else {
+    ctx.fillStyle = 'rgba(150, 240, 175, 0.3)';
+    ctx.fillRect(centre.x - radius / 2, centre.y - radius / 2, radius, radius);
+  }
+}
 
 // Three dots over a player's head while a duel request waits for an answer: a white bubble like the blacksmith's, with
 // the dots lighting one after another so it is clearly alive.
