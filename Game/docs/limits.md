@@ -10,7 +10,11 @@ Read with `docs/balance.md` (game balance limits) and `docs/security.md` (securi
 
 ## Not verified or not done
 
-- **Free-plan load is unmeasured.** The efficiency work (in-memory tick, throttled saves, precomputed routes, idle close, account cap) is designed to fit the Workers Free limits, but I have no measured CPU, D1 rows or Durable Object request counts from a live session. Cloudflare analytics were not read with the available token unless stated in the final report.
+- **Free-plan load: one partial measurement, with caveats.** From Cloudflare's GraphQL analytics for 2026-11-10 to 2026-11-12 (UTC), which covers the owner's 20 to 25 minute live playtest plus my own deploy checks and tests against the live site, so it is not an isolated, controlled run:
+  - Worker: 147 requests, 0 errors, CPU p50 1.4 ms, **p99 11.1 ms** (the Free limit is 10 ms per request, so the slowest 1% was at or above it; I do not know which requests, probably sign-up or sign-in hashing or a cold start).
+  - Durable Object (the live world): 44 invocations with 13 reported errors that I have not explained, p50 CPU 90 ms and p99 369 ms per invocation (the long-lived WebSocket sessions), 1355 s of active time, 6.1 s of CPU in total, 426 inbound and 14,853 outbound WebSocket messages, 230 storage rows written.
+  - D1 (`game-db`): 1,474 read queries and 678 write queries, 6,621 rows read and 822 rows written. The Free plan allows 100,000 rows written and 5 million rows read per day, so one player-session is far below it.
+  This shows one or two players fit with a wide margin; it does not show what happens with many players.
 - **No multi-player load test.** Two or three simultaneous players were exercised in tests, not dozens.
 - **The coin sound has not been heard by a person** on the deployed site; the code path is tested, the audio is not.
 - **A duel swing sent without `walk` has no reach limit** in the server (the client always sends `walk` for clicks). This should be closed.
