@@ -463,7 +463,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   // Once a minute every connected avatar loses the coins whose seven days ran out, and sees when the next ones do.
-  private async sweepCoins(): Promise<boolean> {
+  // The sweep, a purchase and a duel payout all rewrite the same coin lots, so they run one at a time.
+  private sweepCoins(): Promise<boolean> {
+    return this.serializeBag(() => this.doSweepCoins());
+  }
+
+  private async doSweepCoins(): Promise<boolean> {
     const now = Date.now();
     if (now - this.lastCoinSweepMs < (this.papayaManual ? 0 : 60_000)) {
       return false;
@@ -805,7 +810,11 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   // A duel swing shares the fig's one attack clock with monster swings.
-  private async onDuelSwing(appleId: string, fig: FigWalk, rivalId: string): Promise<void> {
+  private onDuelSwing(appleId: string, fig: FigWalk, rivalId: string): Promise<void> {
+    return this.serializeBag(() => this.doDuelSwing(appleId, fig, rivalId));
+  }
+
+  private async doDuelSwing(appleId: string, fig: FigWalk, rivalId: string): Promise<void> {
     sweepTownOffers(this.duelOrchard, this.orchard.figs);
     sweepTownPairs(this.duelOrchard, this.orchard.figs);
     let swing = this.swingClocks.get(appleId);
@@ -825,7 +834,16 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       const [loserRow, winnerRow] = hit.writes as [PersimmonWrite, PersimmonWrite];
       // The pairing and the glow end with the fight; both purses go to D1 in one batch.
       dropDuelsFor(this.duelOrchard, appleId);
-      await saveFactsPair(this.env.DB, loserRow, winnerRow);
+      const moved = await saveFactsPair(this.env.DB, loserRow, winnerRow);
+      // The database moves only coins that are really in live lots. If that is less than the pot the strike assumed,
+      // the live purses follow the database.
+      const pot = loserRow.patch.duelPot ?? 0;
+      if (moved !== pot) {
+        const loserFig = this.orchard.figs.get(loserRow.id);
+        const winnerFig = this.orchard.figs.get(winnerRow.id);
+        if (loserFig !== undefined) loserFig.facts = { ...loserFig.facts, coins: loserFig.facts.coins + (pot - moved) };
+        if (winnerFig !== undefined) winnerFig.facts = { ...winnerFig.facts, coins: Math.max(0, winnerFig.facts.coins - (pot - moved)) };
+      }
       for (const row of [loserRow, winnerRow]) {
         const seen = this.orchard.figs.get(row.id);
         if (seen !== undefined) {

@@ -98,4 +98,15 @@ describe('coin lots', () => {
     const takes = drawLots(lots, 3, () => 0.99);
     expect(takes).toEqual([{ id: 'new', pickedAtMs: now - 1 * DAY, amount: 3 }]);
   });
+
+  it('the folded third group shows when the LAST of the folded coins go', () => {
+    const HOUR = 3_600_000;
+    const lots = [lot('a', 1, 7 - 1 / 24), lot('b', 2, 7 - 5 / 24), lot('c', 3, 7 - 20 / 24), lot('d', 4, 7 - 47 / 24)];
+    const out = nextExpiry(lots, now)!;
+    expect(out.groups).toEqual([
+      { amount: 1, atMs: now + HOUR },
+      { amount: 2, atMs: now + 5 * HOUR },
+      { amount: 7, atMs: now + 47 * HOUR },
+    ]);
+  });
 });

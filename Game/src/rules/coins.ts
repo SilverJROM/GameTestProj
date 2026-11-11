@@ -89,7 +89,7 @@ export function nextExpiry(lots: readonly CoinLot[], nowMs: number, windowMs: nu
     byTime.set(lotExpiresAtMs(lot), (byTime.get(lotExpiresAtMs(lot)) ?? 0) + lot.amount);
   }
   const all = [...byTime.entries()].sort((a, b) => a[0] - b[0]).map(([atMs, amount]) => ({ amount, atMs }));
-  const groups = all.length <= 3 ? all : [...all.slice(0, 2), { amount: all.slice(2).reduce((n, g) => n + g.amount, 0), atMs: all[2]!.atMs }];
+  const groups = all.length <= 3 ? all : [...all.slice(0, 2), { amount: all.slice(2).reduce((n, g) => n + g.amount, 0), atMs: all[all.length - 1]!.atMs }];
   return {
     amount: all.reduce((n, g) => n + g.amount, 0),
     atMs: all[0]!.atMs,

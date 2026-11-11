@@ -1011,5 +1011,8 @@ describe('coin expiry text', () => {
     expect(coinExpiryText({ amount: 9, atMs: now + 3_600_000, lastAtMs: now + 1.2 * 86_400_000 }, now)).toBe('9 coins expire within 2 days.');
     expect(coinExpiryTip({ amount: 12, atMs: now + 86_400_000, groups: [{ amount: 5, atMs: now + 20 * 3_600_000 }, { amount: 7, atMs: now + 1.5 * 86_400_000 }] }, now)).toBe('5 in 20 hours, 7 in 2 days');
     expect(coinExpiryTip(null, now)).toBe('');
+    expect(coinExpiryTip({ amount: 1, atMs: now + 3_600_000 }, now)).toBe('1 in 1 hour');
+    expect(coinExpiryTip({ amount: 1, atMs: now - 1 }, now)).toBe('1 in under a minute');
+    expect(coinExpiryText({ amount: 10, atMs: now - 5 }, now)).toBe('');
   });
 });

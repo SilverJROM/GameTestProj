@@ -318,6 +318,56 @@ describe('coin expiry', () => {
     expect(Date.now() - lots[0]!.pickedAtMs).toBeGreaterThan(6.8 * DAY);
   }, 60_000);
 
+  it('a duel pot bigger than the live lots moves only live coins and never creates coins', async () => {
+    // Purse 12: 8 coins expired a moment ago (not swept yet) and 4 live ones. The strike thought the pot was 6.
+    const loser = await withLots('Short', [
+      { amount: 8, ageDays: 7.5 },
+      { amount: 4, ageDays: 2 },
+    ]);
+    const winner = await withLots('Gets', []);
+    const moved = await saveFactsPair(
+      kiwiDb,
+      { id: loser.facts.id, patch: { coinsDelta: -6, duelPot: 6 } },
+      { id: winner.facts.id, patch: { coinsDelta: 6, duelPot: 6 } },
+      () => 0.3,
+    );
+    expect(moved).toBe(4);
+    expect((await getById(kiwiDb, loser.facts.id))!.coins).toBe(0);
+    expect((await getById(kiwiDb, winner.facts.id))!.coins).toBe(4);
+    const winnerLots = await readCoinLots(kiwiDb, winner.facts.id);
+    expect(winnerLots.reduce((n, r) => n + r.amount, 0)).toBe(4);
+    expect(Date.now() - winnerLots[0]!.pickedAtMs).toBeGreaterThan(1.9 * DAY);
+    expect(await readCoinLots(kiwiDb, loser.facts.id)).toEqual([]);
+  }, 60_000);
+
+  it('a duel pot that is not a whole number or not finite never makes fractional or infinite lots', async () => {
+    const loser = await withLots('Odd', [{ amount: 10, ageDays: 2 }]);
+    const winner = await withLots('Odd2', []);
+    expect(
+      await saveFactsPair(kiwiDb, { id: loser.facts.id, patch: { duelPot: 2.5 } }, { id: winner.facts.id, patch: { duelPot: 2.5 } }, () => 0),
+    ).toBe(2);
+    expect(
+      await saveFactsPair(kiwiDb, { id: loser.facts.id, patch: { duelPot: Number.POSITIVE_INFINITY } }, { id: winner.facts.id, patch: { duelPot: Number.POSITIVE_INFINITY } }, () => 0),
+    ).toBe(0);
+    const lots = await readCoinLots(kiwiDb, winner.facts.id);
+    expect(lots.every((row) => Number.isInteger(row.amount))).toBe(true);
+    expect(lots.reduce((n, r) => n + r.amount, 0)).toBe(2);
+    expect((await getById(kiwiDb, winner.facts.id))!.coins).toBe(2);
+    expect((await getById(kiwiDb, loser.facts.id))!.coins).toBe(8);
+  }, 60_000);
+
+  it('coins arriving with a stamp the winner already has join that lot instead of piling up lots', async () => {
+    const loser = await withLots('Src', [{ amount: 6, ageDays: 3 }]);
+    const before = await readCoinLots(kiwiDb, loser.facts.id);
+    const winner = await withLots('Dst', []);
+    await kiwiDb.prepare('INSERT INTO coin_lots (id, character_id, amount, picked_at) VALUES (?, ?, ?, ?)').bind(crypto.randomUUID(), winner.facts.id, 2, before[0]!.pickedAtMs).run();
+    await kiwiDb.prepare('UPDATE characters SET coins = 2 WHERE id = ?').bind(winner.facts.id).run();
+    await saveFactsPair(kiwiDb, { id: loser.facts.id, patch: { duelPot: 3 } }, { id: winner.facts.id, patch: { duelPot: 3 } }, () => 0);
+    const lots = await readCoinLots(kiwiDb, winner.facts.id);
+    expect(lots).toHaveLength(1);
+    expect(lots[0]!.amount).toBe(5);
+  }, 60_000);
+
   it('a plain purse write (a pickup) adds one lot dated now', async () => {
     const fig = await withLots('Picker', [{ amount: 3, ageDays: 2 }]);
     await saveFacts(kiwiDb, fig.facts.id, { coins: 7 });

@@ -811,8 +811,8 @@ function expiryUnit(n: number, word: string): string {
 }
 
 function expiryWhen(left: number): string {
-  if (left <= 0) return 'now';
-  if (left <= 3_600_000) return `${expiryUnit(Math.max(1, Math.ceil(left / 60_000)), 'minute')}`;
+  if (left <= 0) return 'under a minute';
+  if (left < 3_600_000) return `${expiryUnit(Math.max(1, Math.ceil(left / 60_000)), 'minute')}`;
   if (left <= DAY_MS) return `${expiryUnit(Math.ceil(left / 3_600_000), 'hour')}`;
   return expiryUnit(Math.ceil(left / DAY_MS), 'day');
 }
@@ -823,6 +823,7 @@ export function coinExpiryText(expiry: CoinExpiryView | null | undefined, nowMs:
   if (expiry === null || expiry === undefined || expiry.amount <= 0) return '';
   const verb = expiry.amount === 1 ? 'expires' : 'expire';
   const last = (expiry.lastAtMs ?? expiry.atMs) - nowMs;
+  if (last <= 0) return '';
   const what = expiryUnit(expiry.amount, 'coin');
   return last <= DAY_MS ? `${what} ${verb} today.` : `${what} ${verb} within ${expiryUnit(Math.max(1, Math.ceil(last / DAY_MS)), 'day')}.`;
 }

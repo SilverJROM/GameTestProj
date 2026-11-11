@@ -588,44 +588,52 @@ export async function saveFactsPair(
   first: { readonly id: string; readonly patch: CharacterFactsPatch },
   second: { readonly id: string; readonly patch: CharacterFactsPatch },
   rand: () => number = Math.random,
-): Promise<void> {
+): Promise<number> {
   const nowMs = Date.now();
   let a = first.patch;
   let b = second.patch;
   const lotStatements: D1Statement[] = [];
-  const pot = a.duelPot ?? b.duelPot;
-  if (pot !== undefined && pot > 0) {
-    // first pays, second collects. Draw the coins from the payer's live lots; they keep their dates.
+  let moved = 0;
+  const wanted = a.duelPot ?? b.duelPot;
+  if (wanted !== undefined) {
+    // first pays, second collects. Only coins that are in live lots change hands: the loser's expired coins go first,
+    // then the coins are drawn at random from what is left and arrive under their ORIGINAL dates. Nothing is created.
+    const pot = Number.isFinite(wanted) ? Math.max(0, Math.floor(wanted)) : 0;
+    await expireCoinLots(db, first.id, nowMs);
     const live = (await readCoinLots(db, first.id)).filter((lot) => !lotExpired(lot, nowMs));
     const takes = drawLots(live, pot, rand);
-    const taken = takes.reduce((n, t) => n + t.amount, 0);
+    const winnerLots = await readCoinLots(db, second.id);
+    const cutoff = nowMs - COIN_LIFETIME_MS;
     for (const take of takes) {
       const lot = live.find((l) => l.id === take.id)!;
+      moved += take.amount;
+      // Each step only fires if the source lot still holds the coins and has not expired, so a stale read moves nothing.
+      const same = winnerLots.find((l) => l.pickedAtMs === take.pickedAtMs);
+      const guard = 'EXISTS (SELECT 1 FROM coin_lots WHERE id = ? AND amount >= ? AND picked_at > ?)';
+      if (same !== undefined) {
+        lotStatements.push(
+          db
+            .prepare(`UPDATE coin_lots SET amount = amount + ? WHERE id = ? AND ${guard}`)
+            .bind(take.amount, same.id, take.id, take.amount, cutoff),
+        );
+      } else {
+        lotStatements.push(
+          db
+            .prepare(
+              `INSERT INTO coin_lots (id, character_id, amount, picked_at) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM characters WHERE id = ?) AND ${guard}`,
+            )
+            .bind(crypto.randomUUID(), second.id, take.amount, take.pickedAtMs, second.id, take.id, take.amount, cutoff),
+        );
+      }
+      // A lot can never reach zero (a table rule), so a lot taken whole is deleted and a part-taken lot shrinks.
       lotStatements.push(
-        lot.amount - take.amount > 0
-          ? db.prepare('UPDATE coin_lots SET amount = ? WHERE id = ?').bind(lot.amount - take.amount, take.id)
-          : db.prepare('DELETE FROM coin_lots WHERE id = ?').bind(take.id),
-      );
-      lotStatements.push(
-        db
-          .prepare(
-            'INSERT INTO coin_lots (id, character_id, amount, picked_at) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM characters WHERE id = ?)',
-          )
-          .bind(crypto.randomUUID(), second.id, take.amount, take.pickedAtMs, second.id),
+        take.amount >= lot.amount
+          ? db.prepare('DELETE FROM coin_lots WHERE id = ? AND amount = ? AND picked_at > ?').bind(lot.id, take.amount, cutoff)
+          : db.prepare('UPDATE coin_lots SET amount = amount - ? WHERE id = ? AND amount > ? AND picked_at > ?').bind(take.amount, lot.id, take.amount, cutoff),
       );
     }
-    if (taken < pot) {
-      // The loser's purse held coins that have no lot (an old purse): those arrive as a fresh lot dated now.
-      lotStatements.push(
-        db
-          .prepare(
-            'INSERT INTO coin_lots (id, character_id, amount, picked_at) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM characters WHERE id = ?)',
-          )
-          .bind(crypto.randomUUID(), second.id, pot - taken, nowMs, second.id),
-      );
-    }
-    a = { ...a, coins: undefined, coinsDelta: -pot, duelPot: undefined };
-    b = { ...b, coins: undefined, coinsDelta: pot, duelPot: undefined };
+    a = { ...a, coins: undefined, coinsDelta: -moved, duelPot: undefined };
+    b = { ...b, coins: undefined, coinsDelta: moved, duelPot: undefined };
   } else {
     lotStatements.push(...(await coinLotStatements(db, first.id, a, nowMs)), ...(await coinLotStatements(db, second.id, b, nowMs)));
   }
@@ -635,6 +643,7 @@ export async function saveFactsPair(
   if (leeks.length > 0) {
     await db.batch(leeks);
   }
+  return moved;
 }
 
 // Writes only the keys present in the patch. Returns the stored row after the write, or null if no such character.
