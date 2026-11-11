@@ -334,6 +334,21 @@
       #menu-panel[hidden],
       #settings-panel[hidden] { display: none !important; }
       .gate-new { font-size: 0.85rem; opacity: 0.8; margin: 0.4rem 0; }
+      #duel-menu {
+        position: absolute;
+        z-index: 6;
+        min-width: 8.5rem;
+        box-sizing: border-box;
+        padding: 0.45rem 0.55rem;
+        background: #1e1a16;
+        border: 1px solid #6b5a3e;
+        border-radius: 6px;
+        color: #efe6d5;
+        font-size: 0.9rem;
+      }
+      #duel-menu[hidden] { display: none; }
+      #duel-menu p { margin: 0 0 0.35rem; font-weight: 600; }
+      #duel-menu button { margin: 0 0.3rem 0 0; }
       #death-panel {
         position: absolute;
         top: 22%;
@@ -601,6 +616,11 @@
         Zoom
         <input type="range" id="zoom-slider" min="60" max="75" step="1" value="60" orient="vertical" />
       </label>
+      <section id="duel-menu" hidden>
+        <p id="duel-menu-name"></p>
+        <button type="button" id="duel-menu-duel">Duel</button>
+        <button type="button" id="duel-menu-cancel">Cancel</button>
+      </section>
       <section id="death-panel" hidden>
         <h3>You died</h3>
         <p>You fell here. Respawn in town, or leave the game.</p>

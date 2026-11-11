@@ -41,18 +41,49 @@ try {
     // The camera is centred on the local avatar; read the pixel scale from the canvas size and the 0.6 zone share.
     return null;
   };
-  // Right-click Dyer's feet in Slayer's view: Dyer stands 60 map px left of Slayer; map scale = canvas width / view width.
   const view = await b.page.evaluate(() => ({ w: document.querySelector('#papaya-canvas').getBoundingClientRect().width }));
   const dx = pos(b.st, dyer.id).x - pos(b.st, slayer.id).x, dy = pos(b.st, dyer.id).y - pos(b.st, slayer.id).y;
-  // viewBox width for the green zone at ZOOM_CLOSE is roughly 762 map px (measured in plan 03): scale = canvas / 762
   const scale = view.w / 762;
   const cx = box.x + box.width / 2 + dx * scale, cy = box.y + box.height / 2 + dy * scale;
-  await b.page.mouse.click(cx, cy, { button: 'right' });
+  const bodyY = cy - 24 * scale; // the middle of Dyer's body, well above the feet
+  const hp = async () => (await call('GET', '/api/avatars')).find((x) => x.name === 'Dyer');
+  // 1. A LEFT click on the other player only walks: no menu, no offer.
+  await b.page.mouse.click(cx, bodyY);
+  await sleep(700);
+  console.log('after left click: menu visible', await b.page.locator('#duel-menu').isVisible(), '| offer panel on Dyer', await a.page.locator('#plum-offer').isVisible().catch(() => false));
+  // 2. A RIGHT click on the body (not the feet) opens the little menu.
+  const here = pos(b.st, slayer.id);
+  const view2 = { dx: pos(b.st, dyer.id).x - here.x, dy: pos(b.st, dyer.id).y - here.y };
+  const cx2 = box.x + box.width / 2 + view2.dx * scale, cy2 = box.y + box.height / 2 + view2.dy * scale - 24 * scale;
+  await b.page.mouse.click(cx2, cy2, { button: 'right' });
+  await sleep(400);
+  console.log('right click on the body: menu visible', await b.page.locator('#duel-menu').isVisible(), '| text:', (await b.page.locator('#duel-menu-name').innerText()).trim());
+  await b.page.screenshot({ path: out + '/duel-menu.png' });
+  // 3. Pick Duel: the request goes out, three dots show over the target, the target gets the offer.
+  await b.page.locator('#duel-menu-duel').click();
+  await sleep(900);
+  console.log('after Duel: menu hidden', !(await b.page.locator('#duel-menu').isVisible()), '| Dyer sees the offer', await a.page.locator('#plum-offer button', { hasText: /Accept/ }).isVisible().catch(() => false));
+  await b.page.screenshot({ path: out + '/duel-dots.png' });
+  // 4. The asker cancels from the menu: the target's offer closes. Then ask again and accept.
+  await b.page.mouse.click(cx2, cy2, { button: 'right' });
+  await sleep(300);
+  console.log('menu while waiting says:', (await b.page.locator('#duel-menu-name').innerText()).trim(), '| cancel button:', (await b.page.locator('#duel-menu-cancel').innerText()).trim());
+  await b.page.locator('#duel-menu-cancel').click();
+  await sleep(700);
+  console.log('after Cancel request: Dyer offer still visible', await a.page.locator('#plum-offer button', { hasText: /Accept/ }).isVisible().catch(() => false));
+  await b.page.mouse.click(cx2, cy2, { button: 'right' });
+  await sleep(300);
+  await b.page.locator('#duel-menu-duel').click();
   await sleep(800);
   await a.page.locator('#plum-accept').click();
-  await sleep(800);
-  for (let i = 0; i < 4; i += 1) { await b.page.mouse.click(cx, cy - 14 * scale); await sleep(700); }
+  await sleep(900);
+  await b.page.screenshot({ path: out + '/duel-accepted.png' });
+  // 5. LEFT click on the partner during the duel only walks (health unchanged); a RIGHT click attacks until dead.
+  const h0 = (await hp()).level;
+  await b.page.mouse.click(cx2, cy2);
   await sleep(1200);
+  await b.page.mouse.click(cx2, cy2, { button: 'right' });
+  await sleep(6000);
   const dead = await a.page.evaluate(() => !document.getElementById('death-panel').hidden);
   const winner = await b.page.evaluate(() => !document.getElementById('death-panel').hidden);
   console.log('killed player sees the death panel:', dead, '| winner sees it:', winner);

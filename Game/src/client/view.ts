@@ -1398,3 +1398,35 @@ export function paintRespawnGlow(ctx: GlowCtx, glow: { readonly x: number; reado
   }
   return true;
 }
+
+
+// Three dots over a player's head while a duel request waits for an answer: a white bubble like the blacksmith's, with
+// the dots lighting one after another so it is clearly alive.
+export interface DotsCtx {
+  fillStyle: string | CanvasGradient | CanvasPattern;
+  font: string;
+  fillRect(x: number, y: number, w: number, h: number): void;
+}
+
+export function paintDuelDots(ctx: DotsCtx, view: PeachView, x: number, y: number, nowMs: number): boolean {
+  const spot = mapToCanvas(view, x, y);
+  const k = Math.max(0.6, view.scale);
+  const width = 46;
+  const height = 24;
+  const left = spot.x - width / 2;
+  const top = spot.y - scaleFor('player') * k - 14 - height;
+  if (spot.x < -width || spot.x > CANVAS_WIDTH + width || top < -height || top > CANVAS_HEIGHT) return false;
+  ctx.fillStyle = '#1a140c';
+  ctx.fillRect(left - 2, top - 2, width + 4, height + 4);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(left, top, width, height);
+  // The little tail pointing at the player.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(spot.x - 3, top + height, 6, 5);
+  const lit = Math.floor(nowMs / 350) % 3;
+  for (let i = 0; i < 3; i += 1) {
+    ctx.fillStyle = i === lit ? '#1a140c' : '#9a9184';
+    ctx.fillRect(left + 9 + i * 13, top + height / 2 - 3, 7, 7);
+  }
+  return true;
+}

@@ -394,4 +394,46 @@ describe('duel fight', () => {
       await wolfBelow(asker, wolf.id, wolfOnce);
     }, 60_000);
   });
+
+  it('a right click on the duel partner (attack with walk) walks over and swings until the partner falls', async () => {
+    const { asker, target } = await pairUp('ChaseA', 'ChaseB', { x: wolfSpot.x, y: wolfSpot.y }, { hp: 12, maxHp: 40, x: wolfSpot.x + 130, y: wolfSpot.y });
+    const before = await factsOf(target.id);
+    expect(before.hp).toBe(12);
+    // One message: walk to the partner and keep swinging. No other click is sent.
+    await ask(asker, { type: 'attack', playerId: target.id, walk: true });
+    let landed = false;
+    for (let i = 0; i < 80 && !landed; i += 1) {
+      await ripenMs(asker, 250);
+      landed = (await factsOf(target.id)).place === 'town';
+    }
+    expect(landed).toBe(true);
+    // The fighters met on the way: the asker is no longer where it started.
+    const me = await factsOf(asker.id);
+    expect(Math.abs(me.x - wolfSpot.x)).toBeGreaterThan(30);
+  }, 90_000);
+
+  it('a plain attack at the partner is one swing and does not walk; leaving the field ends nothing by itself', async () => {
+    const { asker, target } = await pairUp('OneA', 'OneB', { x: wolfSpot.x, y: wolfSpot.y }, { hp: 40, maxHp: 40, x: wolfSpot.x + 300, y: wolfSpot.y });
+    await ask(asker, { type: 'attack', playerId: target.id });
+    for (let i = 0; i < 12; i += 1) await ripenMs(asker, 250);
+    const me = await factsOf(asker.id);
+    expect(me.x).toBeCloseTo(wolfSpot.x, 0);
+  }, 60_000);
+
+  it('cancel withdraws a waiting request (the target hears it), decline tells the asker, and neither pairs them', async () => {
+    const asker = await joinFig('CancA', { ...inGreen });
+    const target = await joinFig('CancB', { ...inGreen });
+    await ask(asker, { type: 'duel_request', playerId: target.id });
+    expect(offersHeard(target)).toHaveLength(1);
+    await ask(asker, { type: 'duel_cancel', playerId: target.id });
+    expect(target.heard.some((row) => (row as { type: string }).type === 'duel_cancelled')).toBe(true);
+    // The withdrawn offer can no longer be accepted.
+    const late = await ask(target, { type: 'duel_accept', playerId: asker.id });
+    noPartners(late, asker.id, target.id);
+    // Decline: the asker is told.
+    await ask(asker, { type: 'duel_request', playerId: target.id });
+    await ask(target, { type: 'duel_decline', playerId: asker.id });
+    expect(asker.heard.some((row) => (row as { type: string }).type === 'duel_declined')).toBe(true);
+    noPartners(await ask(asker, { type: 'ping' }), asker.id, target.id);
+  }, 60_000);
 });

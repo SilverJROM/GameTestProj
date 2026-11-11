@@ -295,4 +295,29 @@ describe('lemon room click to chase and fight', () => {
     expect(swings).toBe(0);
     expect(selfOf(snap, hero.id).moving).toBe(false);
   }, 60_000);
+
+  it('a left click on a monster (attack once with walk) walks over, swings exactly once, and stops', async () => {
+    const hero = await joinNear('Leftie', 6, 130);
+    let snap = await ask(hero.socket, { type: 'attack', monsterId: hero.wolfId, once: true, walk: true });
+    let swings = 0;
+    for (let tick = 0; tick < 80; tick += 1) {
+      snap = await ripen(hero.socket);
+      swings += snap.snapshot.hits.filter((row) => row.targetKind === 'monster').length;
+    }
+    // It did walk (it started 130 px away) and swung once, then the chase ended.
+    expect(swings).toBe(1);
+    expect(selfOf(snap, hero.id).moving).toBe(false);
+  }, 60_000);
+
+  it('a right click (attack with no once) still walks and swings until the wolf is dead', async () => {
+    const hero = await joinNear('Rightie', 6, 130);
+    let snap = await ask(hero.socket, { type: 'attack', monsterId: hero.wolfId });
+    let swings = 0;
+    for (let tick = 0; tick < 200 && snap.snapshot.monsters.some((m) => m.id === hero.wolfId); tick += 1) {
+      snap = await ripen(hero.socket);
+      swings += snap.snapshot.hits.filter((row) => row.targetKind === 'monster').length;
+    }
+    expect(snap.snapshot.monsters.some((m) => m.id === hero.wolfId)).toBe(false);
+    expect(swings).toBeGreaterThanOrEqual(1);
+  }, 60_000);
 });

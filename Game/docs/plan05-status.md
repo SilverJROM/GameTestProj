@@ -23,3 +23,6 @@ fighting 78 D1 rows, 61 DO storage writes. For 6 players x 2 h walking that is a
 To measure on real Cloudflare: whether the 10 ms CPU cap applies to DO timer callbacks, D1 query latency, how the dashboard counts alarm and storage writes.
 Open lows: saveFacts still reads the row back on every bite (about 164 read statements per minute of fighting); one reconnect race fixed.
 Next step: developer's go for slice 9 (see docs/plan05-deploy.md).
+
+## Plan 07 (2026-11-11 PM): duel menu and click rules
+Right click on a player opens a Duel/Cancel menu (whole-body click box); three dots over the target while waiting; cancel and decline clear them and close the offer panel; accept shows the red glow on both. Left click: walk, or walk to a monster and swing once. Right click: walk to a monster and swing until it dies; on the duel partner walk and swing until one falls. Left click on a player only walks. Tests: 568 pass; real-Chrome check docs/plan05-tools/death-duel-check.mjs. Deployed to game.silverjrom.workers.dev behind Cloudflare Access.

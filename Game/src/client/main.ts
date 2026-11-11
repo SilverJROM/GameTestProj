@@ -60,8 +60,10 @@ import {
   type ScreenCtx,
   GRAVE_LIFETIME_MS,
   RESPAWN_GLOW_MS,
+  paintDuelDots,
   paintGraves,
   paintRespawnGlow,
+  type DotsCtx,
   type GlowCtx,
   type Grave,
   type GraveCtx,
@@ -112,6 +114,8 @@ export interface FigHooks {
   onIdle?: () => void;
   // This player was killed: show the death panel (the page also holds the camera on the spot and draws a cross).
   onDeath?: () => void;
+  // A right click landed on another player: open the little duel menu for them.
+  onDuelMenu?: (playerId: string, name: string) => void;
   onOffer?: (offer: { fromId: string; fromName: string } | null) => void;
   onSnapshot?: () => void;
   onPlace?: (place: ZoneName) => void;
@@ -164,6 +168,14 @@ export interface FigBoard {
   closePanels(): void;
   // Opens or closes the fig menu. Opening it closes the Bag and the Blacksmith.
   setMenu(open: boolean): void;
+  // Send a duel request to this player and show the waiting dots over them until they answer or it is cancelled.
+  requestDuel(playerId: string): void;
+  // Withdraw the waiting request (the dots go away and the other player's offer panel closes).
+  cancelDuelRequest(): void;
+  // Who this player is waiting on for a duel answer, or null.
+  duelPending(): string | null;
+  // The three waiting dots over the player a duel request is waiting on.
+  paintDuelWaiting(ctx: DotsCtx, view: PeachView, nowMs: number): void;
   // Crosses where avatars were killed, drawn over the map.
   paintGraves(ctx: GraveCtx, view: PeachView, nowMs: number): void;
   // The pulsing light on the town spot where the avatar respawned.
@@ -335,6 +347,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       const selfRow = orchard.players.find((fig) => fig.id === selfId);
       if (selfRow !== undefined) setSelfPlace(selfRow.place);
       if (fightingMonsterId !== null && !orchard.monsters.some((m) => m.id === fightingMonsterId)) fightingMonsterId = null;
+      // The waiting dots end when the duel starts (a partner appears), when this player is in town, or after 45 s.
+      if (duelWaiting !== null && (selfRow?.duelPartnerId != null || selfPlace === 'town' || Date.now() - duelWaiting.at > 45_000)) duelWaiting = null;
       if (snap !== null) {
         figSfx.frame({
           selfId,
@@ -351,6 +365,19 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       // New figs and far jumps land now, so the camera and the click see them before the next frame.
       glideFeet(0);
       hooks.onSnapshot?.();
+      return;
+    }
+    if (row.type === 'duel_declined' && typeof row.otherId === 'string') {
+      // The other player said no: the waiting dots go away.
+      if (duelWaiting !== null && duelWaiting.id === row.otherId) duelWaiting = null;
+      return;
+    }
+    if (row.type === 'duel_cancelled' && typeof row.otherId === 'string') {
+      // The asker withdrew: this player's offer panel closes.
+      if (askerHeld === row.otherId) {
+        askerHeld = '';
+        hooks.onOffer?.(null);
+      }
       return;
     }
     if (row.type === 'duel_offer' && typeof row.fromId === 'string') {
@@ -661,6 +688,35 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     return true;
   }
 
+  // The player this one asked for a duel and is waiting on (three dots show over them), and when.
+  let duelWaiting: { id: string; at: number } | null = null;
+
+  function requestDuel(playerId: string): void {
+    if (playerId.length === 0 || playerId === selfId) return;
+    if (duelWaiting !== null && duelWaiting.id !== playerId) sendOne({ type: 'duel_cancel', playerId: duelWaiting.id });
+    sendOne({ type: 'duel_request', playerId });
+    duelWaiting = { id: playerId, at: Date.now() };
+  }
+
+  function paintDuelWaiting(ctx: DotsCtx, view: PeachView, nowMs: number): void {
+    if (duelWaiting === null) return;
+    const feet = citrusShown.get(citrusKey('player', duelWaiting.id));
+    const row = orchard.players.find((fig) => fig.id === duelWaiting!.id);
+    const fx = feet?.x ?? row?.x;
+    const fy = feet?.y ?? row?.y;
+    if (fx !== undefined && fy !== undefined) paintDuelDots(ctx, view, fx, fy, nowMs);
+  }
+
+  function cancelDuelRequest(): void {
+    if (duelWaiting === null) return;
+    sendOne({ type: 'duel_cancel', playerId: duelWaiting.id });
+    duelWaiting = null;
+  }
+
+  function duelPending(): string | null {
+    return duelWaiting === null ? null : duelWaiting.id;
+  }
+
   // Where this player died, while the death panel is open: the camera stays there and clicks are ignored.
   let deathHold: { x: number; y: number; place: ZoneName } | null = null;
   // Crosses where avatars were killed.
@@ -733,6 +789,10 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     });
     quinceOpen = peeled.smithOpen;
     hooks.onSmith?.(quinceOpen);
+    if (peeled.duelMenu !== undefined) {
+      const who = orchard.players.find((fig) => fig.id === peeled.duelMenu!.playerId);
+      hooks.onDuelMenu?.(peeled.duelMenu.playerId, who?.name ?? 'this player');
+    }
     if (peeled.message !== null) {
       if (peeled.message.type === 'attack') {
         papayaSwings = 2;
@@ -854,6 +914,10 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     closePanels,
     setMenu,
     endDeath,
+    requestDuel,
+    paintDuelWaiting,
+    cancelDuelRequest,
+    duelPending,
     paintGraves: paintGravesOn,
     paintRespawnGlow: paintRespawnGlowOn,
     haltLemon,
@@ -1345,6 +1409,14 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   figSfx.dispose();
   figSfx = startFigSfx();
   figSfx.setCanvasVisible(canvas != null && canvas.hidden !== true);
+  // Where the pointer last went down on the canvas (canvas pixels): the duel menu opens there.
+  let lastClickPixel = { x: 0, y: 0 };
+  let duelMenuFor = '';
+  const hideDuelMenu = (): void => {
+    const menu = doc.getElementById('duel-menu');
+    if (menu !== null) menu.hidden = true;
+    duelMenuFor = '';
+  };
   const smith = doc.getElementById('quince-smith');
   const smithList = doc.getElementById('quince-list');
   const plumDuel = doc.getElementById('plum-duel');
@@ -1402,6 +1474,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     if (typeof screen.fillRect === 'function') {
       board.paintGraves(screen as unknown as GraveCtx, view, nowMs);
       board.paintRespawnGlow(screen as unknown as GlowCtx, view, nowMs);
+      board.paintDuelWaiting(screen as unknown as DotsCtx, view, nowMs);
     }
     if (typeof screen.fillRect === 'function' && typeof screen.fillText === 'function') {
       paintHealth(screen, board.health());
@@ -1818,6 +1891,29 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
         if (open) hideSettings();
         if (open) paintOlive();
       },
+      onDuelMenu(playerId, name) {
+        const menu = doc.getElementById('duel-menu');
+        if (menu === null) return;
+        duelMenuFor = playerId;
+        const waiting = board.duelPending() === playerId;
+        const label = doc.getElementById('duel-menu-name');
+        if (label !== null) label.textContent = waiting ? `Waiting for ${name}...` : `Duel ${name}?`;
+        const go = doc.getElementById('duel-menu-duel');
+        const no = doc.getElementById('duel-menu-cancel');
+        if (go !== null) {
+          go.hidden = waiting;
+        }
+        if (no !== null) no.textContent = waiting ? 'Cancel request' : 'Cancel';
+        // Open beside the pointer, kept inside the game (flip to the left/up near the right and bottom edges).
+        const width = canvas?.width ?? 1280;
+        const height = canvas?.height ?? 720;
+        const left = (lastClickPixel.x / width) * 100;
+        const top = (lastClickPixel.y / height) * 100;
+        const place = (menu as unknown as { style: { left: string; top: string } }).style;
+        place.left = `${Math.min(left, 82)}%`;
+        place.top = `${Math.min(top, 80)}%`;
+        menu.hidden = false;
+      },
       onDeath() {
         const panel = doc.getElementById('death-panel');
         const respawn = doc.getElementById('death-respawn');
@@ -2172,6 +2268,16 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
       if (!result.ok && line !== null) line.textContent = result.error;
     });
   });
+  doc.getElementById('duel-menu-duel')?.addEventListener?.('click', () => {
+    const target = duelMenuFor;
+    hideDuelMenu();
+    if (target.length > 0) board.requestDuel(target);
+  });
+  doc.getElementById('duel-menu-cancel')?.addEventListener?.('click', () => {
+    // While a request is waiting this button withdraws it; otherwise it just closes the menu.
+    if (duelMenuFor.length > 0 && board.duelPending() === duelMenuFor) board.cancelDuelRequest();
+    hideDuelMenu();
+  });
   doc.getElementById('idle-reload')?.addEventListener?.('click', () => {
     reloadFigPage();
   });
@@ -2353,6 +2459,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
       return;
     }
     if (event.key === 'Escape') {
+      hideDuelMenu();
       closeWhatever();
       return;
     }
@@ -2378,7 +2485,10 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     if (event.target !== undefined && event.target !== null && event.target !== canvas) return;
     event.preventDefault?.();
     const pixel = mapBerry(canvas, event);
+    // Any click on the map closes an open duel menu first.
+    hideDuelMenu();
     if (board.pressScreen(pixel.x, pixel.y)) return;
+    lastClickPixel = { x: pixel.x, y: pixel.y };
     const spot = canvasToMap(board.camera(), pixel.x, pixel.y);
     board.click({ x: spot.x, y: spot.y, button: event.button ?? 0 });
   });

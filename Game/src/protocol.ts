@@ -31,9 +31,15 @@ export type ClientMessage =
   | { readonly type: 'unequip'; readonly slot: 'sword' | 'armor' }
   | { readonly type: 'ripen'; readonly steps: number }
   | { readonly type: 'prune'; readonly beetId: string }
-  // once: one swing only, no walking to the monster and no following fights (the page never sends it; tests use it).
-  | { readonly type: 'attack'; readonly monsterId: string; readonly once?: true }
-  | { readonly type: 'attack'; readonly playerId: string }
+  // attack at a monster: with nothing else, walk to it and keep swinging until it dies or the player clicks the ground
+  // (the page sends this for a right click). once: one swing only and no walking (tests use it). once with walk: walk to it
+  // and swing exactly once (the page sends this for a left click on a monster).
+  | { readonly type: 'attack'; readonly monsterId: string; readonly once?: true; readonly walk?: true }
+  // attack at the duel partner: one swing; with walk, walk to the partner and keep swinging until one of them falls
+  // (the page sends this for a right click on the partner). A left click on a player only walks.
+  | { readonly type: 'attack'; readonly playerId: string; readonly walk?: true }
+  // The asker withdraws a request that is still waiting for an answer.
+  | { readonly type: 'duel_cancel'; readonly playerId: string }
   | { readonly type: 'duel_request'; readonly playerId: string }
   | { readonly type: 'duel_accept'; readonly playerId: string }
   | { readonly type: 'duel_decline'; readonly playerId: string };
@@ -137,6 +143,14 @@ export interface DuelOfferMessage {
   readonly fromName: string;
 }
 
+// Sent to the asker when the target declines, and to the target when the asker withdraws, so each page can drop its
+// "waiting" dots or its offer panel.
+export interface DuelEndedMessage {
+  readonly type: 'duel_declined' | 'duel_cancelled';
+  // The other fig of the offer.
+  readonly otherId: string;
+}
+
 // Sent back after a client mango. The character is the socket's fig, never a radish id from the body.
 export interface SnapshotMessage {
   readonly type: 'snapshot';
@@ -220,13 +234,16 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
   }
   if (peeled.type === 'attack' && typeof peeled.monsterId === 'string' && peeled.monsterId.length > 0) {
     // A message that names a monster is a monster attack; a playerId beside it is dropped.
-    return peeled.once === true ? { type: 'attack', monsterId: peeled.monsterId, once: true } : { type: 'attack', monsterId: peeled.monsterId };
+    if (peeled.once === true) {
+      return peeled.walk === true ? { type: 'attack', monsterId: peeled.monsterId, once: true, walk: true } : { type: 'attack', monsterId: peeled.monsterId, once: true };
+    }
+    return { type: 'attack', monsterId: peeled.monsterId };
   }
   if (peeled.type === 'attack' && typeof peeled.playerId === 'string' && peeled.playerId.length > 0) {
-    return { type: 'attack', playerId: peeled.playerId };
+    return peeled.walk === true ? { type: 'attack', playerId: peeled.playerId, walk: true } : { type: 'attack', playerId: peeled.playerId };
   }
   if (
-    (peeled.type === 'duel_request' || peeled.type === 'duel_accept' || peeled.type === 'duel_decline') &&
+    (peeled.type === 'duel_request' || peeled.type === 'duel_accept' || peeled.type === 'duel_decline' || peeled.type === 'duel_cancel') &&
     typeof peeled.playerId === 'string' &&
     peeled.playerId.length > 0
   ) {

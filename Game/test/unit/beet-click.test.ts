@@ -127,7 +127,7 @@ describe('peelClick on the beet picture', () => {
         { x: box.x + box.width, y: box.y + box.height },
       ]) {
         expect(attackAt(kind, spot.x, spot.y), `${kind} ${spot.x},${spot.y}`).toEqual({
-          message: { type: 'attack', monsterId: `beet-${kind}` },
+          message: { type: 'attack', monsterId: `beet-${kind}`, once: true, walk: true },
           smithOpen: false,
         });
       }
@@ -159,7 +159,7 @@ describe('peelClick on the beet picture', () => {
     const biting = orchard([beet('beet-wolf', 'wolf', 100, 200, '/avatars/wolf/bite.png')]);
     expect(peelClick({ x, y, button: 0 }, standing).message?.type).toBe('move');
     expect(peelClick({ x, y, button: 0 }, biting)).toEqual({
-      message: { type: 'attack', monsterId: 'beet-wolf' },
+      message: { type: 'attack', monsterId: 'beet-wolf', once: true, walk: true },
       smithOpen: false,
     });
   });
@@ -178,7 +178,7 @@ describe('peelClick on the beet picture', () => {
       (shared.x - front.x) ** 2 + (shared.y - frontCentreY) ** 2,
     );
     expect(peelClick({ x: shared.x, y: shared.y, button: 0 }, orchard([back, front]))).toEqual({
-      message: { type: 'attack', monsterId: 'front' },
+      message: { type: 'attack', monsterId: 'front', once: true, walk: true },
       smithOpen: false,
     });
 
@@ -197,18 +197,26 @@ describe('peelClick on the beet picture', () => {
     expect(peelClick({ x: nearerLeft, y: tieY, button: 0 }, orchard([right, left])).message).toEqual({
       type: 'attack',
       monsterId: 'left',
+      once: true,
+      walk: true,
     });
     expect(peelClick({ x: nearerRight, y: tieY, button: 0 }, orchard([left, right])).message).toEqual({
       type: 'attack',
       monsterId: 'right',
+      once: true,
+      walk: true,
     });
   });
 
   it('leaves players, the fountain, and the forge on their old clicks', () => {
-    const head = peelClick({ x: 700, y: 500 - 40, button: 2 }, orchard([]));
-    expect(head).toEqual({ message: { type: 'move', x: 700, y: 460 }, smithOpen: false });
-    const duel = peelClick({ x: 700, y: 500, button: 2 }, orchard([]));
-    expect(duel).toEqual({ message: { type: 'duel_request', playerId: 'fig-other' }, smithOpen: false });
+    // A left click on another player only walks, wherever on the body it lands.
+    expect(peelClick({ x: 700, y: 500 - 40, button: 0 }, orchard([]))).toEqual({ message: { type: 'move', x: 700, y: 460 }, smithOpen: false });
+    // A right click anywhere on the player's drawn body (head, chest, feet) opens the duel menu and sends nothing yet.
+    for (const y of [500 - 52, 500 - 30, 500]) {
+      expect(peelClick({ x: 700, y, button: 2 }, orchard([]))).toEqual({ message: null, smithOpen: false, duelMenu: { playerId: 'fig-other' } });
+    }
+    // Beside the body it is nothing.
+    expect(peelClick({ x: 760, y: 480, button: 2 }, orchard([]))).toEqual({ message: null, smithOpen: false });
 
     const town = orchard([beet('beet-wolf', 'wolf', 900, 360)], 'town');
     expect(peelClick({ x: 242, y: 566, button: 0 }, town)).toEqual({
@@ -220,8 +228,9 @@ describe('peelClick on the beet picture', () => {
     const forgeY = (mangoForgeBox.y0 + mangoForgeBox.y1) / 2;
     expect(peelClick({ x: forgeX, y: forgeY, button: 0 }, town).smithOpen).toBe(true);
 
+    // A right click on a monster walks to it and keeps swinging (no once flag).
     const rightOnBeet = peelClick({ x: 900, y: 360 - 20, button: 2 }, town);
-    expect(rightOnBeet.message).toEqual({ type: 'move', x: 900, y: 340 });
+    expect(rightOnBeet.message).toEqual({ type: 'attack', monsterId: 'beet-wolf' });
   });
 });
 

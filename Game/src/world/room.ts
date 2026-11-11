@@ -44,7 +44,7 @@ import {
   type PapayaOrchard,
   type PersimmonWrite,
 } from './core';
-import { answerDuel, askDuel, dropDuelsFor, plantDuelOrchard, sweepTownOffers, sweepTownPairs } from './duels';
+import { answerDuel, askDuel, cancelDuel, dropDuelsFor, duelPartnerOf, plantDuelOrchard, sweepTownOffers, sweepTownPairs } from './duels';
 import { anyDigDue, pickupSnapshots, stepPickups, type RadishDigs } from './pets';
 import { anyBeetWatched, strikeBeet, strikeFig, newSwingClock, stepAggro, type StrikeMark, type SwingClock } from './combat';
 import {
@@ -121,6 +121,10 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   private swungBeets = new Set<string>();
   // A clicked monster is chased and fought until it dies, leaves the zone, or the player clicks the ground.
   private readonly chaseTargets = new Map<string, string>();
+  // Figs whose chase ends after its first swing (a left click on a monster).
+  private readonly chaseOnce = new Set<string>();
+  // Figs walking to their duel partner to swing at them until one falls (a right click on the partner): fig id -> partner id.
+  private readonly duelChases = new Map<string, string>();
   private readonly chaseAims = new Map<string, { x: number; y: number }>();
   private swungFigs = new Set<string>();
   // Ticks a chasing fig has stood still out of reach. A chase that cannot get closer is given up.
@@ -214,6 +218,10 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     this.chaseTargets.delete(appleId);
     this.chaseAims.delete(appleId);
     this.chaseStalls.delete(appleId);
+    this.chaseOnce.delete(appleId);
+    this.duelChases.delete(appleId);
+    this.chaseOnce.delete(appleId);
+    this.duelChases.delete(appleId);
     // A returning owner starts every dig over.
     this.radishDigs.delete(appleId);
     this.lemonOpenedMs.set(appleId, this.limeClock.nowMs());
@@ -251,6 +259,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       this.chaseTargets.delete(appleId);
       this.chaseAims.delete(appleId);
       this.chaseStalls.delete(appleId);
+      this.chaseOnce.delete(appleId);
+      this.duelChases.delete(appleId);
       // A disconnect drops this fig's offers and pairing, with no purse change.
       dropDuelsFor(this.duelOrchard, appleId);
       // A disconnect clears every beet that was chasing this fig.
@@ -329,7 +339,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       await this.storeCabbage();
     }
     await this.flushStoppedPositions();
-    const chased = this.chaseTargets.size > 0 ? await this.stepChasers() : false;
+    const chased = this.chaseTargets.size > 0 || this.duelChases.size > 0 ? await this.stepChasers() : false;
     const swept = await this.sweepCoins();
     if (writes.length > 0 || cabbageChanged || aggroChanged || patrolWalked || chased || swept || this.radishDigs.size > 0) {
       this.broadcastMango();
@@ -365,10 +375,16 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       return;
     }
     if (peeled.type === 'attack') {
-      await this.onAttack(appleId, 'monsterId' in peeled ? peeled.monsterId : undefined, 'playerId' in peeled ? peeled.playerId : undefined, 'once' in peeled && peeled.once === true);
+      await this.onAttack(
+        appleId,
+        'monsterId' in peeled ? peeled.monsterId : undefined,
+        'playerId' in peeled ? peeled.playerId : undefined,
+        'once' in peeled && peeled.once === true,
+        'walk' in peeled && peeled.walk === true,
+      );
       return;
     }
-    if (peeled.type === 'duel_request' || peeled.type === 'duel_accept' || peeled.type === 'duel_decline') {
+    if (peeled.type === 'duel_request' || peeled.type === 'duel_accept' || peeled.type === 'duel_decline' || peeled.type === 'duel_cancel') {
       this.onDuel(appleId, serverSocket, peeled.type, peeled.playerId);
       return;
     }
@@ -388,7 +404,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   // The asker or answerer is the socket's fig. The message names only the other fig.
-  private onDuel(appleId: string, serverSocket: WebSocket, kind: 'duel_request' | 'duel_accept' | 'duel_decline', otherId: string): void {
+  private onDuel(appleId: string, serverSocket: WebSocket, kind: 'duel_request' | 'duel_accept' | 'duel_decline' | 'duel_cancel', otherId: string): void {
     sweepTownOffers(this.duelOrchard, this.orchard.figs);
     if (kind === 'duel_request') {
       const asked = askDuel(this.duelOrchard, this.orchard.figs, appleId, otherId);
@@ -400,8 +416,20 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       this.replyOne(appleId, serverSocket);
       return;
     }
+    if (kind === 'duel_cancel') {
+      // The asker withdraws: the target's offer panel closes.
+      if (cancelDuel(this.duelOrchard, appleId, otherId)) {
+        this.figSockets.get(otherId)?.send(JSON.stringify({ type: 'duel_cancelled', otherId: appleId }));
+      }
+      this.replyOne(appleId, serverSocket);
+      return;
+    }
     const answered = answerDuel(this.duelOrchard, this.orchard.figs, appleId, otherId, kind === 'duel_accept');
     if (answered) {
+      // A decline tells the asker so its waiting dots go away; an accept shows as the pairing in every snapshot.
+      if (kind === 'duel_decline') {
+        this.figSockets.get(otherId)?.send(JSON.stringify({ type: 'duel_declined', otherId: appleId }));
+      }
       this.broadcastMango();
       return;
     }
@@ -625,7 +653,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       await this.storeCabbage();
     }
     await this.sproutCabbage();
-    if (this.chaseTargets.size > 0) {
+    if (this.chaseTargets.size > 0 || this.duelChases.size > 0) {
       await this.stepChasers();
     }
     await this.sweepCoins();
@@ -732,6 +760,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     this.chaseTargets.delete(appleId);
     this.chaseAims.delete(appleId);
     this.chaseStalls.delete(appleId);
+    this.chaseOnce.delete(appleId);
+    this.duelChases.delete(appleId);
     dropDuelsFor(this.duelOrchard, appleId);
     const cleared = clearAggroOn(this.cabbage, appleId);
     const keptSeeds = cleared.seeds.filter((seed) => seed.ownerId !== appleId);
@@ -783,7 +813,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
 
   // The attacker is the socket's fig. The beet id is the only thing the mango names.
   // A message that names a monster runs the monster path only; otherwise a named player is a duel swing.
-  private async onAttack(appleId: string, beetId: string | undefined, rivalId: string | undefined, once = false): Promise<void> {
+  private async onAttack(appleId: string, beetId: string | undefined, rivalId: string | undefined, once = false, walk = false): Promise<void> {
     const fig = this.orchard.figs.get(appleId);
     if (fig === undefined) {
       return;
@@ -792,23 +822,38 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       if (rivalId !== undefined) {
         // A duel swing ends any monster chase, so the two never fight over the one attack clock.
         this.stopChase(appleId);
+        this.duelChases.delete(appleId);
+        if (walk && duelPartnerOf(this.duelOrchard, appleId) === rivalId) {
+          // Right click on the duel partner: walk to them and keep swinging until one falls.
+          this.duelChases.set(appleId, rivalId);
+          this.noteMelon();
+        }
         await this.onDuelSwing(appleId, fig, rivalId);
+        if (walk) this.aimAtRival(appleId, fig);
+        await this.armOrchard(false);
       }
       return;
     }
-    if (once) {
+    this.duelChases.delete(appleId);
+    // once without walk: one swing right now, nothing else. once with walk: walk to the monster, swing once, stop.
+    if (once && !walk) {
       this.stopChase(appleId);
     }
     await this.sproutCabbage();
     const target = this.cabbage.beets.find((candidate) => candidate.id === beetId);
-    if (!once && target !== undefined && fig.facts.hp > 0 && fig.facts.place === target.zone) {
-      // A click on a monster walks the fig to it and keeps swinging until it dies or the player clicks the ground.
+    if ((!once || walk) && target !== undefined && fig.facts.hp > 0 && fig.facts.place === target.zone) {
+      // A click on a monster walks the fig to it. A right click keeps swinging until it dies or the player clicks the
+      // ground; a left click swings once.
       this.chaseTargets.set(appleId, beetId);
+      if (once) this.chaseOnce.add(appleId);
+      else this.chaseOnce.delete(appleId);
       this.chaseAims.delete(appleId);
       this.noteMelon();
     }
-    await this.strikeOnce(appleId, fig, beetId);
-    if (!once) {
+    const swung = await this.strikeOnce(appleId, fig, beetId);
+    if (swung && once && walk) {
+      this.stopChase(appleId);
+    } else if (!once || walk) {
       this.aimAtTarget(appleId, fig);
     }
     await this.armOrchard(false);
@@ -816,6 +861,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   private stopChase(appleId: string): void {
+    this.duelChases.delete(appleId);
+    this.chaseOnce.delete(appleId);
     this.chaseTargets.delete(appleId);
     this.chaseAims.delete(appleId);
     this.chaseStalls.delete(appleId);
@@ -877,6 +924,29 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     this.chaseAims.set(appleId, aim);
   }
 
+  // Walk toward a point just inside melee reach of the duel partner, on the fig's side of them.
+  private aimAtRival(appleId: string, fig: FigWalk): void {
+    const rivalId = this.duelChases.get(appleId);
+    const rival = rivalId === undefined ? undefined : this.orchard.figs.get(rivalId);
+    if (rival === undefined) {
+      return;
+    }
+    const dx = fig.facts.x - rival.facts.x;
+    const dy = fig.facts.y - rival.facts.y;
+    const dist = Math.hypot(dx, dy);
+    const standOff = kaleConstants.meleeReachPx - 8;
+    if (dist <= standOff) {
+      return;
+    }
+    const aim = { x: rival.facts.x + (dx / dist) * standOff, y: rival.facts.y + (dy / dist) * standOff };
+    const last = this.chaseAims.get(appleId);
+    if (last !== undefined && fig.guavaArmed && Math.hypot(last.x - aim.x, last.y - aim.y) <= 14) {
+      return;
+    }
+    orderGuava(fig, aim.x, aim.y);
+    this.chaseAims.set(appleId, aim);
+  }
+
   // Every tick: each chasing fig closes in on its monster, stands in reach, and swings on its own attack clock.
   private async stepChasers(): Promise<boolean> {
     let changed = false;
@@ -899,6 +969,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
         fig.apricotFacing = beet.x < fig.facts.x ? 'left' : 'right';
         if (await this.strikeOnce(appleId, fig, beetId)) {
           changed = true;
+          if (this.chaseOnce.has(appleId)) this.stopChase(appleId);
         }
         continue;
       }
@@ -914,6 +985,39 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       } else {
         this.chaseStalls.set(appleId, { x: fig.facts.x, y: fig.facts.y, ticks: 0 });
       }
+      changed = true;
+    }
+    // Duel partners being chased by a right click: close in, stand in reach, swing on the attack clock until one falls.
+    for (const [appleId, rivalId] of [...this.duelChases]) {
+      const fig = this.orchard.figs.get(appleId);
+      const rival = this.orchard.figs.get(rivalId);
+      if (
+        fig === undefined ||
+        rival === undefined ||
+        duelPartnerOf(this.duelOrchard, appleId) !== rivalId ||
+        fig.facts.hp <= 0 ||
+        rival.facts.hp <= 0 ||
+        fig.facts.place === 'town' ||
+        rival.facts.place === 'town'
+      ) {
+        this.duelChases.delete(appleId);
+        this.chaseAims.delete(appleId);
+        continue;
+      }
+      const dist = Math.hypot(rival.facts.x - fig.facts.x, rival.facts.y - fig.facts.y);
+      if (dist <= kaleConstants.meleeReachPx) {
+        if (fig.guavaArmed) {
+          fig.guavaArmed = false;
+          fig.limeStops = [];
+          changed = true;
+        }
+        this.chaseAims.delete(appleId);
+        fig.apricotFacing = rival.facts.x < fig.facts.x ? 'left' : 'right';
+        await this.onDuelSwing(appleId, fig, rivalId);
+        changed = true;
+        continue;
+      }
+      this.aimAtRival(appleId, fig);
       changed = true;
     }
     return changed;
@@ -1013,6 +1117,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     return (
       this.figSockets.size > 0 &&
       (this.anyFigMoving() ||
+        this.chaseTargets.size > 0 ||
+        this.duelChases.size > 0 ||
         anyAggro(this.cabbage) ||
         this.swungBeets.size > 0 ||
         this.anyBedWatched() ||
