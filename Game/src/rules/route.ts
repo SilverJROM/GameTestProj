@@ -3,6 +3,7 @@
 // nodes are the wall corners (pushed a few pixels off the wall so a straight leg never touches it) and the gate
 // middles. The graph between the fixed nodes is built once. Each click only adds the start and the target.
 
+import { routeGraphData } from './precomputed.generated';
 import {
   berryCemeteryGate,
   firstSolidWallCrossing,
@@ -19,7 +20,7 @@ export const ROUTE_PAD_PX = 5;
 // A node closer than this to any wall is dropped.
 const MIN_CLEARANCE_PX = 3;
 
-interface Graph {
+export interface Graph {
   readonly nodes: readonly Point[];
   readonly links: readonly (readonly number[])[];
 }
@@ -97,8 +98,9 @@ function offsets(): Point[] {
 
 let graph: Graph | null = null;
 
-function fixedGraph(): Graph {
-  if (graph !== null) return graph;
+// Builds the fixed part of the graph from the wall data. Slow (100 to 250 ms), so a build step runs it once and writes
+// the result to precomputed.generated.ts; the Worker only builds it itself if that file is empty.
+export function buildFixedGraph(): Graph {
   const nodes = offsets();
   const links: number[][] = nodes.map(() => []);
   for (let i = 0; i < nodes.length; i++) {
@@ -109,7 +111,12 @@ function fixedGraph(): Graph {
       }
     }
   }
-  graph = { nodes, links };
+  return { nodes, links };
+}
+
+function fixedGraph(): Graph {
+  if (graph !== null) return graph;
+  graph = routeGraphData ?? buildFixedGraph();
   return graph;
 }
 

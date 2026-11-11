@@ -6,6 +6,7 @@
 // The leek stays the beet's home: it is where a chase is measured from.
 
 import { berryCemeteryGate, firstSolidWallCrossing, inRing, limeTownGate, MAP_HEIGHT, MAP_WIDTH, spawnPoints, zoneRings, type Point } from './regions';
+import { patrolCellsData } from './precomputed.generated';
 import { nearWall } from './route';
 import { kaleConstants, onionMonsterRows, type ZoneName } from './tables';
 
@@ -137,6 +138,21 @@ const cellCache = new Map<ZoneName, ZoneCells>();
 function zoneCells(zone: ZoneName): ZoneCells {
   const known = cellCache.get(zone);
   if (known !== undefined) return known;
+  const packed = patrolCellsData?.[zone];
+  if (packed !== undefined) {
+    // Prebuilt at build time: cells are lists of indexes into the spot list.
+    const spots = packed.spots as Point[];
+    const unpacked = { cells: packed.cells.map((indexes) => indexes.map((i) => spots[i]!)), spots };
+    cellCache.set(zone, unpacked);
+    return unpacked;
+  }
+  const built = buildZoneCells(zone);
+  cellCache.set(zone, built);
+  return built;
+}
+
+// Slow (13 to 60 ms per zone): a build step runs it once and writes precomputed.generated.ts.
+export function buildZoneCells(zone: ZoneName): ZoneCells {
   const leeks = usedLeeks(zone);
   const cells: Point[][] = leeks.map(() => []);
   const spots: Point[] = [];
@@ -159,9 +175,15 @@ function zoneCells(zone: ZoneName): ZoneCells {
       }
     }
   }
-  const built = { cells, spots };
-  cellCache.set(zone, built);
-  return built;
+  return { cells, spots };
+}
+
+// The cells as index lists into the spot list, for the generated file.
+export function packZoneCells(zone: ZoneName): { spots: Point[]; cells: number[][] } {
+  const { cells, spots } = buildZoneCells(zone);
+  const index = new Map<string, number>();
+  spots.forEach((p, i) => index.set(`${p[0]},${p[1]}`, i));
+  return { spots: [...spots], cells: cells.map((cell) => cell.map((p) => index.get(`${p[0]},${p[1]}`)!)) };
 }
 
 // The spots a patrol of this zone may touch (for tests and measurements).
