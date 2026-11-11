@@ -834,7 +834,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       const [loserRow, winnerRow] = hit.writes as [PersimmonWrite, PersimmonWrite];
       // The pairing and the glow end with the fight; both purses go to D1 in one batch.
       dropDuelsFor(this.duelOrchard, appleId);
-      const moved = await saveFactsPair(this.env.DB, loserRow, winnerRow);
+      const { moved, expired } = await saveFactsPair(this.env.DB, loserRow, winnerRow);
+      if (expired > 0) {
+        // Coins that ran out between the pot being set and the write also left the stored purse.
+        const loserNow = this.orchard.figs.get(loserRow.id);
+        if (loserNow !== undefined) loserNow.facts = { ...loserNow.facts, coins: Math.max(0, loserNow.facts.coins - expired) };
+      }
       // The database moves only coins that are really in live lots. If that is less than the pot the strike assumed,
       // the live purses follow the database.
       const pot = loserRow.patch.duelPot ?? 0;

@@ -325,13 +325,14 @@ describe('coin expiry', () => {
       { amount: 4, ageDays: 2 },
     ]);
     const winner = await withLots('Gets', []);
-    const moved = await saveFactsPair(
+    const { moved, expired } = await saveFactsPair(
       kiwiDb,
       { id: loser.facts.id, patch: { coinsDelta: -6, duelPot: 6 } },
       { id: winner.facts.id, patch: { coinsDelta: 6, duelPot: 6 } },
       () => 0.3,
     );
     expect(moved).toBe(4);
+    expect(expired).toBe(8);
     expect((await getById(kiwiDb, loser.facts.id))!.coins).toBe(0);
     expect((await getById(kiwiDb, winner.facts.id))!.coins).toBe(4);
     const winnerLots = await readCoinLots(kiwiDb, winner.facts.id);
@@ -344,10 +345,10 @@ describe('coin expiry', () => {
     const loser = await withLots('Odd', [{ amount: 10, ageDays: 2 }]);
     const winner = await withLots('Odd2', []);
     expect(
-      await saveFactsPair(kiwiDb, { id: loser.facts.id, patch: { duelPot: 2.5 } }, { id: winner.facts.id, patch: { duelPot: 2.5 } }, () => 0),
+      (await saveFactsPair(kiwiDb, { id: loser.facts.id, patch: { duelPot: 2.5 } }, { id: winner.facts.id, patch: { duelPot: 2.5 } }, () => 0)).moved,
     ).toBe(2);
     expect(
-      await saveFactsPair(kiwiDb, { id: loser.facts.id, patch: { duelPot: Number.POSITIVE_INFINITY } }, { id: winner.facts.id, patch: { duelPot: Number.POSITIVE_INFINITY } }, () => 0),
+      (await saveFactsPair(kiwiDb, { id: loser.facts.id, patch: { duelPot: Number.POSITIVE_INFINITY } }, { id: winner.facts.id, patch: { duelPot: Number.POSITIVE_INFINITY } }, () => 0)).moved,
     ).toBe(0);
     const lots = await readCoinLots(kiwiDb, winner.facts.id);
     expect(lots.every((row) => Number.isInteger(row.amount))).toBe(true);

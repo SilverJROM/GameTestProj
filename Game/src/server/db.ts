@@ -588,18 +588,19 @@ export async function saveFactsPair(
   first: { readonly id: string; readonly patch: CharacterFactsPatch },
   second: { readonly id: string; readonly patch: CharacterFactsPatch },
   rand: () => number = Math.random,
-): Promise<number> {
+): Promise<{ readonly moved: number; readonly expired: number }> {
   const nowMs = Date.now();
   let a = first.patch;
   let b = second.patch;
   const lotStatements: D1Statement[] = [];
   let moved = 0;
+  let expired = 0;
   const wanted = a.duelPot ?? b.duelPot;
   if (wanted !== undefined) {
     // first pays, second collects. Only coins that are in live lots change hands: the loser's expired coins go first,
     // then the coins are drawn at random from what is left and arrive under their ORIGINAL dates. Nothing is created.
     const pot = Number.isFinite(wanted) ? Math.max(0, Math.floor(wanted)) : 0;
-    await expireCoinLots(db, first.id, nowMs);
+    expired = await expireCoinLots(db, first.id, nowMs);
     const live = (await readCoinLots(db, first.id)).filter((lot) => !lotExpired(lot, nowMs));
     const takes = drawLots(live, pot, rand);
     const winnerLots = await readCoinLots(db, second.id);
@@ -643,7 +644,7 @@ export async function saveFactsPair(
   if (leeks.length > 0) {
     await db.batch(leeks);
   }
-  return moved;
+  return { moved, expired };
 }
 
 // Writes only the keys present in the patch. Returns the stored row after the write, or null if no such character.
