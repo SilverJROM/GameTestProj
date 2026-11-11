@@ -1,6 +1,6 @@
 # Game requirements
 
-Source: `Game/docs/proj_A.md`, plus the rules confirmed for the local game. Status: **the local game follows this document.**
+Source: `Game/docs/proj_A.md`, plus the rules confirmed with the project owner. Status: **the game, local and deployed, follows this document** (refreshed for plan 09: server-side death, level-3 duels, coin expiry, shared bag, route walking, controls, Access and account cap).
 
 This document replaces `Game/docs/briefing_A.md` for project A. The older sheet (one sword, one armor, wolves only, one-shot arena duel, no levels) is not the rule set.
 
@@ -31,9 +31,18 @@ Walls are solid. Fence pixels, and the uneven top of the near town wall, are pai
 | Grey ground | Upper right | Bears |
 | Cemetery | Upper left | Skeletons |
 
-Click the ground to walk. The walk stills play while the character moves. The player starts in town after login.
+### Controls
 
-The fountain is the courtyard well painted on the town. Clicking it sets that player's health to their current maximum. It costs nothing and has no cooldown. It does not revive a player who is already at 0.
+- Left click on the ground walks there by the shortest route around the solid walls (the town and cemetery gates are open). The walk stills play while the character moves.
+- Left click on a monster walks to it and swings once. Left click on the duel partner (once a duel has started) does the same.
+- Right click on a monster walks to it and keeps swinging until it dies. Right click on the duel partner walks over and keeps swinging until one of them falls.
+- Right click on any other player opens a small menu: Duel (sends the request; while it waits the menu shows Cancel and waiting dots).
+- Left click on the fountain (in town) sips. Left click on the forge (in town) opens the smith.
+- The partner's outline lights up on hover during a duel. A swing out of reach does nothing while walking, and one swing is one swing.
+
+The player starts in town after login.
+
+The fountain is the courtyard well painted on the town. Clicking it sets that player's health to their current maximum. It costs nothing and has no cooldown. It does not revive a dead avatar: only Respawn does.
 
 The shop is the forge in town. Clicking it opens the smith. The blacksmith still may stand there. `houses/cottage.png` and `houses/tall.png` are spare art and are not required.
 
@@ -52,7 +61,9 @@ The first screen is character setup, before the map.
 
 ## Accounts
 
-A player signs in to an account with a username and a password. The password is stored only as a PBKDF2-SHA-256 hash, so a forgotten password cannot be recovered. Each account has at most two avatars. A character name is still unique in the whole world. Signing in lists those avatars, and playing one enters the world as that character with the coins, gear, level, experience, place, and position already stored. Deleting an avatar removes it, including while it is connected. Characters from before accounts were discarded.
+A player signs in to an account with a username and a password. The password is stored only as a PBKDF2-SHA-256 hash (10,000 rounds, kept low because the Workers Free plan allows 10 ms of CPU per request), so a forgotten password cannot be recovered. Each account has at most two avatars. A character name is still unique in the whole world. Signing in lists those avatars, and playing one enters the world as that character with the coins, gear, level, experience, place, and position already stored. Deleting an avatar removes it, including while it is connected. Characters from before accounts were discarded.
+
+The deployed game is limited on purpose. A secret, `MAX_ACCOUNTS` (6 on the live site), caps the number of accounts; the site is also behind Cloudflare Access, which asks an allowed email address for a one-time PIN before the page loads. See `docs/security.md`.
 
 ## Character numbers
 
@@ -75,7 +86,7 @@ The screen shows current and maximum health as a bar and the numbers, for exampl
 
 A hit shows a number at the target for about one second. Damage on a monster is white. Damage on a player is red. Each hit is shown once.
 
-One click is one attack. A player attack can happen every 0.45 seconds, and the attack stills play. Strike is base strike plus the worn sword. Damage is that strike, minus nothing from armor. Armor does not reduce damage. It adds maximum health.
+A player attack can happen every 0.45 seconds, and the attack stills play (see Controls for what one click does). Strike is base strike plus the worn sword. Damage is that strike, minus nothing from armor. Armor does not reduce damage. It adds maximum health.
 
 ## Monsters
 
@@ -89,7 +100,7 @@ Each zone holds **7** of its monster, which is inside the 6–8 band. They are s
 
 A wolf or a bear that has not been hit does not chase. After a hit, it chases and attacks the player who hit it. Leaving the zone or dying clears the aggro.
 
-A skeleton does not wait to be hit. It aggros a player who comes within 120 pixels of it inside the cemetery, then chases. Skeletons do not aggro players who are in town, on the green, or on the grey.
+A skeleton does not wait to be hit. It aggros a player who comes within 100 pixels of it inside the cemetery, then chases. Skeletons do not aggro players who are in town, on the green, or on the grey.
 
 | Monster | Time between attacks |
 | --- | --- |
@@ -99,17 +110,27 @@ A skeleton does not wait to be hit. It aggros a player who comes within 120 pixe
 
 The player's gap stays 0.45 seconds. A monster does not bite on a tick in which it moved. The first bite may land on the tick it is already in reach.
 
-An unaggroed monster patrols from its spawn to the next spawn in that zone, then around the list, at 40 pixels per second. The path is fixed. If the way back to its spawn stays blocked for 1 second, it is placed on its spawn.
+An unaggroed monster patrols from its spawn to the next spawn in that zone, then around the list, slowly: 11 pixels per second for wolves and skeletons, 8 for bears. Chasing is faster (90 pixels per second), and a wolf or bear gives up a chase when it is more than 250 pixels from its spawn. The patrol path is fixed. If the way back to its spawn stays blocked for 1 second, it is placed on its spawn.
 
-While a monster is aggroed, a red glow is drawn behind its head and the head art is drawn on top. That glow is separate from the duel glow. Wolves and bears glow only after a hit. A skeleton glows when a player is within 120 pixels in the cemetery.
+While a monster is aggroed, a red glow is drawn behind its head and the head art is drawn on top. That glow is separate from the duel glow. Wolves and bears glow only after a hit. A skeleton glows when a player is within 100 pixels in the cemetery.
 
-If no player is connected, the room does not tick. Monsters do not patrol, chase, bite, or appear in a broadcast. The login screen leaves them frozen. Only monsters in a zone that contains a connected player are stepped. Standing in town does not move wolves, bears, or skeletons. A monster that is already chasing a connected player keeps being stepped until that chase ends. Patrol by itself does not write storage.
+If no player is connected, the room does not tick. Monsters do not patrol, chase, bite, or appear in a broadcast. The login screen leaves them frozen. Only monsters in a zone that contains a connected player are stepped. Standing in town does not move wolves, bears, or skeletons. To fit the Cloudflare Free plan the room ticks in memory every 100 ms only while someone is connected, saves positions at most every 1.5 s, and closes a connection that has been idle for a while. A monster that is already chasing a connected player keeps being stepped until that chase ends. Patrol by itself does not write storage.
 
 Walk stills play walk-1, then walk-2, then walk-3, then walk-2 again, about 320 ms a frame. The sprite flips when the path goes left. Standing still uses `stand`. An attack still holds for about 420 ms. The player shows attack-1, then attack-2. Each character is scaled to one height and anchored at the feet. A skeleton is not drawn at a wolf's height. The blacksmith is drawn at the player's height.
 
 Monster attacks use their stills: wolf `stand` / `step` / `bite`, bear `stand` / `charge` / `swipe`, skeleton `stand` / `thrust` / `strike`. Wolves, bears, and skeletons also have walk-1, walk-2, and walk-3.
 
-At 0 health the character returns to town at full maximum health and keeps level, experience, and gear. A monster that reaches 0 dies, grants its experience to the killer, and drops one coin worth its coin value on the ground.
+### Death
+
+Death is real and is kept on the server. A character at 0 health (a monster's bite or a lost duel) is dead and **stays dead where it fell**: it cannot walk, attack, duel, or be woken by the fountain, monsters leave it alone, and every other player sees a cross on that spot. Its own screen shows a death panel; the Respawn button appears after about 1.5 seconds and sends `respawn`, which lands the character in town at full maximum health, keeping level, experience, gear, and coins.
+
+Everything in progress when the avatar dies stops with it: any monster chase on it, any active duel or pending request, its pet's trip to a coin, and a coin it had not picked up (the coin waits on the ground for that owner and its 2.25 seconds start over after the respawn). The browser may keep a display hint, but the server is the only authority.
+
+Deviation from the manager's guidance (report 22), decided by the project owner: if a dead avatar's player leaves with Exit game, the avatar is **not** left dead for the next Play; it rejoins in town at full health. Avatars saved alive in town are unaffected.
+
+### Kills
+
+A monster that reaches 0 dies, grants its experience to the killer, and drops one coin worth its coin value on the ground.
 
 ## Coins and the axolotl
 
@@ -121,13 +142,15 @@ Only the killer's axolotl picks up that coin. Another player's pet cannot take i
 
 The owner may walk away as soon as the monster dies. The pet goes to the coin wherever it lies. The pickup plays `avatars/axolotl/pickup.png` and lasts **2.25 seconds**. When those 2.25 seconds finish, the whole coin value is added to the owner's purse at once. The pet then comes back and follows the owner again. A coin left on the ground stays there for that owner until their pet collects it. If the owner leaves before the pickup finishes, the coin waits and the 2.25 seconds start over when the owner returns.
 
+A coin expires 7 days after it is picked up. Each pickup is its own lot with its own date, spending takes the oldest lots first, and the Bag warns about lots that expire within 2 days. A lot past its date is gone from the purse.
+
 When that coin reaches the owner's purse, a gold "+N" floats up for one second above the coin's last spot. N is the coin's value. Another player's coin does not float for you.
 
 ## Shop
 
 The forge sells the only gear. The blacksmith stands at the painted forge, on the courtyard ground inside the walls, at the same height as the player. A thought bubble reading "Armor and weapons" opens the shop. A Bag button opens the inventory. The inventory shows coins, the worn sword, the worn armor, level, health, strike, and experience. An empty sword or armor slot shows that nothing is worn.
 
-Buying spends the coins and puts the item in the bag. It does not equip it. Each item can be owned once; buying a copy you already own is refused and costs nothing. Equipping puts an owned sword in the sword slot or an owned armor in the armor slot, and the piece already in that slot goes back to the bag. Unequipping returns the worn piece to the bag. The bonus belongs to the equipped item: strike is the level's base plus the equipped sword, and maximum health is the level's base plus the equipped armor. Equipping armor raises maximum health and leaves current health where it is. Unequipping armor lowers maximum health and clamps current health down to it. Equipping or unequipping a sword does not change health. Equip and unequip work anywhere. A purchase the purse cannot cover, an unknown item, or a second copy is refused and changes nothing. Selling is not offered.
+Buying spends the coins and puts the item in the account's bag. The bag belongs to the account and is shared by both avatars, but a piece can be worn by one avatar at a time. Buying does not equip. Duplicates are allowed: every copy is its own row. Equipping puts an owned sword in the sword slot or an owned armor in the armor slot, and the piece already in that slot goes back to the bag. Unequipping returns the worn piece to the bag. The bonus belongs to the equipped item: strike is the level's base plus the equipped sword, and maximum health is the level's base plus the equipped armor. Equipping armor raises maximum health and leaves current health where it is. Unequipping armor lowers maximum health and clamps current health down to it. Equipping or unequipping a sword does not change health. Equip and unequip work anywhere. A purchase the purse cannot cover, an unknown item, or a second copy is refused and changes nothing. Selling is not offered.
 
 | Item | Effect | Price |
 | --- | --- | --- |
@@ -144,18 +167,19 @@ These prices line up with the hunt. Five wolves reach level 2 and pay for the sh
 
 A duel is player against player and cannot start in town.
 
-- Right-click another player to ask.
-- That player may accept or decline. Decline ends the request and changes nothing.
-- On accept, both players show a red glow. Either may then attack the other. One click is one attack, using the same strike and the same 0.45 second gap as a monster fight.
+- Right-click another player and pick Duel to ask. The asker can Cancel while the request waits. A dead player can neither ask nor accept.
+- That player may accept or decline. Decline or cancel ends the request and changes nothing.
+- On accept, both players show a red glow and the partner is outlined on hover. Either may then attack the other, using the 0.45 second gap.
+- **Fighters are level 3 in a duel.** Each fights with level 3 base health (92) and strike (6) plus their own sword and armor, whatever their real level, on a separate duel health bar (shown as `Duel x / y`). A level 1 character is raised to 3 and a level 5 or 6 is lowered to 3, so farmed gear, not a level lead, decides the fight. Real health, level and experience are not touched by the fight.
 - Duels give no experience.
-- At 0 health, the loser returns to town at full maximum health, keeps level, experience, and gear, and gives the winner half of the loser's coins, rounded down.
-- Walking into town ends the glow and stops the fight. Coins move only when a duelist hits 0.
+- When a duel bar reaches 0, the loser dies where it fell (the death rules above apply) and gives the winner half of the loser's coins, rounded down.
+- Walking into town ends the glow and stops the fight. Coins move only when a duel bar hits 0.
 
-A higher level with a better sword beats a new character quickly. Declining the request is the way out of a mismatch.
+Declining the request is the way out of a mismatch. The balance case is in `docs/balance.md`.
 
 ## What must persist
 
-For each character, the server remembers name, gender, level, experience, current health, maximum health, coins, sword, armor, and place. The shared zones remember their living monsters and coins still on the ground. A reload returns the same character to the same facts. Other players' movement, fights, and coin drops appear on the same map.
+For each character, the server remembers name, gender, level, experience, current health (0 means dead), maximum health, coins (as dated lots), sword, armor, place, and position. The account remembers its shared bag. The shared zones remember their living monsters and coins still on the ground. A reload returns the same character to the same facts. Other players' movement, fights, and coin drops appear on the same map.
 
 ## Delivery bar from proj_A
 
@@ -181,6 +205,6 @@ Not required for these rules: `map.jpg`, `world-map.jpg`, cottage, tall house, `
 
 The fountain is the well painted on the town. There is no separate fountain sprite. Sprite files are large and different sizes, on a magenta field. Each kind is scaled to one height, and the magenta is removed before the still is shown.
 
-## Not decided here
+## Hosting
 
-The host and the storage engine are not chosen. `proj_A.md` requires a saved shared world and a deployed HTTPS game. It does not name the vendor. Planning picks that, after this document is confirmed.
+Chosen and built: a Cloudflare Worker with one Durable Object (`WorldRoom`) for the live world and D1 for accounts, avatars, items and coin lots. The live site is behind Cloudflare Access. Setup, deployment and the access model are in `README.md` and `docs/security.md`; known limits are in `docs/limits.md`.
