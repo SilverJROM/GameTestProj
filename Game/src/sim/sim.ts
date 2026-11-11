@@ -6,7 +6,9 @@ import {
   awardXp,
   damage,
   deathResult,
+  duelMaxHealth,
   duelPayout,
+  duelStrike,
   kaleConstants,
   maxHealth,
   onionMonsterRows,
@@ -182,17 +184,20 @@ export function hunt(options: HuntOptions): HuntResult {
   return { hero, kills, died, elapsedMs: nowMs };
 }
 
-// Two heroes trade strikes on the same gap. The first strike that empties a health bar ends the duel.
-// The loser goes to town at full health, and the winner takes half the loser's coins, rounded down.
+// Two heroes trade strikes on the same gap. Each fights at the duel level (level 3 base health and strike) with
+// their own sword and armor, on a separate duel health bar. The first strike that empties a bar ends the duel.
+// The loser stays dead where it fell until it respawns in town at full health; the winner takes half the loser's
+// coins, rounded down. Real level, health and xp are never touched by the fight itself.
 export function duel(options: DuelOptions): DuelResult {
   const nextRandom = mulberry32(options.seed);
   const limitMs = (options.maxSeconds ?? defaultMaxSeconds) * 1000;
 
   let first = options.first;
   let second = options.second;
+  let firstBar = duelMaxHealth(first);
+  let secondBar = duelMaxHealth(second);
   let winner: 'first' | 'second' | null = null;
   let nowMs = 0;
-  // Each side's next allowed strike.
   let nextFirstMs = 0;
   let nextSecondMs = 0;
 
@@ -210,15 +215,15 @@ export function duel(options: DuelOptions): DuelResult {
         break;
       }
       if (side === 'first') {
-        second = { ...second, health: Math.max(0, second.health - damage(first)) };
+        secondBar = Math.max(0, secondBar - duelStrike(first));
         nextFirstMs += pearGapMs;
-        if (second.health === 0) {
+        if (secondBar === 0) {
           winner = 'first';
         }
       } else {
-        first = { ...first, health: Math.max(0, first.health - damage(second)) };
+        firstBar = Math.max(0, firstBar - duelStrike(second));
         nextSecondMs += pearGapMs;
-        if (first.health === 0) {
+        if (firstBar === 0) {
           winner = 'second';
         }
       }

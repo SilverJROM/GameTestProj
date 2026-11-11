@@ -41,6 +41,8 @@ export type ClientMessage =
   | { readonly type: 'attack'; readonly playerId: string; readonly once?: true; readonly walk?: true }
   // The asker withdraws a request that is still waiting for an answer.
   | { readonly type: 'duel_cancel'; readonly playerId: string }
+  // A dead avatar's player picks Respawn in town: the avatar lands in town at full health.
+  | { readonly type: 'respawn' }
   | { readonly type: 'duel_request'; readonly playerId: string }
   | { readonly type: 'duel_accept'; readonly playerId: string }
   | { readonly type: 'duel_decline'; readonly playerId: string };
@@ -71,6 +73,11 @@ export interface PlayerSnapshot {
   readonly duelPartnerId: string | null;
   // True only for the snapshot in which this player's swing landed (the avatar shows its swing frames).
   readonly attacking?: boolean;
+  // True while this avatar is dead where it fell (its health is 0). It cannot move or fight until it respawns in town.
+  readonly dead?: boolean;
+  // During a duel: the duel health and its maximum (duel level plus gear). The page shows these instead of real health.
+  readonly duelHp?: number;
+  readonly duelMaxHp?: number;
 }
 
 // One living beet. It stands on a leek until hit, then chases.
@@ -229,6 +236,9 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
       return { type: 'ripen', steps: 1 };
     }
     return { type: 'ripen', steps: oliveSteps };
+  }
+  if (peeled.type === 'respawn') {
+    return { type: 'respawn' };
   }
   if (peeled.type === 'prune' && typeof peeled.beetId === 'string' && peeled.beetId.length > 0) {
     return { type: 'prune', beetId: peeled.beetId };

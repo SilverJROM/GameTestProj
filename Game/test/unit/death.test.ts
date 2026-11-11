@@ -58,34 +58,76 @@ describe('death panel and cross', () => {
     expect(killed.bites[0]!.x).toBeCloseTo(wolf.x + 20, 5);
   });
 
-  it('a fatal hit on this player shows the panel, holds the camera on the spot and ignores clicks until it ends', () => {
+  const deadSnapshot = (deadIds: string[], hitExtra: Record<string, unknown> = { fatal: true }) => ({
+    type: 'snapshot' as const,
+    character: { id: 'fig-self', place: 'town' as const, gender: 'woman' as const },
+    snapshot: {
+      players: [
+        { ...fig('fig-self', 'green', 900, 400), ...(deadIds.includes('fig-self') ? { dead: true } : {}) },
+        { ...fig('fig-other', 'green', 700, 380), ...(deadIds.includes('fig-other') ? { dead: true } : {}) },
+      ],
+      monsters: [],
+      coins: [],
+      pickups: [],
+      hits: [{ id: `hit-${deadIds.join('-')}`, targetKind: 'player', targetId: deadIds[0] ?? 'fig-self', amount: 9, x: 900, y: 400, ...hitExtra }],
+    },
+  });
+
+  it('a fatal hit on this player shows the panel, holds the camera on the spot and ignores clicks until the server says alive', () => {
     const sent: string[] = [];
     const onDeath = vi.fn();
-    const board = plantFigBoard({ selfId: 'fig-self', selfPlace: 'town', createSocket: () => quietLemon(sent), hooks: { onDeath } });
-    board.ingest(killedSnapshot({ fatal: true }));
+    const onRespawned = vi.fn();
+    const board = plantFigBoard({ selfId: 'fig-self', selfPlace: 'green', createSocket: () => quietLemon(sent), hooks: { onDeath, onRespawned } });
+    board.ingest(deadSnapshot(['fig-self']));
     expect(onDeath).toHaveBeenCalledTimes(1);
     expect(board.camera()).toEqual(viewBox('green', 900, 400, ZOOM_CLOSE));
     const before = sent.length;
     board.click({ x: 500, y: 500, button: 0 });
     expect(board.pressScreen(1200, 40)).toBe(true);
     expect(sent.length).toBe(before);
-    board.endDeath();
+    // Respawn asks the server; the page stays held until a snapshot shows the avatar alive again.
+    board.respawn();
+    expect(JSON.parse(sent[sent.length - 1]!)).toEqual({ type: 'respawn' });
+    expect(onRespawned).not.toHaveBeenCalled();
+    board.ingest({ ...killedSnapshot({ id: 'none' }), snapshot: { players: [fig('fig-self', 'town', 300, 440)], monsters: [], coins: [], pickups: [], hits: [] } });
+    expect(onRespawned).toHaveBeenCalledTimes(1);
     expect(board.camera()).toEqual(viewBox('town', 300, 440, ZOOM_CLOSE));
+    const after = sent.length;
     board.click({ x: 500, y: 500, button: 0 });
-    expect(sent.length).toBe(before + 1);
+    expect(sent.length).toBe(after + 1);
   });
 
-  it('an ordinary hit, or someone else being killed, does not open the panel but still leaves a cross for the other kill', () => {
+  it('a dead avatar is a cross for everyone until it respawns, and is not drawn as a character', () => {
     const onDeath = vi.fn();
-    const board = plantFigBoard({ selfId: 'fig-self', selfPlace: 'town', createSocket: () => quietLemon(), hooks: { onDeath } });
-    board.ingest(killedSnapshot({}));
+    const board = plantFigBoard({ selfId: 'fig-self', selfPlace: 'green', createSocket: () => quietLemon(), hooks: { onDeath } });
+    const view = viewBox('green', 900, 400, ZOOM_CLOSE);
+    const rects: number[] = [];
+    const ctx = { fillStyle: '', fillRect: () => void rects.push(1) };
+    // Someone else is killed: no panel for this player, a cross on their spot, and no still for them.
+    board.ingest(deadSnapshot(['fig-other'], { id: 'k1', targetId: 'fig-other', fatal: true, x: 700, y: 380 }));
     expect(onDeath).not.toHaveBeenCalled();
-    board.ingest(killedSnapshot({ id: 'hit-2', targetId: 'fig-other', fatal: true }));
-    expect(onDeath).not.toHaveBeenCalled();
-    const rects: string[] = [];
-    const ctx = { fillStyle: '', fillRect: (x: number, y: number, w: number, h: number) => void rects.push(`${x},${y},${w},${h}`) };
-    board.paintGraves(ctx, viewBox('green', 900, 400, ZOOM_CLOSE), Date.now());
-    expect(rects.length).toBe(4);
+    expect(board.pose().some((still) => still.id === 'fig-other')).toBe(false);
+    board.paintGraves(ctx, viewBox('green', 700, 380, ZOOM_CLOSE), 5_000_000);
+    expect(rects).toHaveLength(4);
+    // They respawn (the snapshot has no dead flag any more): the cross goes away at once.
+    rects.length = 0;
+    board.ingest(deadSnapshot([], { id: 'k2' }));
+    board.paintGraves(ctx, view, 5_000_000);
+    expect(rects).toHaveLength(0);
+    expect(board.pose().some((still) => still.id === 'fig-other')).toBe(true);
+  });
+
+  it('the health bar shows the duel health, labelled, while the player is in a duel', () => {
+    const board = plantFigBoard({ selfId: 'fig-self', selfPlace: 'green', createSocket: () => quietLemon() });
+    board.ingest({
+      type: 'snapshot' as const,
+      character: { id: 'fig-self', place: 'green' as const, gender: 'woman' as const },
+      snapshot: {
+        players: [{ ...fig('fig-self', 'green', 900, 400), duelPartnerId: 'fig-other', duelHp: 70, duelMaxHp: 104 }, fig('fig-other', 'green', 940, 400)],
+        monsters: [], coins: [], pickups: [],
+      },
+    });
+    expect(board.health().text).toBe('Duel 70 / 104');
   });
 
   it('paints a cross inside the view, nothing outside it, and nothing after the cross has run out', () => {
@@ -165,25 +207,4 @@ describe('death panel and cross', () => {
     expect(peelClick({ x: 300, y: 270, button: 2 }, { ...orchard, duelPartnerId: null })).toEqual({ message: null, smithOpen: false, duelMenu: { playerId: 'foe' } });
   });
 
-  it('the killed player cross is removed when they respawn; another player cross runs out after a few seconds', () => {
-    const board = plantFigBoard({ selfId: 'fig-self', selfPlace: 'town', createSocket: () => quietLemon() });
-    const view = viewBox('green', 900, 400, ZOOM_CLOSE);
-    const rects: number[] = [];
-    const ctx = { fillStyle: '', fillRect: () => void rects.push(1) };
-    board.ingest(killedSnapshot({ fatal: true }));
-    // While the panel is open (even a long time later) the cross stays.
-    board.paintGraves(ctx, view, Date.now() + 120_000);
-    expect(rects).toHaveLength(4);
-    rects.length = 0;
-    board.endDeath();
-    board.paintGraves(ctx, view, Date.now());
-    expect(rects).toHaveLength(0);
-    // Someone else's cross is seen for GRAVE_LIFETIME_MS only.
-    board.ingest(killedSnapshot({ id: 'hit-9', targetId: 'fig-other', fatal: true }));
-    board.paintGraves(ctx, view, Date.now() + 1000);
-    expect(rects).toHaveLength(4);
-    rects.length = 0;
-    board.paintGraves(ctx, view, Date.now() + GRAVE_LIFETIME_MS + 1000);
-    expect(rects).toHaveLength(0);
-  });
 });

@@ -4,7 +4,7 @@
 // Time is whole milliseconds on the injected lime clock. This module never sleeps.
 
 import type { CharacterFactsPatch } from '../server/db';
-import { awardXp, deathResult, duelPayout, maxHealth, strike, type Hero } from '../rules/logic';
+import { awardXp, duelMaxHealth, duelPayout, duelStrike, maxHealth, strike, type Hero } from '../rules/logic';
 import { nearGateOpening, radishPatch } from '../rules/radish';
 import { firstSolidWallCrossing, inRing, skeletonRadiusPx, townSpawn, zoneRings } from '../rules/regions';
 import { kaleConstants, onionMonsterRows, pearTimings } from '../rules/tables';
@@ -359,14 +359,12 @@ export function stepAggro(
       fig.facts = { ...fig.facts, hp: left };
       writes.push({ id: fig.facts.id, patch: { hp: left } });
     } else {
-      const risen = deathResult({ ...heroOf(fig), health: 0 });
-      const [townX, townY] = townSpawn;
-      fig.facts = { ...fig.facts, hp: risen.health, place: risen.place, x: townX, y: townY };
-      fig.guavaX = townX;
-      fig.guavaY = townY;
+      // The avatar is dead where it fell (hp 0, same place and spot) until its player picks Respawn in town.
+      fig.facts = { ...fig.facts, hp: 0 };
       fig.guavaArmed = false;
+      fig.limeStops = [];
       felledFigs.add(fig.facts.id);
-      writes.push({ id: fig.facts.id, patch: { hp: risen.health, place: risen.place, x: townX, y: townY } });
+      writes.push({ id: fig.facts.id, patch: { hp: 0 } });
     }
     return { ...beet, swingMs: nextSwing };
   }
@@ -397,6 +395,7 @@ export function strikeFig(
   pairs: ReadonlyMap<string, string>,
   swing: SwingClock,
   nowMs: number,
+  duelHp: Map<string, number> = new Map<string, number>(),
 ): FigStrike {
   const none: FigStrike = { struck: false, writes: [], felled: false, mark: null };
   if (target === undefined || attacker.facts.id === target.facts.id) {
@@ -411,7 +410,9 @@ export function strikeFig(
   if (!trySwing(swing, nowMs, 'duel')) {
     return none;
   }
-  const amount = strike(heroOf(attacker));
+  // Duel numbers: both fighters use the duel level's base strike and health plus their own sword and armor. The fight
+  // runs on a separate duel health, so a duel never touches real health.
+  const amount = duelStrike(heroOf(attacker));
   const mark: StrikeMark = {
     targetKind: 'player',
     targetId: target.facts.id,
@@ -419,20 +420,22 @@ export function strikeFig(
     x: target.facts.x,
     y: target.facts.y,
   };
-  const left = target.facts.hp - amount;
+  const current = duelHp.get(target.facts.id) ?? duelMaxHealth(heroOf(target));
+  const left = current - amount;
   if (left > 0) {
-    target.facts = { ...target.facts, hp: left };
-    return { struck: true, writes: [{ id: target.facts.id, patch: { hp: left } }], felled: false, mark };
+    duelHp.set(target.facts.id, left);
+    if (!duelHp.has(attacker.facts.id)) duelHp.set(attacker.facts.id, duelMaxHealth(heroOf(attacker)));
+    return { struck: true, writes: [], felled: false, mark };
   }
-  const risen = deathResult({ ...heroOf(target), health: 0 });
+  duelHp.delete(target.facts.id);
+  duelHp.delete(attacker.facts.id);
   const pot = duelPayout(target.facts.coins);
-  const [townX, townY] = townSpawn;
   const loserCoins = target.facts.coins - pot;
   const winnerCoins = attacker.facts.coins + pot;
-  target.facts = { ...target.facts, hp: risen.health, place: risen.place, x: townX, y: townY, coins: loserCoins };
-  target.guavaX = townX;
-  target.guavaY = townY;
+  // The loser is dead where it fell until its player picks Respawn in town.
+  target.facts = { ...target.facts, hp: 0, coins: loserCoins };
   target.guavaArmed = false;
+  target.limeStops = [];
   attacker.facts = { ...attacker.facts, coins: winnerCoins };
   return {
     struck: true,
@@ -440,7 +443,7 @@ export function strikeFig(
     mark: { ...mark, fatal: true },
     // Loser first, winner second: saveFactsPair writes both in one batch.
     writes: [
-      { id: target.facts.id, patch: { hp: risen.health, place: risen.place, x: townX, y: townY, coins: loserCoins, coinsDelta: -pot, duelPot: pot } },
+      { id: target.facts.id, patch: { hp: 0, coins: loserCoins, coinsDelta: -pot, duelPot: pot } },
       { id: attacker.facts.id, patch: { coins: winnerCoins, coinsDelta: pot, duelPot: pot } },
     ],
   };

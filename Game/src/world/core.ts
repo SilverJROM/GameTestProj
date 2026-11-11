@@ -8,7 +8,7 @@
 
 import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
 import { buyItem, equipItem, unequipItem, type OwnedGear } from '../rules/items';
-import { maxHealth, type Hero } from '../rules/logic';
+import { duelMaxHealth, maxHealth, type Hero } from '../rules/logic';
 import { firstSolidWallCrossing, firstSolidWallHit, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, skeletonRadiusPx, townSpawn, zoneAt, type GuavaWallHit } from '../rules/regions';
 import { planWalk } from '../rules/route';
 import { kaleConstants, onionMonsterRows, type GearSlot } from '../rules/tables';
@@ -131,6 +131,10 @@ function turnApricot(fig: FigWalk, guavaX: number): void {
 // Aim a fig at a guava. A radish id is not an argument; the caller already picked the fig.
 export function orderGuava(fig: FigWalk, rawX: number, rawY: number): void {
   if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) {
+    return;
+  }
+  // A dead avatar lies where it fell: it cannot walk until it respawns.
+  if (fig.facts.hp <= 0) {
     return;
   }
   const clicked = clampGuava(rawX, rawY);
@@ -412,9 +416,19 @@ export function ripenDue(
   return writes;
 }
 
-function toPlayer(fig: FigWalk, partners: ReadonlyMap<string, string>): WorldSnapshot['players'][number] {
+function toPlayer(
+  fig: FigWalk,
+  partners: ReadonlyMap<string, string>,
+  duelHp: ReadonlyMap<string, number> = new Map<string, number>(),
+): WorldSnapshot['players'][number] {
   const planted = plantFig(fig.facts);
+  const partnerId = partners.get(planted.id);
+  const duelling = partnerId !== undefined;
+  const hero = { level: fig.facts.level, xp: fig.facts.xp, health: fig.facts.hp, coins: fig.facts.coins, sword: fig.facts.sword, armor: fig.facts.armor, place: fig.facts.place };
   return {
+    ...(fig.facts.hp <= 0 ? { dead: true } : {}),
+    // In a duel the health bar shows the duel health (duel level plus gear), not real health.
+    ...(duelling ? { duelHp: duelHp.get(planted.id) ?? duelMaxHealth(hero), duelMaxHp: duelMaxHealth(hero) } : {}),
     id: planted.id,
     name: planted.name,
     x: planted.x,
@@ -481,8 +495,9 @@ function orchardSnapshot(
   pickups: readonly PickupSnapshot[],
   partners: ReadonlyMap<string, string>,
   hits: readonly HitMark[] = [],
+  duelHp: ReadonlyMap<string, number> = new Map<string, number>(),
 ): WorldSnapshot {
-  const players = orchard.map((fig) => toPlayer(fig, partners));
+  const players = orchard.map((fig) => toPlayer(fig, partners, duelHp));
   return {
     players,
     monsters: beets.map((beet) => toBeet(beet, players)),
@@ -506,11 +521,12 @@ export function bakeWelcome(
   seeds: readonly CoinSnapshot[] = [],
   pickups: readonly PickupSnapshot[] = [],
   partners: ReadonlyMap<string, string> = new Map<string, string>(),
+  duelHp: ReadonlyMap<string, number> = new Map<string, number>(),
 ): WelcomeMessage {
   return {
     type: 'welcome',
     character: plantFig(fig.facts),
-    snapshot: orchardSnapshot(orchard, beets, seeds, pickups, partners),
+    snapshot: orchardSnapshot(orchard, beets, seeds, pickups, partners, [], duelHp),
   };
 }
 
@@ -523,10 +539,11 @@ export function bakeSnapshotMessage(
   pickups: readonly PickupSnapshot[] = [],
   partners: ReadonlyMap<string, string> = new Map<string, string>(),
   hits: readonly HitMark[] = [],
+  duelHp: ReadonlyMap<string, number> = new Map<string, number>(),
 ): SnapshotMessage {
   return {
     type: 'snapshot',
     character: plantFig(fig.facts),
-    snapshot: orchardSnapshot(orchard, beets, seeds, pickups, partners, hits),
+    snapshot: orchardSnapshot(orchard, beets, seeds, pickups, partners, hits, duelHp),
   };
 }

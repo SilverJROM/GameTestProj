@@ -1,6 +1,7 @@
 // Pure rule functions over the tables. Numbers come from tables.ts and are never restated here.
 
 import {
+  DUEL_LEVEL,
   LEVEL_CAP,
   mangoGearRows,
   papayaLevelRows,
@@ -101,7 +102,23 @@ export function awardXp(hero: Hero, amount: number): Hero {
   return { ...hero, level, xp, health };
 }
 
+// The hero as a duelist: level DUEL_LEVEL base health and strike, the same sword and armor.
+export function duelHero(hero: Hero): Hero {
+  return { ...hero, level: DUEL_LEVEL };
+}
+
+// Full health in a duel: the duel level's base health plus the worn armor.
+export function duelMaxHealth(hero: Hero): number {
+  return maxHealth(duelHero(hero));
+}
+
+// Strike in a duel: the duel level's strike plus the worn sword.
+export function duelStrike(hero: Hero): number {
+  return strike(duelHero(hero));
+}
+
 // Death sends the hero to town at full max health. Level, XP, gear, and coins are kept.
+// (In the game this is the respawn: a killed avatar first stays dead where it fell, then lands in town on Respawn.)
 export function deathResult(hero: Hero): Hero {
   return { ...hero, place: 'town', health: maxHealth(hero) };
 }

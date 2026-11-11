@@ -473,7 +473,7 @@ describe('lemon melon fountain', () => {
     expect(pepperJoin.welcome.character).toEqual(pepperCut);
     expect(pepperJoin.welcome.character.hp).toBe(pepperWound);
     expect(sageJoin.welcome.character).toEqual(sageReady);
-    expect(chiveJoin.welcome.character.hp).toBe(0);
+    expect(chiveJoin.welcome.character.hp).toBe(plateMax); // a dead avatar rejoins respawned in town
     expect(kaleJoin.welcome.character.place).toBe('grey');
     expect(leekJoin.welcome.character.place).toBe('cemetery');
     expect(pepperJoin.welcome.snapshot.monsters.map((beet) => beet.id).sort()).toEqual(bedIds);
@@ -493,7 +493,7 @@ describe('lemon melon fountain', () => {
     });
     expect(figSnap(missed, pepperReady.id).character).toEqual(pepperCut);
     expect(figSnap(missed, sageReady.id).character.hp).toBe(sageWound);
-    expect(figSnap(missed, chiveReady.id).character.hp).toBe(0);
+    expect(figSnap(missed, chiveReady.id).character.hp).toBe(plateMax);
     expect(figSnap(missed, kaleReady.id).character.hp).toBe(kaleWound);
     expect(figSnap(missed, leekReady.id).character.hp).toBe(leekWound);
     expect(await getById(kiwiDb, pepperReady.id)).toEqual(pepperCut);
@@ -515,12 +515,12 @@ describe('lemon melon fountain', () => {
     expect(pepperFirst.character.level).toBe(figLevel);
     expect(pepperFirst.character.place).toBe('town');
     expect(figSnap(first, sageReady.id).character.hp).toBe(sageWound);
-    expect(figSnap(first, chiveReady.id).character.hp).toBe(0);
+    expect(figSnap(first, chiveReady.id).character.hp).toBe(plateMax);
     expect(figSnap(first, kaleReady.id).character.hp).toBe(kaleWound);
     expect(figSnap(first, leekReady.id).character.hp).toBe(leekWound);
     expect(await getById(kiwiDb, pepperReady.id)).toEqual({ ...pepperCut, hp: chainMax });
     expect(await getById(kiwiDb, sageReady.id)).toEqual(sageReady);
-    expect(await getById(kiwiDb, chiveReady.id)).toEqual(chiveReady);
+    expect(await getById(kiwiDb, chiveReady.id)).toEqual({ ...chiveReady, hp: plateMax });
 
     const second = await hearAll(pepperJoin.socket, {
       type: 'fountain',
@@ -591,11 +591,11 @@ describe('lemon melon fountain', () => {
       y: center.y,
       id: pepperReady.id,
     });
-    expect(figSnap(drySip, chiveReady.id).character.hp).toBe(0);
+    expect(figSnap(drySip, chiveReady.id).character.hp).toBe(plateMax);
     expect(figSnap(drySip, chiveReady.id).character.maxHp).toBe(plateMax);
     expect(figSnap(drySip, chiveReady.id).character.place).toBe('town');
     expect(figSnap(drySip, chiveReady.id).character.coins).toBe(chiveCoins);
-    expect(await getById(kiwiDb, chiveReady.id)).toEqual(chiveReady);
+    expect(await getById(kiwiDb, chiveReady.id)).toEqual({ ...chiveReady, hp: plateMax });
 
     const greySip = await hearAll(kaleJoin.socket, {
       type: 'fountain',

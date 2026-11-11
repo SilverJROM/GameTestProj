@@ -9,7 +9,7 @@ const pantry = mkdtempSync(join(tmpdir(), 'sim-'));
 try {
   const basket = join(pantry, 'sim.mjs');
   await build({
-    entryPoints: ['scripts/sim.ts'],
+    entryPoints: [process.env.SIM_ENTRY ?? 'scripts/sim.ts'],
     bundle: true,
     platform: 'node',
     format: 'esm',

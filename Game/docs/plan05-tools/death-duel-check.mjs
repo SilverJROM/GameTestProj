@@ -80,7 +80,7 @@ try {
   await b.page.screenshot({ path: out + '/duel-accepted.png' });
   // 5. Once paired: hover shows the white outline on the partner; a LEFT click walks over and swings ONCE; a RIGHT click
   //    walks over and swings until dead.
-  const hpOf = (p) => p.st.msg.character.hp;
+  const hpOf = (p) => { const me = p.st.msg.snapshot?.players?.find((q) => q.id === p.st.msg.character.id); return me?.duelHp ?? p.st.msg.character.hp; }; // the duel bar while paired, else real health
   const before = hpOf(a);
   const here2 = pos(b.st, slayer.id);
   const cx3 = box.x + box.width / 2 + (pos(b.st, dyer.id).x - here2.x) * scale, cy3 = box.y + box.height / 2 + (pos(b.st, dyer.id).y - here2.y) * scale - 24 * scale;
@@ -110,4 +110,6 @@ try {
   const after = await a.page.evaluate(() => !document.getElementById('death-panel').hidden);
   await a.page.screenshot({ path: out + '/death-respawned.png' });
   console.log('panel after respawn:', after);
+  const rowAfter = (await call('GET', '/api/avatars')).find((x) => x.name === 'Dyer');
+  console.log('Dyer after respawn (from the account list):', JSON.stringify(rowAfter).slice(0, 160));
 } catch (e) { console.error('ERROR', e.message); } finally { await browser.close(); }

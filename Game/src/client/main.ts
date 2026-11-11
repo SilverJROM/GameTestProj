@@ -115,6 +115,8 @@ export interface FigHooks {
   onIdle?: () => void;
   // This player was killed: show the death panel (the page also holds the camera on the spot and draws a cross).
   onDeath?: () => void;
+  // The server confirmed the respawn (the avatar is alive again in town): close the death panel.
+  onRespawned?: () => void;
   // A right click landed on another player: open the little duel menu for them.
   onDuelMenu?: (playerId: string, name: string) => void;
   onOffer?: (offer: { fromId: string; fromName: string } | null) => void;
@@ -169,6 +171,8 @@ export interface FigBoard {
   closePanels(): void;
   // Opens or closes the fig menu. Opening it closes the Bag and the Blacksmith.
   setMenu(open: boolean): void;
+  // Ask the server to respawn this dead avatar in town.
+  respawn(): void;
   // Send a duel request to this player and show the waiting dots over them until they answer or it is cancelled.
   // The player this one is dueling (both agreed), or null.
   duelPartner(): string | null;
@@ -348,6 +352,11 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       }
       if (snap !== null) noteHits(snap.hits);
       const selfRow = orchard.players.find((fig) => fig.id === selfId);
+      // The server confirmed the respawn: the avatar is alive again (in town). Close the panel and go back to it.
+      if (deathHold !== null && selfRow !== undefined && selfRow.dead !== true) {
+        endDeath();
+        hooks.onRespawned?.();
+      }
       if (selfRow !== undefined) setSelfPlace(selfRow.place);
       if (fightingMonsterId !== null && !orchard.monsters.some((m) => m.id === fightingMonsterId)) fightingMonsterId = null;
       // The waiting dots end when the duel starts (a partner appears), when this player is in town, or after 45 s.
@@ -399,7 +408,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     if (papayaSwings > 0) {
       papayaSwings -= 1;
     }
-    const players: FigPaint[] = orchard.players.map((fig) => ({
+    // A dead avatar (and so its pet) is not drawn as a character: a cross marks the spot instead.
+    const players: FigPaint[] = orchard.players.filter((fig) => fig.dead !== true).map((fig) => ({
       ...fig,
       gender: fig.gender ?? genderMap.get(fig.id) ?? (fig.id === selfId ? selfGender : 'woman'),
       attacking: fig.attacking === true || (swinging && fig.id === selfId),
@@ -558,9 +568,9 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       if (typeof hit.amount !== 'number' || typeof hit.x !== 'number' || typeof hit.y !== 'number') continue;
       seenHits.add(hit.id);
       if (hit.fatal === true && hit.targetKind === 'player') {
-        // A kill: a cross where it happened; for this player also the death panel, with the camera held on the spot.
+        // A kill: the dead avatar is drawn as a cross where it fell (the snapshot marks it dead); for this player also the
+        // death panel, with the camera held on the spot until the server confirms the respawn.
         const place = zoneAt(hit.x, hit.y) ?? selfPlace;
-        graves.push({ x: hit.x, y: hit.y, at: now, ...(hit.targetId === selfId ? { mine: true } : {}) });
         if (hit.targetId === selfId) {
           deathHold = { x: hit.x, y: hit.y, place };
           hooks.onDeath?.();
@@ -579,6 +589,12 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   }
 
   function health(): HealthReadout {
+    // In a duel the bar shows the duel health (duel level plus gear), labelled, instead of real health.
+    const me = orchard.players.find((fig) => fig.id === selfId);
+    if (me !== undefined && typeof me.duelHp === 'number' && typeof me.duelMaxHp === 'number') {
+      const duel = healthReadout(me.duelHp, me.duelMaxHp);
+      return { ...duel, text: `Duel ${duel.text}` };
+    }
     return healthReadout(selfHp, selfMaxHp);
   }
 
@@ -730,9 +746,10 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   const graves: Grave[] = [];
 
   function paintGravesOn(ctx: GraveCtx, view: PeachView, nowMs: number): void {
-    // Forget crosses that have run out, then draw the rest.
-    for (let i = graves.length - 1; i >= 0; i -= 1) {
-      if (graves[i]!.mine !== true && nowMs - graves[i]!.at >= GRAVE_LIFETIME_MS) graves.splice(i, 1);
+    // A dead avatar is drawn as a cross where it fell, for everyone, until its player respawns in town.
+    graves.length = 0;
+    for (const fig of orchard.players) {
+      if (fig.dead === true) graves.push({ x: fig.x, y: fig.y, at: nowMs, mine: true });
     }
     paintGraves(ctx, graves, view, nowMs);
   }
@@ -746,12 +763,13 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     }
   }
 
+  // Ask the server to respawn this (dead) avatar in town. The page goes back to the avatar when the snapshot shows it alive.
+  function respawn(): void {
+    sendOne({ type: 'respawn' });
+  }
+
   function endDeath(): void {
     deathHold = null;
-    // The player has respawned: their cross is taken away.
-    for (let i = graves.length - 1; i >= 0; i -= 1) {
-      if (graves[i]!.mine === true) graves.splice(i, 1);
-    }
     // The avatar is already standing in town: mark the spot with a light so it is found at once.
     const self = orchard.players.find((fig) => fig.id === selfId);
     const feet = self === undefined ? undefined : citrusShown.get(citrusKey('player', self.id));
@@ -921,6 +939,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     closePanels,
     setMenu,
     endDeath,
+    respawn,
     duelPartner,
     requestDuel,
     paintDuelWaiting,
@@ -1934,6 +1953,10 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
         place.top = `${Math.min(top, 80)}%`;
         menu.hidden = false;
       },
+      onRespawned() {
+        const panel = doc.getElementById('death-panel');
+        if (panel !== null) panel.hidden = true;
+      },
       onDeath() {
         const panel = doc.getElementById('death-panel');
         const respawn = doc.getElementById('death-respawn');
@@ -2307,10 +2330,13 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     if (respawn === null || respawn.disabled === true) return;
     respawn.disabled = true;
     respawn.textContent = 'Respawning...';
+    // After a short pause (so the death is seen) the server is asked to respawn the avatar; the panel closes when the
+    // server confirms. If the answer is lost, ask once more.
     setTimeout(() => {
-      const panel = doc.getElementById('death-panel');
-      if (panel !== null) panel.hidden = true;
-      board.endDeath();
+      board.respawn();
+      setTimeout(() => {
+        if (doc.getElementById('death-panel')?.hidden === false) board.respawn();
+      }, 3000);
     }, DEATH_RESPAWN_DELAY_MS);
   });
   doc.getElementById('death-exit')?.addEventListener?.('click', () => {

@@ -380,7 +380,7 @@ describe('G4 hunt flow', () => {
     expect(heard.senderSnap.character.place).not.toBe('cemetery');
   }, 120_000);
 
-  it('returns a fig killed by a monster swing to the town spawn at full max health, keeping level, xp, gear, and coins', async () => {
+  it('leaves a fig killed by a monster swing dead where it fell, then respawns it in town at full max health keeping level, xp, gear, and coins', async () => {
     const wolf = nthBeet('wolf', 2);
     const kept = { level: 3, xp: 7, coins: 9, sword: 'shortSword', armor: 'leather' };
     const fullMax = maxHealth(heroOf({ ...kept, hp: 1, place: 'green' }));
@@ -414,13 +414,22 @@ describe('G4 hunt flow', () => {
 
     heard = await fromRowan({ type: 'ripen', steps: 1 });
     const [townX, townY] = townSpawn;
-    expect(heard.senderSnap.character).toMatchObject({ ...kept, place: 'town', x: townX, y: townY, hp: fullMax, maxHp: fullMax });
-    // The other socket sees Rowan land at the town spawn.
+    // The killed avatar is dead where it fell (same zone and spot, health 0), not yet in town.
+    const fell = heard.senderSnap.character;
+    expect(fell).toMatchObject({ ...kept, place: 'green', hp: 0, maxHp: fullMax });
     const seen = heard.otherSnap.snapshot.players.find((player) => player.id === rowan.id)!;
-    expect([seen.place, seen.x, seen.y]).toEqual(['town', townX, townY]);
+    expect(seen.dead).toBe(true);
+    expect([seen.place, seen.x, seen.y]).toEqual(['green', fell.x, fell.y]);
+    expect(await rowIn(rowan.id)).toMatchObject({ ...kept, place: 'green', hp: 0 });
+    // It cannot walk while dead, and the wolf lets it be.
+    heard = await fromRowan({ type: 'move', x: fell.x + 60, y: fell.y });
+    heard = await fromRowan({ type: 'ripen', steps: biteTicks * 3 });
+    expect([heard.senderSnap.character.x, heard.senderSnap.character.y]).toEqual([fell.x, fell.y]);
+    expect(beetIn(heard.senderSnap, wolf.id)!.swung).toBe(false);
+    // Respawn: town spawn, full health, level, xp, gear and coins kept.
+    heard = await fromRowan({ type: 'respawn' });
+    expect(heard.senderSnap.character).toMatchObject({ ...kept, place: 'town', x: townX, y: townY, hp: fullMax, maxHp: fullMax });
     expect(await rowIn(rowan.id)).toMatchObject({ ...kept, place: 'town', x: townX, y: townY, hp: fullMax });
-
-    // Nothing chases Rowan in town afterwards.
     heard = await fromRowan({ type: 'ripen', steps: biteTicks * 5 });
     expect(beetIn(heard.senderSnap, wolf.id)!.swung).toBe(false);
     expect(heard.senderSnap.character.hp).toBe(fullMax);
