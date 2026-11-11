@@ -159,4 +159,26 @@ describe('death panel and cross', () => {
     // Without a duel the same click is a walk.
     expect(peelClick({ x: 300, y: 270, button: 0 }, { ...orchard, duelPartnerId: null }).message).toEqual({ type: 'move', x: 300, y: 270 });
   });
+
+  it('the killed player cross is removed when they respawn; another player cross runs out after a few seconds', () => {
+    const board = plantFigBoard({ selfId: 'fig-self', selfPlace: 'town', createSocket: () => quietLemon() });
+    const view = viewBox('green', 900, 400, ZOOM_CLOSE);
+    const rects: number[] = [];
+    const ctx = { fillStyle: '', fillRect: () => void rects.push(1) };
+    board.ingest(killedSnapshot({ fatal: true }));
+    // While the panel is open (even a long time later) the cross stays.
+    board.paintGraves(ctx, view, Date.now() + 120_000);
+    expect(rects).toHaveLength(4);
+    rects.length = 0;
+    board.endDeath();
+    board.paintGraves(ctx, view, Date.now());
+    expect(rects).toHaveLength(0);
+    // Someone else's cross is seen for GRAVE_LIFETIME_MS only.
+    board.ingest(killedSnapshot({ id: 'hit-9', targetId: 'fig-other', fatal: true }));
+    board.paintGraves(ctx, view, Date.now() + 1000);
+    expect(rects).toHaveLength(4);
+    rects.length = 0;
+    board.paintGraves(ctx, view, Date.now() + GRAVE_LIFETIME_MS + 1000);
+    expect(rects).toHaveLength(0);
+  });
 });

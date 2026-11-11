@@ -1317,12 +1317,15 @@ export function paintStack(
 
 
 // A cross where an avatar was killed. It stays for GRAVE_LIFETIME_MS. Screen space is derived from the map spot.
-export const GRAVE_LIFETIME_MS = 60_000;
+// Another player's cross is drawn for this long. The player's own cross stays until they respawn (see `mine`).
+export const GRAVE_LIFETIME_MS = 10_000;
 
 export interface Grave {
   readonly x: number;
   readonly y: number;
   readonly at: number;
+  // The local player's own cross: it stays while the death panel is open and is removed when they respawn.
+  readonly mine?: boolean;
 }
 
 export interface GraveCtx {
@@ -1334,7 +1337,7 @@ export interface GraveCtx {
 export function paintGraves(ctx: GraveCtx, graves: readonly Grave[], view: PeachView, nowMs: number): number {
   let drawn = 0;
   for (const grave of graves) {
-    if (nowMs - grave.at >= GRAVE_LIFETIME_MS) continue;
+    if (grave.mine !== true && nowMs - grave.at >= GRAVE_LIFETIME_MS) continue;
     const spot = mapToCanvas(view, grave.x, grave.y);
     const k = Math.max(0.6, view.scale);
     const height = 34 * k;

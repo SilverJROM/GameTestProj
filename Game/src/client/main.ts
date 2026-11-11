@@ -530,7 +530,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       if (hit.fatal === true && hit.targetKind === 'player') {
         // A kill: a cross where it happened; for this player also the death panel, with the camera held on the spot.
         const place = zoneAt(hit.x, hit.y) ?? selfPlace;
-        graves.push({ x: hit.x, y: hit.y, at: now });
+        graves.push({ x: hit.x, y: hit.y, at: now, ...(hit.targetId === selfId ? { mine: true } : {}) });
         if (hit.targetId === selfId) {
           deathHold = { x: hit.x, y: hit.y, place };
           hooks.onDeath?.();
@@ -669,7 +669,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   function paintGravesOn(ctx: GraveCtx, view: PeachView, nowMs: number): void {
     // Forget crosses that have run out, then draw the rest.
     for (let i = graves.length - 1; i >= 0; i -= 1) {
-      if (nowMs - graves[i]!.at >= GRAVE_LIFETIME_MS) graves.splice(i, 1);
+      if (graves[i]!.mine !== true && nowMs - graves[i]!.at >= GRAVE_LIFETIME_MS) graves.splice(i, 1);
     }
     paintGraves(ctx, graves, view, nowMs);
   }
@@ -685,6 +685,10 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
 
   function endDeath(): void {
     deathHold = null;
+    // The player has respawned: their cross is taken away.
+    for (let i = graves.length - 1; i >= 0; i -= 1) {
+      if (graves[i]!.mine === true) graves.splice(i, 1);
+    }
     // The avatar is already standing in town: mark the spot with a light so it is found at once.
     const self = orchard.players.find((fig) => fig.id === selfId);
     const feet = self === undefined ? undefined : citrusShown.get(citrusKey('player', self.id));
