@@ -1,7 +1,10 @@
 {
   // One Worker: static assets, one D1 database, and one Durable Object (WorldRoom).
-  // The database_id is a local placeholder; set the real id from `wrangler d1 create` before deploying.
+  // database_id is the real D1 database created on the Cloudflare account (plan 05).
   "name": "game",
+  // Public test URL on workers.dev; preview URLs are off so there is only one way in.
+  "workers_dev": true,
+  "preview_urls": false,
   "main": "src/server/index.ts",
   "compatibility_date": "2025-09-01",
   // Bundles the first-screen page and client script into src/client/shell.generated.ts.
@@ -15,7 +18,7 @@
     {
       "binding": "DB",
       "database_name": "game-db",
-      "database_id": "local-placeholder-game-db",
+      "database_id": "822ff1dd-f1e6-465b-bc9b-07a12da0d054",
       "migrations_dir": "migrations",
     },
   ],
