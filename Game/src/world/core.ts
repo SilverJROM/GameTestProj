@@ -9,7 +9,8 @@
 import type { CharacterFacts, CharacterFactsPatch } from '../server/db';
 import { buyItem, equipItem, unequipItem, type OwnedGear } from '../rules/items';
 import { maxHealth, type Hero } from '../rules/logic';
-import { firstSolidWallCrossing, firstSolidWallHit, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, papayaGateBend, skeletonRadiusPx, townSpawn, zoneAt, type GuavaWallHit } from '../rules/regions';
+import { firstSolidWallCrossing, firstSolidWallHit, hitBox, MAP_HEIGHT, MAP_WIDTH, melonFountainBox, skeletonRadiusPx, townSpawn, zoneAt, type GuavaWallHit } from '../rules/regions';
+import { planWalk } from '../rules/route';
 import { kaleConstants, onionMonsterRows, type GearSlot } from '../rules/tables';
 import type { ApricotFacing, CoinSnapshot, HitMark, PickupSnapshot, MonsterSnapshot, SnapshotMessage, WelcomeMessage, WorldSnapshot } from '../protocol';
 
@@ -132,12 +133,21 @@ export function orderGuava(fig: FigWalk, rawX: number, rawY: number): void {
   if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) {
     return;
   }
-  const guava = clampGuava(rawX, rawY);
+  const clicked = clampGuava(rawX, rawY);
   fig.limeStops = [];
+  // The best way there: straight when clear, otherwise around the walls through the gate. A click on a wall goes to
+  // the nearest spot beside it; a spot with no way to it leaves the avatar where it is.
+  const plan = planWalk([fig.facts.x, fig.facts.y], [clicked.x, clicked.y]);
+  if (plan === null) {
+    fig.guavaX = fig.facts.x;
+    fig.guavaY = fig.facts.y;
+    fig.guavaArmed = false;
+    return;
+  }
+  const guava = { x: plan.target[0], y: plan.target[1] };
   fig.guavaX = guava.x;
   fig.guavaY = guava.y;
-  const bend = papayaGateBend([fig.facts.x, fig.facts.y], [guava.x, guava.y]);
-  if (bend !== null) {
+  for (const bend of plan.bends) {
     fig.limeStops.push({ x: bend[0], y: bend[1] });
   }
   turnApricot(fig, fig.limeStops[0]?.x ?? guava.x);

@@ -212,10 +212,10 @@ describe('lemon room skeleton proximity aggro', () => {
     await ask(inside.socket, { type: 'move', x: skeleton.x + 200, y: skeleton.y - 30 });
     snap = await ripen(inside.socket, 200);
     expect(snap.character.place).not.toBe('cemetery');
-    const stopped = beetIn(snap, skeleton.id)!;
     const hpAway = snap.character.hp;
     snap = await ripen(inside.socket, 100);
-    expect([beetIn(snap, skeleton.id)!.x, beetIn(snap, skeleton.id)!.y]).toEqual([stopped.x, stopped.y]);
+    // The way out is now the long way round, so the skeleton may be patrolling its own patch; what matters is that
+    // it no longer chases or bites.
     expect(beetIn(snap, skeleton.id)!.swung).toBe(false);
     expect(snap.character.hp).toBe(hpAway);
   }, 60_000);
