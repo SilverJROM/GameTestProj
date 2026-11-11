@@ -6,11 +6,11 @@ import {
   firstSolidWallHit,
   inRing,
   limeTownGate,
-  papayaGateBend,
   pearTownWalls,
   zoneAt,
   type Point,
 } from '../../src/rules/regions';
+import { routeWaypoints } from '../../src/rules/route';
 import { kaleConstants, type ZoneName } from '../../src/rules/tables';
 import { figMoving, orderGuava, ripenFig, sproutFig, type FigWalk } from '../../src/world/core';
 
@@ -50,12 +50,18 @@ function walkFig(fig: FigWalk, x: number, y: number, maxTicks = 80): void {
   }
 }
 
+// Aim straight at a spot without the route planner, to test the low-level wall slide and stop.
+function aimDirect(fig: FigWalk, x: number, y: number): void {
+  fig.limeStops = [];
+  fig.guavaX = x;
+  fig.guavaY = y;
+  fig.guavaArmed = true;
+}
+
 describe('wall slide', () => {
   it('slides a diagonal approach along the wall and stays armed', () => {
     const fig = freshFig('fig-slide', 592, 430, 'town');
-    orderGuava(fig, 640, 360);
-    expect(papayaGateBend([592, 430], [640, 360])).toBeNull();
-    expect(fig.limeStops).toEqual([]);
+    aimDirect(fig, 640, 360);
     let sawSlide = false;
     for (let tick = 0; tick < 6 && figMoving(fig); tick += 1) {
       const prevX = fig.facts.x;
@@ -79,8 +85,7 @@ describe('wall slide', () => {
     expect(hit).not.toBeNull();
     expect(hit!.wallA).toEqual([600, 404]);
     expect(hit!.wallB).toEqual([600, 446]);
-    orderGuava(fig, 640, 425);
-    expect(fig.limeStops).toEqual([]);
+    aimDirect(fig, 640, 425);
     ripenFig(fig, kaleConstants.tickMs);
     expect(fig.facts.x).toBeCloseTo(599.5, 5);
     expect(fig.facts.y).toBe(425);
@@ -102,20 +107,20 @@ describe('gate routing', () => {
     expect(inRing(pearTownWalls, townInside[0], townInside[1])).toBe(true);
     expect(inRing(pearTownWalls, townOutside[0], townOutside[1])).toBe(false);
     expect(firstSolidWallCrossing(townInside, townOutside)).not.toBeNull();
-    expect(papayaGateBend(townInside, townOutside)).toEqual(lime);
+    expect(routeWaypoints(townInside, townOutside)!.some((b) => Math.hypot(b[0] - lime[0], b[1] - lime[1]) < 25)).toBe(true);
 
     const out = freshFig('fig-out', townInside[0], townInside[1], 'town');
     orderGuava(out, townOutside[0], townOutside[1]);
     expect(out.guavaX).toBe(townOutside[0]);
     expect(out.guavaY).toBe(townOutside[1]);
-    expect(out.limeStops).toEqual([{ x: lime[0], y: lime[1] }]);
+    expect(out.limeStops.length).toBeGreaterThan(0);
     // A new move drops the hop.
     orderGuava(out, townInside[0] + 12, townInside[1]);
     expect(out.limeStops).toEqual([]);
     expect(out.guavaX).toBe(townInside[0] + 12);
 
     orderGuava(out, townOutside[0], townOutside[1]);
-    expect(out.limeStops).toEqual([{ x: lime[0], y: lime[1] }]);
+    expect(out.limeStops.length).toBeGreaterThan(0);
     walkFig(out, townOutside[0], townOutside[1]);
     expect(out.facts.x).toBeCloseTo(townOutside[0], 5);
     expect(out.facts.y).toBeCloseTo(townOutside[1], 5);
@@ -124,7 +129,7 @@ describe('gate routing', () => {
     expect(out.facts.place).toBe('town');
 
     const back = freshFig('fig-back', townOutside[0], townOutside[1], 'town');
-    expect(papayaGateBend(townOutside, townInside)).toEqual(lime);
+    expect(routeWaypoints(townOutside, townInside)!.length).toBeGreaterThan(0);
     walkFig(back, townInside[0], townInside[1]);
     expect(back.facts.x).toBeCloseTo(townInside[0], 5);
     expect(back.facts.y).toBeCloseTo(townInside[1], 5);
@@ -137,11 +142,11 @@ describe('gate routing', () => {
     expect(zoneAt(cemInside[0], cemInside[1])).toBe('cemetery');
     expect(zoneAt(townPastCem[0], townPastCem[1])).toBe('town');
     expect(firstSolidWallCrossing(cemInside, townPastCem)).not.toBeNull();
-    expect(papayaGateBend(cemInside, townPastCem)).toEqual(berry);
+    expect(routeWaypoints(cemInside, townPastCem)!.some((b) => Math.hypot(b[0] - berry[0], b[1] - berry[1]) < 30)).toBe(true);
 
     const fig = freshFig('fig-cem', cemInside[0], cemInside[1], 'cemetery');
     orderGuava(fig, townPastCem[0], townPastCem[1]);
-    expect(fig.limeStops).toEqual([{ x: berry[0], y: berry[1] }]);
+    expect(fig.limeStops.length).toBeGreaterThan(0);
     walkFig(fig, townPastCem[0], townPastCem[1]);
     expect(fig.facts.x).toBeCloseTo(townPastCem[0], 5);
     expect(fig.facts.y).toBeCloseTo(townPastCem[1], 5);
@@ -149,18 +154,18 @@ describe('gate routing', () => {
     expect(figMoving(fig)).toBe(false);
   });
 
-  it('does not cross a wall that has no open gate', () => {
+  it('goes around a wall that has no gate by the way that has one, never through it', () => {
     const from: Point = [560, 425];
     const to: Point = [640, 425];
     expect(firstSolidWallCrossing(from, to)).not.toBeNull();
-    expect(papayaGateBend(from, to)).toBeNull();
+    // The straight way is blocked, so the plan bends (out of the town by the south gate and round).
+    expect(routeWaypoints(from, to)!.length).toBeGreaterThan(0);
     const fig = freshFig('fig-blocked', from[0], from[1], 'town');
-    walkFig(fig, to[0], to[1], 30);
-    expect(fig.facts.x).toBeLessThan(600);
-    expect(fig.facts.y).toBe(425);
-    expect(fig.facts.x).not.toBe(to[0]);
+    walkFig(fig, to[0], to[1], 900);
+    expect(fig.facts.x).toBeCloseTo(to[0], 5);
+    expect(fig.facts.y).toBeCloseTo(to[1], 5);
     expect(figMoving(fig)).toBe(false);
-    expect(inRing(pearTownWalls, fig.facts.x, fig.facts.y)).toBe(true);
+    expect(inRing(pearTownWalls, fig.facts.x, fig.facts.y)).toBe(false);
   });
 
   it('passes the old town post, which is now part of the open gate', () => {

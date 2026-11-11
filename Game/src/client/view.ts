@@ -765,7 +765,7 @@ export interface InventoryFacts {
   readonly items: readonly string[];
   // Copies the account's other avatars wear: shown greyed with their name, and not usable here.
   readonly elsewhere?: readonly { readonly itemId: string; readonly by: string }[];
-  readonly coinExpiry?: { readonly amount: number; readonly atMs: number } | null;
+  readonly coinExpiry?: CoinExpiryView | null;
   readonly gender: Gender | undefined;
 }
 
@@ -792,22 +792,47 @@ export interface InventorySheet {
   readonly experience: string;
   // When the oldest coins run out, in words, or empty when there are no coins.
   readonly expiry: string;
+  readonly expiryTip: string;
   readonly tiles: readonly BagTile[];
   readonly portrait: string;
 }
 
-// "Oldest 12 coins expire in 6 days." The time left is rounded up to days, then hours, then minutes.
-export function coinExpiryText(expiry: { readonly amount: number; readonly atMs: number } | null | undefined, nowMs: number): string {
+export interface CoinExpiryView {
+  readonly amount: number;
+  readonly atMs: number;
+  readonly lastAtMs?: number;
+  readonly groups?: readonly { readonly amount: number; readonly atMs: number }[];
+}
+
+const DAY_MS = 86_400_000;
+
+function expiryUnit(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+function expiryWhen(left: number): string {
+  if (left <= 0) return 'under a minute';
+  if (left < 3_600_000) return `${expiryUnit(Math.max(1, Math.ceil(left / 60_000)), 'minute')}`;
+  if (left <= DAY_MS) return `${expiryUnit(Math.ceil(left / 3_600_000), 'hour')}`;
+  return expiryUnit(Math.ceil(left / DAY_MS), 'day');
+}
+
+// The Bag line for coins that run out soon (the server only sends coins inside the 2 day window):
+// "12 coins expire within 2 days." or "12 coins expire today." when all of them go within 24 hours. Empty when none.
+export function coinExpiryText(expiry: CoinExpiryView | null | undefined, nowMs: number): string {
   if (expiry === null || expiry === undefined || expiry.amount <= 0) return '';
-  const left = expiry.atMs - nowMs;
-  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
-  const when =
-    left > 86_400_000
-      ? unit(Math.ceil(left / 86_400_000), 'day')
-      : left > 3_600_000
-        ? unit(Math.ceil(left / 3_600_000), 'hour')
-        : unit(Math.max(1, Math.ceil(left / 60_000)), 'minute');
-  return `Oldest ${unit(expiry.amount, 'coin')} expire${expiry.amount === 1 ? 's' : ''} in ${when}.`;
+  const verb = expiry.amount === 1 ? 'expires' : 'expire';
+  const last = (expiry.lastAtMs ?? expiry.atMs) - nowMs;
+  if (last <= 0) return '';
+  const what = expiryUnit(expiry.amount, 'coin');
+  return last <= DAY_MS ? `${what} ${verb} today.` : `${what} ${verb} within ${expiryUnit(Math.max(1, Math.ceil(last / DAY_MS)), 'day')}.`;
+}
+
+// Hover text: up to 3 groups, "5 in 1 day, 7 in 2 days".
+export function coinExpiryTip(expiry: CoinExpiryView | null | undefined, nowMs: number): string {
+  if (expiry === null || expiry === undefined || expiry.amount <= 0) return '';
+  const groups = expiry.groups !== undefined && expiry.groups.length > 0 ? expiry.groups.slice(0, 3) : [{ amount: expiry.amount, atMs: expiry.atMs }];
+  return groups.map((g) => `${g.amount} in ${expiryWhen(g.atMs - nowMs)}`).join(', ');
 }
 
 // One grape per owned quince, in bag order. A worn quince keeps its seal.
@@ -882,6 +907,7 @@ export function inventorySheet(facts: InventoryFacts): InventorySheet {
     strike: strike(hero),
     experience: papayaXpText(facts.level, facts.xp),
     expiry: coinExpiryText(facts.coinExpiry, Date.now()),
+    expiryTip: coinExpiryTip(facts.coinExpiry, Date.now()),
     tiles: bagTiles(facts.items, facts.sword, facts.armor, facts.elsewhere ?? []),
     portrait: figStandSrc(facts.gender),
   };
@@ -1054,8 +1080,10 @@ export function hudReadout(facts: HudFacts): HudReadout {
 }
 
 export interface ScreenControl {
-  readonly id: 'bubble' | 'bag';
+  readonly id: 'bubble' | 'bag' | 'menu';
   readonly text: string;
+  // Accessible name. The bag and menu icons are painted; this word is not drawn.
+  readonly label?: string;
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -1068,7 +1096,16 @@ export const LIME_BUBBLE_W = 64;
 export const LIME_BUBBLE_H = 36;
 export const LIME_BUBBLE_FONT = '800 24px system-ui, Arial, sans-serif';
 
-// Thought bubble over the blacksmith, and the Bag control at the top right. Both are screen space.
+// Screen-space fig buttons. The bag keeps its old hit box. The menu sits one gap to its left.
+const FIG_EDGE = 24;
+const FIG_BAG_W = 92;
+const FIG_BAG_H = 44;
+const FIG_MENU_W = 44;
+const FIG_MENU_H = 44;
+const FIG_ICON_GAP = 12;
+const FIG_ICON_FONT = '800 22px Georgia, serif';
+
+// Thought bubble over the blacksmith, the menu, and the Bag. All three are screen space.
 export function townControls(view: PeachView): ScreenControl[] {
   const feet = mapToCanvas(view, SMITH_X, SMITH_Y);
   const headTop = feet.y - scaleFor('blacksmith') * view.scale;
@@ -1079,6 +1116,8 @@ export function townControls(view: PeachView): ScreenControl[] {
   let bubbleX = feet.x - bubbleWidth / 2;
   if (bubbleX < 8) bubbleX = 8;
   if (bubbleX + bubbleWidth > CANVAS_WIDTH - 8) bubbleX = CANVAS_WIDTH - 8 - bubbleWidth;
+  const bagX = CANVAS_WIDTH - FIG_EDGE - FIG_BAG_W;
+  const bagY = FIG_EDGE;
   return [
     {
       id: 'bubble',
@@ -1090,15 +1129,68 @@ export function townControls(view: PeachView): ScreenControl[] {
       font: LIME_BUBBLE_FONT,
     },
     {
+      id: 'menu',
+      text: 'Menu',
+      label: 'Menu',
+      x: bagX - FIG_ICON_GAP - FIG_MENU_W,
+      y: bagY,
+      width: FIG_MENU_W,
+      height: FIG_MENU_H,
+      font: FIG_ICON_FONT,
+    },
+    {
       id: 'bag',
       text: 'Bag',
-      x: CANVAS_WIDTH - 24 - 92,
-      y: 24,
-      width: 92,
-      height: 44,
-      font: '800 22px Georgia, serif',
+      label: 'Bag',
+      x: bagX,
+      y: bagY,
+      width: FIG_BAG_W,
+      height: FIG_BAG_H,
+      font: FIG_ICON_FONT,
     },
   ];
+}
+
+// Dark fig button, light glyph. fillRect only, so a double with fillRect and fillText can paint it.
+const FIG_ICON_BACK = '#1c1814';
+const FIG_ICON_INK = '#ffffff';
+
+function paintBagGlyph(ctx: ScreenCtx, control: ScreenControl): void {
+  const bodyW = 22;
+  const bodyH = 14;
+  const bodyX = Math.round(control.x + (control.width - bodyW) / 2);
+  const bodyY = Math.round(control.y + (control.height - bodyH) / 2 + 3);
+  const handleW = 10;
+  const handleH = 3;
+  const handleX = bodyX + Math.round((bodyW - handleW) / 2);
+  const handleY = bodyY - 7;
+  const flapH = 4;
+  const flapY = bodyY - flapH - 1;
+  ctx.fillRect(handleX, handleY, handleW, handleH);
+  ctx.fillRect(bodyX, flapY, bodyW, flapH);
+  ctx.fillRect(bodyX, bodyY, bodyW, bodyH);
+}
+
+function paintMenuBars(ctx: ScreenCtx, control: ScreenControl): void {
+  const barW = 18;
+  const barH = 3;
+  const gap = 4;
+  const stack = barH * 3 + gap * 2;
+  const left = Math.round(control.x + (control.width - barW) / 2);
+  const top = Math.round(control.y + (control.height - stack) / 2);
+  ctx.fillRect(left, top, barW, barH);
+  ctx.fillRect(left, top + barH + gap, barW, barH);
+  ctx.fillRect(left, top + (barH + gap) * 2, barW, barH);
+}
+
+// Paints the bag (body, handle, flap) or the three-bar menu. The control text stays undrawn.
+export function paintControlIcon(ctx: ScreenCtx, control: ScreenControl): void {
+  if (control.id !== 'bag' && control.id !== 'menu') return;
+  ctx.fillStyle = FIG_ICON_BACK;
+  ctx.fillRect(control.x, control.y, control.width, control.height);
+  ctx.fillStyle = FIG_ICON_INK;
+  if (control.id === 'menu') paintMenuBars(ctx, control);
+  else paintBagGlyph(ctx, control);
 }
 
 export function controlAt(

@@ -7,6 +7,7 @@
 
 import { nearestStopIndex, radishPatch } from '../rules/radish';
 import { spawnPoints, type Point } from '../rules/regions';
+import { spotAllowed } from '../rules/spacing';
 import { onionMonsterRows, pearTimings, type MonsterRow, type ZoneName } from '../rules/tables';
 
 export interface Beet {
@@ -28,6 +29,8 @@ export interface Beet {
   readonly loopAt: number;
   // Whole ticks the beet's walk has been blocked in a row. Absent while it walks freely.
   readonly blockedTicks?: number;
+  // Ticks spent waiting for a neighbour to move out of the way (patrol). Not stored.
+  readonly crowdedTicks?: number;
 }
 
 // A yam is one pruned beet waiting to sprout. dueMs is lime-clock time.
@@ -98,6 +101,14 @@ export function leekIndexOf(zone: ZoneName, spot: Point): number {
 // Next leek in the zone that is not the pruned spot. An empty leek wins when one is free.
 function differentLeek(zone: ZoneName, avoidX: number, avoidY: number, living: readonly Beet[]): Point {
   const spots = spawnPoints[zone];
+  // Each monster owns one leek (its own part of the zone). A respawn takes a leek no living monster owns, so the
+  // monsters stay spread out; the lowest free one wins.
+  const owned = new Set(living.filter((beet) => beet.zone === zone).map((beet) => beet.spawnIndex));
+  for (let index = 0; index < spots.length; index += 1) {
+    if (!owned.has(index) && spots[index] !== undefined) {
+      return spots[index]!;
+    }
+  }
   const occupied = new Set(
     living.filter((beet) => beet.zone === zone).map((beet) => leekKey(beet.x, beet.y)),
   );
@@ -269,13 +280,28 @@ export function sproutYams(bed: CabbageBed, nowMs: number): CabbageBed {
   if (ripe.length === 0) {
     return bed;
   }
-  const waiting = bed.yams.filter((yam) => yam.dueMs > nowMs);
+  const waiting: typeof bed.yams[number][] = bed.yams.filter((yam) => yam.dueMs > nowMs);
   const ordered = [...ripe].sort((left, right) => left.dueMs - right.dueMs || left.kind.localeCompare(right.kind));
   const beets = [...bed.beets];
   const nextSerial: Record<string, number> = { ...bed.nextSerial };
   for (const yam of ordered) {
     const row = beetRow(yam.kind);
-    const spot = differentLeek(row.zone, yam.avoidX, yam.avoidY, beets);
+    // Each monster owns one leek. The newcomer takes a free (unowned) leek with no monster standing on it; if every free
+    // leek has a monster on it, it waits ten seconds more. Only when no leek is free at all (a bed of odd size) does it use
+    // the older next-leek rule.
+    const owned = new Set(beets.filter((beet) => beet.zone === row.zone).map((beet) => beet.spawnIndex));
+    const free = spawnPoints[row.zone].filter((_, index) => !owned.has(index));
+    const mover = { id: `${yam.kind}-new`, kind: yam.kind, x: -10000, y: -10000 };
+    let spot: Point | undefined;
+    if (free.length === 0) {
+      spot = differentLeek(row.zone, yam.avoidX, yam.avoidY, beets);
+    } else {
+      spot = free.find((candidate) => spotAllowed(mover, candidate[0], candidate[1], beets));
+    }
+    if (spot === undefined || !spotAllowed(mover, spot[0], spot[1], beets)) {
+      waiting.push({ ...yam, dueMs: nowMs + 10_000 });
+      continue;
+    }
     const serial = nextSerial[yam.kind] ?? beets.length + 1;
     nextSerial[yam.kind] = serial + 1;
     beets.push({

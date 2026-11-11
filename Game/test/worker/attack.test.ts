@@ -367,7 +367,8 @@ describe('lemon room attack', () => {
     heard = await broadcastMango(fernJoin.socket, basilJoin.socket, { type: 'ripen', steps: 1 });
     const wolves = heard.senderSnap.snapshot.monsters.filter((beet) => beet.kind === 'wolf');
     expect(wolves).toHaveLength(7);
-    expect(wolves.some((beet) => beet.x === wolf.x && beet.y === wolf.y)).toBe(false);
+    // The newcomer stands on a free leek of its own: seven wolves, all in different places.
+    expect(new Set(wolves.map((beet) => `${Math.round(beet.x)},${Math.round(beet.y)}`)).size).toBe(7);
     const living = JSON.stringify(heard.senderSnap.snapshot.monsters);
 
     const closed = Promise.all(
@@ -397,8 +398,12 @@ describe('lemon room attack', () => {
     const planted = await plantPlayingFig((path, init) => live.fetch(`http://town.example${path}`, init), 'Plum', 'man');
     const facts = planted.facts;
     const grape = planted.grape;
-    const wolf = plantCabbage().beets.filter((beet) => beet.kind === 'wolf')[1]!;
+    const wolfId = plantCabbage().beets.filter((beet) => beet.kind === 'wolf')[1]!.id;
     const bar = papayaLevelRows[0]!.xpToNext!;
+    // Wolves patrol a big cell of the green, so Plum joins beside the second wolf where it stands now.
+    const scout = await connectFig(`ws://127.0.0.1:${live.port}/ws`, grape);
+    const wolf = scout.welcome.snapshot.monsters.find((beet) => beet.id === wolfId)!;
+    scout.socket.close();
     await saveFacts(kiwiDb, facts.id, { x: wolf.x, y: wolf.y, place: 'green', xp: bar - 1 });
 
     const plumJoin = await connectFig(`ws://127.0.0.1:${live.port}/ws`, grape);

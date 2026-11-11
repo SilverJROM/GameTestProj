@@ -24,6 +24,7 @@ import {
   townSpawn,
   type Point,
 } from '../../src/rules/regions';
+import { routeWaypoints } from '../../src/rules/route';
 import { kaleConstants, papayaLevelRows, pearTimings } from '../../src/rules/tables';
 import { berryStepPx } from '../../src/world/core';
 import { SESSION_COOKIE_NAME } from '../../src/server/cookie';
@@ -48,35 +49,12 @@ function papayaSteps(from: Point, to: Point): number {
 // A straight segment that crosses a solid wall is replaced by a stop on the road
 // south of the lime gate, then the original target. Open gates are not solid.
 function limeGateLegs(from: Point, to: Point): Point[] {
-  if (firstSolidWallCrossing(from, to) === null) {
-    return [to];
+  // The room plans the same way: the bends of the shortest route around the walls, then the target.
+  const bends = routeWaypoints(from, to);
+  if (bends === null) {
+    throw new Error('no route to the target');
   }
-  const [limeA, limeB] = limeTownGate;
-  const dx = limeB[0] - limeA[0];
-  const dy = limeB[1] - limeA[1];
-  const len = Math.hypot(dx, dy);
-  let nx = dy / len;
-  let ny = -dx / len;
-  if (ny < 0) {
-    nx = -nx;
-    ny = -ny;
-  }
-  const midX = (limeA[0] + limeB[0]) / 2;
-  const midY = (limeA[1] + limeB[1]) / 2;
-  for (let guavaDist = 4; guavaDist <= 240; guavaDist += 2) {
-    const limeSpot: Point = [midX + nx * guavaDist, midY + ny * guavaDist];
-    if (inRing(pearTownWalls, limeSpot[0], limeSpot[1])) {
-      continue;
-    }
-    if (firstSolidWallCrossing(from, limeSpot) !== null) {
-      continue;
-    }
-    if (firstSolidWallCrossing(limeSpot, to) !== null) {
-      continue;
-    }
-    return [limeSpot, to];
-  }
-  throw new Error('no open road through the town gate');
+  return [...bends, to];
 }
 const levelThree = papayaLevelRows.find((row) => row.level === 3)!;
 

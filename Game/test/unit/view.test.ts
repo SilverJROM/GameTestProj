@@ -19,6 +19,7 @@ import {
   beetSpriteRect,
   bagTiles,
   coinExpiryText,
+  coinExpiryTip,
   inventorySheet,
   figStandSrc,
   kiwiSliderBox,
@@ -749,9 +750,9 @@ describe('blacksmith shop and inventory', () => {
         snapshot: { players: [fig({ id: 'fig-self', x: 300, y: 450, place })], monsters: [], coins: [], pickups: [] },
       });
     send('town');
-    expect(board.controls().map((row) => row.id)).toEqual(['bubble', 'bag']);
+    expect(board.controls().map((row) => row.id)).toEqual(['bubble', 'menu', 'bag']);
     send('green');
-    expect(board.controls().map((row) => row.id)).toEqual(['bag']);
+    expect(board.controls().map((row) => row.id)).toEqual(['menu', 'bag']);
   });
 
   it('opens the six-item shop from the thought bubble and the inventory from Bag', () => {
@@ -781,6 +782,7 @@ describe('blacksmith shop and inventory', () => {
     const bag = board.controls().find((row) => row.id === 'bag');
     expect(bubble?.text).toBe('...');
     expect(bag?.text).toBe('Bag');
+    expect(bag?.label).toBe('Bag');
     expect(LIME_BUBBLE_W).toBe(64);
     expect(LIME_BUBBLE_H).toBe(36);
     expect(bubble!.width).toBe(LIME_BUBBLE_W);
@@ -827,6 +829,7 @@ describe('blacksmith shop and inventory', () => {
     expect(board.inventory()).toEqual({
       coins: 14,
       expiry: '',
+      expiryTip: '',
       sword: 'Short sword',
       armor: 'Leather',
       swordBonus: '+2 strike',
@@ -842,6 +845,7 @@ describe('blacksmith shop and inventory', () => {
     board.ingest(snap({ level: 1, xp: 0, hp: 70, maxHp: 70, coins: 0, sword: null, armor: null }));
     expect(board.inventory()).toEqual({
       expiry: '',
+      expiryTip: '',
       coins: 0,
       sword: 'Nothing worn',
       armor: 'Nothing worn',
@@ -1002,8 +1006,14 @@ describe('coin expiry text', () => {
   it('words the time left in days, hours or minutes, and is empty with no coins', () => {
     expect(coinExpiryText(null, now)).toBe('');
     expect(coinExpiryText({ amount: 0, atMs: now + 1000 }, now)).toBe('');
-    expect(coinExpiryText({ amount: 12, atMs: now + 6.5 * 86_400_000 }, now)).toBe('Oldest 12 coins expire in 7 days.');
-    expect(coinExpiryText({ amount: 1, atMs: now + 5 * 3_600_000 }, now)).toBe('Oldest 1 coin expires in 5 hours.');
-    expect(coinExpiryText({ amount: 4, atMs: now + 90_000 }, now)).toBe('Oldest 4 coins expire in 2 minutes.');
+    expect(coinExpiryText({ amount: 12, atMs: now + 1.5 * 86_400_000 }, now)).toBe('12 coins expire within 2 days.');
+    expect(coinExpiryText({ amount: 1, atMs: now + 5 * 3_600_000 }, now)).toBe('1 coin expires today.');
+    expect(coinExpiryText({ amount: 4, atMs: now + 90_000 }, now)).toBe('4 coins expire today.');
+    expect(coinExpiryText({ amount: 9, atMs: now + 3_600_000, lastAtMs: now + 1.2 * 86_400_000 }, now)).toBe('9 coins expire within 2 days.');
+    expect(coinExpiryTip({ amount: 12, atMs: now + 86_400_000, groups: [{ amount: 5, atMs: now + 20 * 3_600_000 }, { amount: 7, atMs: now + 1.5 * 86_400_000 }] }, now)).toBe('5 in 20 hours, 7 in 2 days');
+    expect(coinExpiryTip(null, now)).toBe('');
+    expect(coinExpiryTip({ amount: 1, atMs: now + 3_600_000 }, now)).toBe('1 in 1 hour');
+    expect(coinExpiryTip({ amount: 1, atMs: now - 1 }, now)).toBe('1 in under a minute');
+    expect(coinExpiryText({ amount: 10, atMs: now - 5 }, now)).toBe('');
   });
 });

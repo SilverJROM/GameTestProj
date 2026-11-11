@@ -75,23 +75,24 @@ export const pearTimings = {
 
 // Coins expire this many days after the pickup. Spending uses the oldest coins first.
 export const COIN_LIFETIME_DAYS = 7;
+// The Bag warns about coins that expire within this many days.
+export const COIN_WARN_DAYS = 2;
 
 // Room tick, walk speed, monster chase speed, and melee reach. Frozen values.
 // viewPadPx grows the widest guava window on every side. A beet inside that pad counts as on screen.
-// A radish patch is the disk around one leek: the cap, or the gap share to the nearest other used leek,
-// whichever is smaller. The loop stops sit at loopRadiusShare of that disk.
+// A radish patch is one monster's cell of its zone (see radish.ts).
 // coinPickupPx is feet to the seed's centre. The owner, in that seed's zone, pockets it on the tick.
 export const kaleConstants = {
   tickMs: 100,
   walkSpeedPxPerSec: 120,
   monsterChaseSpeedPxPerSec: 90,
-  monsterPatrolSpeedPxPerSec: 40,
+  // Animals amble unless aggravated: wolf and skeleton 11 px/s, the bear slower at 8. Chase speed is the normal speed.
+  monsterPatrolSpeedPxPerSec: 11,
+  monsterBearPatrolSpeedPxPerSec: 8,
+  // A wolf or a bear gives up a chase when it is this far from its own home (spawn point).
+  monsterLeashPx: 250,
   meleeReachPx: 48,
   viewPadPx: 150,
-  patchCapPx: 70,
-  patchGapShare: 0.45,
-  loopRadiusShare: 0.8,
-  loopStops: 3,
   coinPickupPx: 24,
 } as const;
 

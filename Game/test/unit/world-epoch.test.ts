@@ -80,6 +80,7 @@ describe('world epoch reset', () => {
     };
     const seed = new Map<string, unknown>([
       ['world-epoch', WORLD_EPOCH],
+      ['monsterLayout', 2],
       ['cabbage-bed', kept],
       ['fig:still-here', { purse: 1 }],
     ]);
@@ -88,6 +89,28 @@ describe('world epoch reset', () => {
 
     expect(seed.get('fig:still-here')).toEqual({ purse: 1 });
     expect(seed.get('cabbage-bed')).toBe(kept);
+  });
+
+  it('replants the monsters on the new spawn points when the saved layout is older, keeping ground coins', async () => {
+    const fresh = plantCabbage();
+    const old: CabbageBed = {
+      ...fresh,
+      beets: fresh.beets.map((b) => ({ ...b, x: 1, y: 1 })),
+      seeds: [{ id: 'coin-7', ownerId: 'still-here', x: 3, y: 4, value: 4 }],
+    };
+    const seed = new Map<string, unknown>([
+      ['world-epoch', WORLD_EPOCH],
+      ['cabbage-bed', old],
+      ['fig:still-here', { purse: 1 }],
+    ]);
+
+    await bootRoom(seed);
+
+    const bed = seed.get('cabbage-bed') as CabbageBed;
+    expect(bed.beets).toEqual(fresh.beets);
+    expect(bed.seeds).toEqual(old.seeds);
+    expect(seed.get('monsterLayout')).toBe(2);
+    expect(seed.get('fig:still-here')).toEqual({ purse: 1 });
   });
 
   it('plants a fresh bed when the epoch key is missing', async () => {

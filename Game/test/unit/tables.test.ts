@@ -102,13 +102,11 @@ describe('timing and frozen constants', () => {
       tickMs: 100,
       walkSpeedPxPerSec: 120,
       monsterChaseSpeedPxPerSec: 90,
-      monsterPatrolSpeedPxPerSec: 40,
+      monsterPatrolSpeedPxPerSec: 11,
+      monsterBearPatrolSpeedPxPerSec: 8,
+      monsterLeashPx: 250,
       meleeReachPx: 48,
       viewPadPx: 150,
-      patchCapPx: 70,
-      patchGapShare: 0.45,
-      loopRadiusShare: 0.8,
-      loopStops: 3,
       coinPickupPx: 24,
     });
   });

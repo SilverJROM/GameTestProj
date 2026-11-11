@@ -9,6 +9,23 @@ import { townSpawn } from '../rules/regions';
 import { removeMagenta } from './sprites';
 import { glideCitrus } from './smooth';
 import { canvasToMap, mapToCanvas, viewBox, type PeachView } from './camera';
+import { createMusicEngine, type MusicAudio, type MusicEngine } from './music';
+import { createSfxEngine, type SfxAudio, type SfxEngine } from './sfx';
+import {
+  actionForKey,
+  adoptSettings,
+  bindableKey,
+  commitSettings,
+  getSettings,
+  keyCap,
+  onSettingsChange,
+  presetBox,
+  rebindKey,
+  resetShortcutKeys,
+  type FigJar,
+  type KeyAction,
+  type ResolutionPreset,
+} from './settings';
 import { answerPlum, buyQuince, equipQuince, frontBeet, peelClick, unequipQuince, type ClickBerry } from './input';
 import {
   CEMETERY_WALL_SRC,
@@ -27,6 +44,7 @@ import {
   healthReadout,
   hudReadout,
   paintBeetRim,
+  paintControlIcon,
   paintHealth,
   paintHud,
   paintStack,
@@ -82,8 +100,10 @@ const MELON_INK = '#e0b15a';
 export interface FigHooks {
   onSmith?: (open: boolean) => void;
   onBag?: (open: boolean) => void;
+  onMenu?: (open: boolean) => void;
   onOffer?: (offer: { fromId: string; fromName: string } | null) => void;
   onSnapshot?: () => void;
+  onPlace?: (place: ZoneName) => void;
 }
 
 export interface PlantOptions {
@@ -97,7 +117,7 @@ export interface PlantOptions {
 
 export interface FigBoard {
   click(click: ClickBerry): void;
-  // Screen click on the thought bubble or the Bag control. Returns true when that click was used.
+  // Screen click on the thought bubble, the menu, or the Bag. Returns true when that click was used.
   pressScreen(x: number, y: number): boolean;
   accept(askerId?: string): void;
   decline(askerId?: string): void;
@@ -131,8 +151,13 @@ export interface FigBoard {
   gearFacts(): InventoryFacts;
   // Hides the Bag and the Blacksmith and clears both open flags.
   closePanels(): void;
+  // Opens or closes the fig menu. Opening it closes the Bag and the Blacksmith.
+  setMenu(open: boolean): void;
+  // Stops the lemon from sprouting again, then closes it so the fig leaves the world.
+  haltLemon(): void;
   readonly smithOpen: boolean;
   readonly bagOpen: boolean;
+  readonly menuOpen: boolean;
 }
 
 const EMPTY_ORCHARD: OrchardPaint = { players: [], monsters: [], coins: [], pickups: [] };
@@ -187,16 +212,20 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   let selfArmor: string | null = null;
   let selfItems: string[] = [];
   let selfElsewhere: { itemId: string; by: string }[] = [];
-  let selfCoinExpiry: { amount: number; atMs: number } | null = null;
+  let selfCoinExpiry: { amount: number; atMs: number; lastAtMs?: number; groups?: { amount: number; atMs: number }[] } | null = null;
   const seenHits = new Set<string>();
   let floats: FloatHit[] = [];
   const selfGender = options.selfGender;
   let quinceOpen = false;
   let bagOpen = false;
+  let menuOpen = false;
+  let figLeaving = false;
   let guavaZoom = readGuavaZoom();
   let askerHeld = '';
   let oliveDepth = 0;
   let papayaSwings = 0;
+  // The monster this player clicked to fight, for the creature sound. Cleared by a walk click or when it is gone.
+  let fightingMonsterId: string | null = null;
   const genderMap = new Map<string, Gender>();
   if (selfGender !== undefined && selfId.length > 0) {
     genderMap.set(selfId, selfGender);
@@ -210,12 +239,18 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     lemon?.send(JSON.stringify(message));
   }
 
+  function setSelfPlace(place: ZoneName): void {
+    if (place === selfPlace) return;
+    selfPlace = place;
+    hooks.onPlace?.(place);
+  }
+
   function readFig(value: unknown): void {
     const fig = asRecord(value);
     if (fig === null) return;
     if (typeof fig.id === 'string' && fig.id.length > 0) selfId = fig.id;
     if (fig.place === 'town' || fig.place === 'green' || fig.place === 'grey' || fig.place === 'cemetery') {
-      selfPlace = fig.place;
+      setSelfPlace(fig.place);
     }
     if ((fig.gender === 'woman' || fig.gender === 'man') && typeof fig.id === 'string') {
       genderMap.set(fig.id, fig.gender);
@@ -230,10 +265,19 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     if (Array.isArray(fig.items)) {
       selfItems = fig.items.filter((id): id is string => typeof id === 'string');
     }
-    const expiry = fig.coinExpiry as { amount?: unknown; atMs?: unknown } | null | undefined;
+    const expiry = fig.coinExpiry as { amount?: unknown; atMs?: unknown; lastAtMs?: unknown; groups?: unknown } | null | undefined;
     selfCoinExpiry =
       expiry !== null && expiry !== undefined && typeof expiry.amount === 'number' && typeof expiry.atMs === 'number'
-        ? { amount: expiry.amount, atMs: expiry.atMs }
+        ? {
+            amount: expiry.amount,
+            atMs: expiry.atMs,
+            lastAtMs: typeof expiry.lastAtMs === 'number' ? expiry.lastAtMs : expiry.atMs,
+            groups: Array.isArray(expiry.groups)
+              ? (expiry.groups as { amount?: unknown; atMs?: unknown }[])
+                  .filter((g): g is { amount: number; atMs: number } => typeof g?.amount === 'number' && typeof g?.atMs === 'number')
+                  .slice(0, 3)
+              : [],
+          }
         : null;
     selfElsewhere = Array.isArray(fig.elsewhere)
       ? (fig.elsewhere as { itemId?: unknown; by?: unknown }[]).filter(
@@ -272,7 +316,21 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       }
       if (snap !== null) noteHits(snap.hits);
       const selfRow = orchard.players.find((fig) => fig.id === selfId);
-      if (selfRow !== undefined) selfPlace = selfRow.place;
+      if (selfRow !== undefined) setSelfPlace(selfRow.place);
+      if (fightingMonsterId !== null && !orchard.monsters.some((m) => m.id === fightingMonsterId)) fightingMonsterId = null;
+      if (snap !== null) {
+        figSfx.frame({
+          selfId,
+          self: selfRow === undefined ? null : { x: selfRow.x, y: selfRow.y, attacking: selfRow.attacking === true },
+          monsters: orchard.monsters,
+          fightingId: fightingMonsterId,
+          hits: Array.isArray(snap.hits)
+            ? (snap.hits as { id?: unknown; targetKind?: unknown; targetId?: unknown }[])
+                .filter((h) => typeof h?.id === 'string')
+                .map((h) => ({ id: String(h.id), targetKind: String(h.targetKind ?? ''), targetId: String(h.targetId ?? '') }))
+            : [],
+        });
+      }
       // New figs and far jumps land now, so the camera and the click see them before the next frame.
       glideFeet(0);
       hooks.onSnapshot?.();
@@ -506,7 +564,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   }
 
   function controls(): ScreenControl[] {
-    // The blacksmith's bubble belongs to the town. The Bag button stays everywhere.
+    // The blacksmith's bubble belongs to the town. The menu and the Bag stay everywhere.
     return townControls(camera()).filter((row) => row.id !== 'bubble' || selfPlace === 'town');
   }
 
@@ -549,12 +607,19 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     const hit = controlAt(controls(), x, y);
     if (hit === null) return false;
     if (hit.id === 'bubble') {
+      if (menuOpen) setMenu(false);
       quinceOpen = true;
       bagOpen = false;
       hooks.onSmith?.(true);
       hooks.onBag?.(false);
       return true;
     }
+    if (hit.id === 'menu') {
+      setMenu(!menuOpen);
+      return true;
+    }
+    if (hit.id !== 'bag') return false;
+    if (menuOpen) setMenu(false);
     if (bagOpen) {
       bagOpen = false;
       hooks.onBag?.(false);
@@ -604,6 +669,10 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     if (peeled.message !== null) {
       if (peeled.message.type === 'attack') {
         papayaSwings = 2;
+        const target = (peeled.message as { monsterId?: unknown }).monsterId;
+        fightingMonsterId = typeof target === 'string' ? target : null;
+      } else if (peeled.message.type === 'move') {
+        fightingMonsterId = null;
       }
       sendOne(peeled.message);
     }
@@ -644,12 +713,14 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   }
 
   function sproutLemon(): void {
+    if (figLeaving) return;
     const next = options.createSocket('/ws', plumCookie);
     lemon = next;
     listen(next, 'message', (event) => {
       if (typeof event.data === 'string') ingest(event.data);
     });
     listen(next, 'close', () => {
+      if (figLeaving) return;
       if (oliveDepth > 0) return;
       oliveDepth += 1;
       try {
@@ -658,6 +729,27 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
         oliveDepth -= 1;
       }
     });
+  }
+
+  function haltLemon(): void {
+    figLeaving = true;
+    const ripe = lemon;
+    lemon = null;
+    ripe?.close();
+  }
+
+  function setMenu(open: boolean): void {
+    const was = menuOpen;
+    menuOpen = open;
+    if (open) {
+      const smithWas = quinceOpen;
+      const bagWas = bagOpen;
+      quinceOpen = false;
+      bagOpen = false;
+      if (smithWas) hooks.onSmith?.(false);
+      if (bagWas) hooks.onBag?.(false);
+    }
+    if (was !== open) hooks.onMenu?.(open);
   }
 
   sproutLemon();
@@ -687,11 +779,16 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     shop,
     inventory,
     closePanels,
+    setMenu,
+    haltLemon,
     get smithOpen() {
       return quinceOpen;
     },
     get bagOpen() {
       return bagOpen;
+    },
+    get menuOpen() {
+      return menuOpen;
     },
   };
 }
@@ -727,7 +824,18 @@ interface LooseEl {
   onload?: (() => void) | null;
   naturalWidth?: number;
   naturalHeight?: number;
-  style?: { cursor?: string };
+  style?: {
+    cursor?: string;
+    width?: string;
+    height?: string;
+    marginTop?: string;
+    marginLeft?: string;
+    marginRight?: string;
+  };
+  title?: string;
+  checked?: boolean;
+  setAttribute?(name: string, value: string): void;
+  requestFullscreen?(): Promise<void> | void;
   appendChild?(child: LooseEl): void;
   replaceChild?(next: LooseEl, prev: LooseEl): void;
   removeChild?(child: LooseEl): void;
@@ -741,6 +849,11 @@ interface LooseEvent {
   clientX?: number;
   clientY?: number;
   key?: string;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+  repeat?: boolean;
   target?: unknown;
   preventDefault?: () => void;
   stopPropagation?: () => void;
@@ -790,6 +903,152 @@ function mapBerry(canvas: LooseEl, event: LooseEvent): { x: number; y: number } 
 }
 
 let papayaPlanted = false;
+// The live plum listener from the latest signed-in fig. A new sprout drops the previous one.
+let dropFigUiWatch: (() => void) | null = null;
+const QUIET_MUSIC: MusicEngine = {
+  setZone() {},
+  setCanvasVisible() {},
+  setTabVisible() {},
+  noteGesture() {},
+  dispose() {},
+};
+// The live music for the signed-in fig. Sign-in and the picker never start it.
+let figMusic: MusicEngine = QUIET_MUSIC;
+const QUIET_SFX: SfxEngine = {
+  frame() {},
+  noteGesture() {},
+  setCanvasVisible() {},
+  dispose() {},
+};
+// The live effects (sword, stab, creature sounds) for the signed-in fig.
+let figSfx: SfxEngine = QUIET_SFX;
+
+function startFigSfx(): SfxEngine {
+  try {
+    if (typeof (globalThis as { Audio?: unknown }).Audio !== 'function') return QUIET_SFX;
+    return createSfxEngine({
+      createAudio: (src) => browserAudio(src) as unknown as SfxAudio,
+      now: () => Date.now(),
+      readSettings() {
+        const settings = getSettings();
+        return { effectsVolume: settings.effectsVolume, muted: settings.muted };
+      },
+      listenSettings(fn) {
+        return onSettingsChange(() => {
+          fn();
+        });
+      },
+    });
+  } catch {
+    return QUIET_SFX;
+  }
+}
+
+function tabIsShown(page: { visibilityState?: string; hidden?: boolean }): boolean {
+  if (page.visibilityState === 'hidden') return false;
+  if (page.visibilityState === undefined && page.hidden === true) return false;
+  return true;
+}
+
+function browserAudio(src: string): MusicAudio {
+  const AudioCtor = (globalThis as { Audio?: new (src: string) => MusicAudio }).Audio;
+  if (typeof AudioCtor !== 'function') throw new Error('no Audio');
+  const audio = new AudioCtor(src);
+  try {
+    (audio as MusicAudio & { preload?: string }).preload = 'auto';
+  } catch {
+    // preload is a hint. The file can still play.
+  }
+  return audio;
+}
+
+function startFigMusic(zone: ZoneName): MusicEngine {
+  try {
+    if (typeof (globalThis as { Audio?: unknown }).Audio !== 'function') return QUIET_MUSIC;
+    return createMusicEngine({
+      zone,
+      createAudio: browserAudio,
+      now: () => Date.now(),
+      every(ms, fn) {
+        const id = setInterval(fn, ms);
+        return () => {
+          clearInterval(id);
+        };
+      },
+      readSettings() {
+        const settings = getSettings();
+        return { musicVolume: settings.musicVolume, muted: settings.muted };
+      },
+      listenSettings(fn) {
+        return onSettingsChange(() => {
+          fn();
+        });
+      },
+    });
+  } catch {
+    return QUIET_MUSIC;
+  }
+}
+let melonResize: (() => void) | null = null;
+let melonResizeWin: { removeEventListener?(type: string, fn: () => void): void } | null = null;
+// The live lemon from the signed-in fig. Change avatar and a successful sign-out both call it.
+let melonHalt: (() => void) | null = null;
+
+interface PearResponse {
+  ok: boolean;
+  json?: () => Promise<unknown>;
+}
+
+function reloadFigPage(): void {
+  const loc = (globalThis as { location?: { reload?: () => void } }).location;
+  if (typeof loc?.reload === 'function') loc.reload();
+}
+
+// Closes the lemon, then reloads. The account cookie stays, so the page shows the roster.
+export function changeAvatarFig(reload: () => void): void {
+  melonHalt?.();
+  figMusic.setCanvasVisible(false);
+  figSfx.setCanvasVisible(false);
+  reload();
+}
+
+async function figSignError(response: PearResponse, fallback: string): Promise<string> {
+  try {
+    const body = await response.json?.();
+    if (body !== null && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string') {
+      return (body as { error: string }).error;
+    }
+  } catch {
+    // A body that is not JSON keeps the fallback.
+  }
+  return fallback;
+}
+
+// Posts /api/signout the same way signOutFig does. A failure stays put and returns the error.
+export async function logOutFig(
+  fetchFn: (input: string, init?: { method: string; credentials: string }) => Promise<PearResponse>,
+  reload: () => void,
+): Promise<{ ok: boolean; error: string }> {
+  let response: PearResponse;
+  try {
+    response = await fetchFn('/api/signout', { method: 'POST', credentials: 'same-origin' });
+  } catch {
+    return { ok: false, error: 'Could not reach the server.' };
+  }
+  if (!response.ok) {
+    return { ok: false, error: await figSignError(response, 'Could not sign out.') };
+  }
+  try {
+    await response.json?.();
+  } catch {
+    // An empty body still counts as signed out.
+  }
+  melonHalt?.();
+  figMusic.setCanvasVisible(false);
+  figSfx.setCanvasVisible(false);
+  reload();
+  return { ok: true, error: '' };
+}
 
 function figChildren(el: LooseEl): LooseEl[] {
   if (el.children === undefined) return [];
@@ -998,6 +1257,13 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   const gender = fig !== null && (fig.gender === 'woman' || fig.gender === 'man') ? fig.gender : undefined;
 
   const canvas = doc.getElementById('papaya-canvas');
+  figMusic.dispose();
+  figMusic = startFigMusic(selfPlace);
+  figMusic.setTabVisible(tabIsShown(doc as { visibilityState?: string; hidden?: boolean }));
+  figMusic.setCanvasVisible(canvas != null && canvas.hidden !== true);
+  figSfx.dispose();
+  figSfx = startFigSfx();
+  figSfx.setCanvasVisible(canvas != null && canvas.hidden !== true);
   const smith = doc.getElementById('quince-smith');
   const smithList = doc.getElementById('quince-list');
   const plumDuel = doc.getElementById('plum-duel');
@@ -1056,16 +1322,16 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
       paintHealth(screen, board.health());
       paintHud(screen, board.hud());
       for (const control of board.controls()) {
-        screen.fillStyle = control.id === 'bag' ? '#1c1814' : '#ffffff';
-        screen.fillRect(control.x, control.y, control.width, control.height);
-        screen.fillStyle = control.id === 'bag' ? '#ffffff' : '#1a140c';
-        screen.font = control.font;
-        if (control.id === 'bubble') {
-          const pen = limePen(screen, control.text, control.x, control.width);
-          screen.fillText(control.text, pen, control.y + 28);
-        } else {
-          screen.fillText(control.text, control.x + 12, control.y + 36);
+        if (control.id === 'bag' || control.id === 'menu') {
+          paintControlIcon(screen, control);
+          continue;
         }
+        screen.fillStyle = '#ffffff';
+        screen.fillRect(control.x, control.y, control.width, control.height);
+        screen.fillStyle = '#1a140c';
+        screen.font = control.font;
+        const pen = limePen(screen, control.text, control.x, control.width);
+        screen.fillText(control.text, pen, control.y + 28);
       }
       for (const num of board.damageNumbers(nowMs)) {
         screen.fillStyle = num.color;
@@ -1371,6 +1637,10 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     if (sheet === null) return;
     oliveText('olive-coins', `Coins: ${sheet.coins}`);
     oliveText('olive-expiry', sheet.expiry);
+    {
+      const tip = document.getElementById('olive-expiry');
+      if (tip !== null) tip.title = sheet.expiryTip;
+    }
     oliveText('olive-level', String(sheet.level));
     oliveText('olive-health', sheet.health);
     oliveText('olive-strike', String(sheet.strike));
@@ -1448,15 +1718,28 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     selfPlace,
     selfGender: gender,
     hooks: {
+      onPlace(place) {
+        figMusic.setZone(place);
+      },
       onSmith(open) {
         if (smith !== null) smith.hidden = !open;
+        if (open) hideSettings();
         if (open) paintQuince();
       },
       onBag(open) {
         const sheetEl = doc.getElementById('olive-sheet');
         if (sheetEl !== null) sheetEl.hidden = !open;
         if (!open) forgetCarry();
+        if (open) hideSettings();
         if (open) paintOlive();
+      },
+      onMenu(open) {
+        const panel = doc.getElementById('menu-panel');
+        if (panel !== null) panel.hidden = !open;
+        if (!open) return;
+        hideSettings();
+        const line = doc.getElementById('menu-error');
+        if (line !== null) line.textContent = '';
       },
       onOffer(offer) {
         if (plumDuel !== null) plumDuel.hidden = offer === null;
@@ -1540,10 +1823,226 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     });
   }
 
+  let figRebind: KeyAction | null = null;
+  let figLeavingFull = false;
+  let figBeforeFull: ResolutionPreset = 'fit';
+
+  function browserJar(): FigJar {
+    const jar = (globalThis as { localStorage?: FigJar }).localStorage;
+    return {
+      getItem(key: string): string | null {
+        try {
+          if (jar == null || typeof jar.getItem !== 'function') return null;
+          return jar.getItem(key);
+        } catch {
+          return null;
+        }
+      },
+      setItem(key: string, value: string): void {
+        try {
+          if (jar == null || typeof jar.setItem !== 'function') return;
+          jar.setItem(key, value);
+        } catch {
+          // A blocked plum jar still keeps this session's fig in memory.
+        }
+      },
+    };
+  }
+
+  function figNote(text: string): void {
+    const el = doc.getElementById('settings-note');
+    if (el !== null && el.textContent !== text) el.textContent = text;
+  }
+
+  function markPressed(id: string, on: boolean): void {
+    const el = doc.getElementById(id);
+    if (el === null) return;
+    const flag = on ? 'true' : 'false';
+    el.setAttribute?.('aria-pressed', flag);
+  }
+
+  function markListening(el: LooseEl | null, on: boolean): void {
+    if (el === null) return;
+    const parts = (el.className ?? '').split(/\s+/).filter((part) => part.length > 0 && part !== 'listening');
+    if (on) parts.push('listening');
+    const next = parts.join(' ');
+    if (el.className !== next) el.className = next;
+  }
+
+  function paintFigSettings(): void {
+    const s = getSettings();
+    const music = doc.getElementById('settings-music');
+    if (music !== null && String(music.value ?? '') !== String(s.musicVolume)) music.value = String(s.musicVolume);
+    const musicNum = doc.getElementById('settings-music-num');
+    if (musicNum !== null && musicNum.textContent !== String(s.musicVolume)) musicNum.textContent = String(s.musicVolume);
+    const effects = doc.getElementById('settings-effects');
+    if (effects !== null && String(effects.value ?? '') !== String(s.effectsVolume)) {
+      effects.value = String(s.effectsVolume);
+    }
+    const effectsNum = doc.getElementById('settings-effects-num');
+    if (effectsNum !== null && effectsNum.textContent !== String(s.effectsVolume)) {
+      effectsNum.textContent = String(s.effectsVolume);
+    }
+    const mute = doc.getElementById('settings-mute');
+    if (mute !== null && mute.checked !== s.muted) mute.checked = s.muted;
+    const caps: { id: string; action: KeyAction }[] = [
+      { id: 'settings-key-bag', action: 'bag' },
+      { id: 'settings-key-menu', action: 'menu' },
+      { id: 'settings-key-settings', action: 'settings' },
+    ];
+    for (const row of caps) {
+      const button = doc.getElementById(row.id);
+      const label = figRebind === row.action ? '…' : keyCap(s.keys[row.action]);
+      if (button !== null && button.textContent !== label) button.textContent = label;
+      markListening(button, figRebind === row.action);
+    }
+    const presets: { id: string; preset: ResolutionPreset }[] = [
+      { id: 'settings-res-small', preset: 'small' },
+      { id: 'settings-res-medium', preset: 'medium' },
+      { id: 'settings-res-large', preset: 'large' },
+      { id: 'settings-res-fit', preset: 'fit' },
+      { id: 'settings-res-fullscreen', preset: 'fullscreen' },
+    ];
+    for (const row of presets) markPressed(row.id, s.resolution === row.preset);
+    const bagHint = `(${keyCap(s.keys.bag)})`;
+    const oliveHint = doc.getElementById('olive-key-hint');
+    if (oliveHint !== null && oliveHint.textContent !== bagHint) oliveHint.textContent = bagHint;
+    const olive = doc.getElementById('olive-sheet');
+    if (olive !== null) olive.title = `Bag ${bagHint}`;
+    const menu = doc.getElementById('menu-panel');
+    if (menu !== null) menu.title = `Menu (${keyCap(s.keys.menu)})`;
+    const sheet = doc.getElementById('settings-panel');
+    if (sheet !== null) sheet.title = `Settings (${keyCap(s.keys.settings)})`;
+  }
+
+  function readMelonWindow(): { width: number; height: number } | null {
+    const host = globalThis as {
+      innerWidth?: unknown;
+      innerHeight?: unknown;
+      window?: { innerWidth?: unknown; innerHeight?: unknown };
+    };
+    const width = typeof host.innerWidth === 'number' ? host.innerWidth : host.window?.innerWidth;
+    const height = typeof host.innerHeight === 'number' ? host.innerHeight : host.window?.innerHeight;
+    if (typeof width !== 'number' || typeof height !== 'number') return null;
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+    if (width < 0 || height < 0) return null;
+    return { width, height };
+  }
+
+  function stageIsFullscreen(stage: LooseEl): boolean {
+    const root = doc as { fullscreenElement?: unknown };
+    return 'fullscreenElement' in root && root.fullscreenElement === stage;
+  }
+
+  function applyMelonSize(): void {
+    const frame = readMelonWindow();
+    if (frame === null) return;
+    const stage = doc.getElementById('melon-stage');
+    if (stage === null) return;
+    if (stage.style == null) stage.style = {};
+    const preset = getSettings().resolution;
+    const liveFull = preset === 'fullscreen' && stageIsFullscreen(stage);
+    const fullClass = 'is-fullscreen';
+    const parts = (stage.className ?? '').split(/\s+/).filter((part) => part.length > 0 && part !== fullClass);
+    if (liveFull) parts.push(fullClass);
+    const nextClass = parts.join(' ');
+    if (stage.className !== nextClass) stage.className = nextClass;
+    if (liveFull) {
+      stage.style.width = '100%';
+      stage.style.height = '100%';
+      stage.style.marginTop = '0px';
+      stage.style.marginLeft = '0px';
+      stage.style.marginRight = '0px';
+      return;
+    }
+    const shown: ResolutionPreset = preset === 'fullscreen' ? 'fit' : preset;
+    const box = presetBox(shown, frame.width, frame.height);
+    stage.style.width = `${box.width}px`;
+    stage.style.height = `${box.height}px`;
+    const spare = frame.height - box.height;
+    stage.style.marginTop = `${spare > 0 ? spare / 2 : 0}px`;
+    stage.style.marginLeft = 'auto';
+    stage.style.marginRight = 'auto';
+  }
+
+  function isPromise(value: unknown): value is Promise<void> {
+    return value !== null && typeof value === 'object' && typeof (value as { then?: unknown }).then === 'function';
+  }
+
+  async function askFullscreen(stage: LooseEl): Promise<boolean> {
+    const ask = stage.requestFullscreen;
+    if (typeof ask !== 'function') return false;
+    try {
+      const pending = ask.call(stage);
+      if (isPromise(pending)) await pending;
+    } catch {
+      return false;
+    }
+    const root = globalThis.document as { fullscreenElement?: unknown } | undefined;
+    if (root !== undefined && 'fullscreenElement' in root) return root.fullscreenElement === stage;
+    return true;
+  }
+
+  async function leaveFullscreen(): Promise<void> {
+    const root = doc as { fullscreenElement?: unknown; exitFullscreen?: () => Promise<void> | void };
+    if (typeof root.exitFullscreen !== 'function') return;
+    if (!('fullscreenElement' in root) || root.fullscreenElement == null) return;
+    try {
+      const pending = root.exitFullscreen.call(root);
+      if (isPromise(pending)) await pending;
+    } catch {
+      // The browser already left the fig screen.
+    }
+  }
+
+  async function pickPreset(preset: ResolutionPreset): Promise<void> {
+    const current = getSettings().resolution;
+    if (preset === 'fullscreen') {
+      const stage = doc.getElementById('melon-stage');
+      const ok = stage !== null && (await askFullscreen(stage));
+      if (!ok) {
+        figNote('Fullscreen was blocked.');
+        paintFigSettings();
+        return;
+      }
+      figBeforeFull = current === 'fullscreen' ? figBeforeFull : current;
+      figNote('');
+      commitSettings(browserJar(), { ...getSettings(), resolution: 'fullscreen' });
+      return;
+    }
+    figLeavingFull = true;
+    try {
+      await leaveFullscreen();
+    } finally {
+      figLeavingFull = false;
+    }
+    figNote('');
+    commitSettings(browserJar(), { ...getSettings(), resolution: preset });
+  }
+
+  function hideSettings(): void {
+    figRebind = null;
+    const settings = doc.getElementById('settings-panel');
+    if (settings !== null) settings.hidden = true;
+    paintFigSettings();
+  }
+
+  function showSettings(): void {
+    board.closePanels();
+    board.setMenu(false);
+    const settings = doc.getElementById('settings-panel');
+    if (settings !== null) settings.hidden = false;
+    paintFigSettings();
+  }
+
   function shutPanels(): void {
     forgetCarry();
     board.closePanels();
   }
+
+  melonHalt = () => {
+    board.haltLemon();
+  };
 
   doc.getElementById('quince-close')?.addEventListener?.('click', () => {
     shutPanels();
@@ -1551,16 +2050,200 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   doc.getElementById('olive-close')?.addEventListener?.('click', () => {
     shutPanels();
   });
+  doc.getElementById('menu-avatar')?.addEventListener?.('click', () => {
+    changeAvatarFig(reloadFigPage);
+  });
+  doc.getElementById('menu-settings')?.addEventListener?.('click', () => {
+    showSettings();
+  });
+  doc.getElementById('menu-logout')?.addEventListener?.('click', () => {
+    const line = doc.getElementById('menu-error');
+    if (line !== null) line.textContent = '';
+    const fetchFn = (globalThis as {
+      fetch?: (input: string, init?: { method: string; credentials: string }) => Promise<PearResponse>;
+    }).fetch;
+    if (typeof fetchFn !== 'function') {
+      if (line !== null) line.textContent = 'Could not reach the server.';
+      return;
+    }
+    void logOutFig((input, init) => fetchFn(input, init), reloadFigPage).then((result) => {
+      if (!result.ok && line !== null) line.textContent = result.error;
+    });
+  });
+  doc.getElementById('menu-close')?.addEventListener?.('click', () => {
+    board.setMenu(false);
+  });
+  doc.getElementById('settings-close')?.addEventListener?.('click', () => {
+    hideSettings();
+  });
+  const presetButtons: { id: string; preset: ResolutionPreset }[] = [
+    { id: 'settings-res-small', preset: 'small' },
+    { id: 'settings-res-medium', preset: 'medium' },
+    { id: 'settings-res-large', preset: 'large' },
+    { id: 'settings-res-fit', preset: 'fit' },
+    { id: 'settings-res-fullscreen', preset: 'fullscreen' },
+  ];
+  for (const row of presetButtons) {
+    doc.getElementById(row.id)?.addEventListener?.('click', () => {
+      void pickPreset(row.preset);
+    });
+  }
+  const musicSlider = doc.getElementById('settings-music');
+  musicSlider?.addEventListener?.('input', () => {
+    const raw = Number(musicSlider.value);
+    if (!Number.isFinite(raw)) return;
+    commitSettings(browserJar(), { ...getSettings(), musicVolume: raw });
+  });
+  const effectsSlider = doc.getElementById('settings-effects');
+  effectsSlider?.addEventListener?.('input', () => {
+    const raw = Number(effectsSlider.value);
+    if (!Number.isFinite(raw)) return;
+    commitSettings(browserJar(), { ...getSettings(), effectsVolume: raw });
+  });
+  const muteBox = doc.getElementById('settings-mute');
+  muteBox?.addEventListener?.('change', () => {
+    commitSettings(browserJar(), { ...getSettings(), muted: muteBox.checked === true });
+  });
+  const keyButtons: { id: string; action: KeyAction }[] = [
+    { id: 'settings-key-bag', action: 'bag' },
+    { id: 'settings-key-menu', action: 'menu' },
+    { id: 'settings-key-settings', action: 'settings' },
+  ];
+  for (const row of keyButtons) {
+    doc.getElementById(row.id)?.addEventListener?.('click', () => {
+      figRebind = row.action;
+      figNote('');
+      paintFigSettings();
+    });
+  }
+  doc.getElementById('settings-reset-keys')?.addEventListener?.('click', () => {
+    figRebind = null;
+    figNote('');
+    commitSettings(browserJar(), resetShortcutKeys(getSettings()));
+  });
+  dropFigUiWatch?.();
+  dropFigUiWatch = onSettingsChange(() => {
+    paintFigSettings();
+    applyMelonSize();
+  });
+  adoptSettings(browserJar());
+  const resizeWin = globalThis.window as {
+    addEventListener?(type: string, fn: () => void): void;
+    removeEventListener?(type: string, fn: () => void): void;
+  } | undefined;
+  if (melonResizeWin !== null && melonResize !== null && melonResizeWin === resizeWin) {
+    melonResizeWin.removeEventListener?.('resize', melonResize);
+  }
+  melonResize = () => {
+    applyMelonSize();
+  };
+  melonResizeWin = resizeWin ?? null;
+  resizeWin?.addEventListener?.('resize', melonResize);
   wireSlot('olive-sword', 'sword');
   wireSlot('olive-armor', 'armor');
   wireRow();
+  function figTyping(target: unknown): boolean {
+    if (target === null || typeof target !== 'object') return false;
+    const el = target as { tagName?: string; type?: string; isContentEditable?: boolean };
+    if (el.isContentEditable === true) return true;
+    const tag = typeof el.tagName === 'string' ? el.tagName.toLowerCase() : '';
+    if (tag === 'textarea') return true;
+    if (tag !== 'input') return false;
+    const type = typeof el.type === 'string' && el.type.length > 0 ? el.type.toLowerCase() : 'text';
+    return (
+      type === 'text' ||
+      type === 'password' ||
+      type === 'search' ||
+      type === 'email' ||
+      type === 'url' ||
+      type === 'tel' ||
+      type === 'number'
+    );
+  }
+  function papayaOnScreen(): boolean {
+    const el = doc.getElementById('papaya-canvas');
+    return el !== null && el.hidden !== true;
+  }
+  function toggleBagFig(): void {
+    const bag = board.controls().find((row) => row.id === 'bag');
+    if (bag === undefined) return;
+    board.pressScreen(bag.x + 1, bag.y + 1);
+  }
+  function closeWhatever(): void {
+    if (board.menuOpen) board.setMenu(false);
+    const settingsPanel = doc.getElementById('settings-panel');
+    if (settingsPanel !== null && settingsPanel.hidden !== true) hideSettings();
+    if (board.smithOpen || board.bagOpen) shutPanels();
+  }
   const keyHost = doc as LooseDoc & {
-    addEventListener?(type: string, listener: (event: LooseEvent) => void): void;
+    addEventListener?(type: string, listener: (event: LooseEvent) => void, capture?: boolean): void;
   };
+  keyHost.addEventListener?.('fullscreenchange', () => {
+    if (figLeavingFull) return;
+    const root = doc as { fullscreenElement?: unknown };
+    if (!('fullscreenElement' in root) || root.fullscreenElement != null) return;
+    if (getSettings().resolution !== 'fullscreen') return;
+    const back: ResolutionPreset = figBeforeFull === 'fullscreen' ? 'fit' : figBeforeFull;
+    commitSettings(browserJar(), { ...getSettings(), resolution: back });
+  });
+  const armMusic = (): void => {
+    figMusic.noteGesture();
+    figSfx.noteGesture();
+  };
+  // Capture so a control that stops the event (the zoom rail) still counts as the first gesture.
+  keyHost.addEventListener?.('pointerdown', armMusic, true);
+  keyHost.addEventListener?.('keydown', armMusic, true);
   keyHost.addEventListener?.('keydown', (event) => {
-    if (event.key !== 'Escape') return;
-    if (!board.smithOpen && !board.bagOpen) return;
-    shutPanels();
+    if (figRebind !== null) {
+      event.preventDefault?.();
+      const action = figRebind;
+      if (event.key === 'Escape' || event.key === 'Esc') {
+        figRebind = null;
+        figNote('');
+        paintFigSettings();
+        return;
+      }
+      const bound = bindableKey({
+        key: event.key,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        metaKey: event.metaKey,
+      });
+      figRebind = null;
+      if (bound === null) {
+        figNote('That key cannot be bound.');
+        paintFigSettings();
+        return;
+      }
+      const result = rebindKey(getSettings(), action, bound);
+      if (!result.ok) {
+        figNote(result.message);
+        paintFigSettings();
+        return;
+      }
+      figNote('');
+      commitSettings(browserJar(), result.settings);
+      return;
+    }
+    if (event.key === 'Escape') {
+      closeWhatever();
+      return;
+    }
+    if (event.repeat === true) return;
+    if (event.ctrlKey === true || event.altKey === true || event.metaKey === true) return;
+    if (figTyping(event.target)) return;
+    if (!papayaOnScreen()) return;
+    const action = actionForKey(getSettings(), event.key ?? '');
+    if (action === null) return;
+    event.preventDefault?.();
+    if (action === 'bag') toggleBagFig();
+    else if (action === 'menu') board.setMenu(!board.menuOpen);
+    else {
+      const panel = doc.getElementById('settings-panel');
+      const open = panel !== null && panel.hidden !== true;
+      if (open) hideSettings();
+      else showSettings();
+    }
   });
 
   canvas?.addEventListener?.('mousedown', (event) => {
@@ -1578,6 +2261,22 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   const aimBeet = (event: LooseEvent) => {
     if (canvas == null) return;
     const pixel = mapBerry(canvas, event);
+    const overFig = controlAt(board.controls(), pixel.x, pixel.y);
+    if (overFig !== null) {
+      melonPointer = null;
+      const hadRim = melonHoverId !== null;
+      melonHoverId = null;
+      setPapayaCursor('pointer');
+      if (overFig.id === 'bag' || overFig.id === 'menu') {
+        const keys = getSettings().keys;
+        canvas.title = overFig.id === 'bag' ? `Bag (${keyCap(keys.bag)})` : `Menu (${keyCap(keys.menu)})`;
+      } else if (canvas.title) {
+        canvas.title = '';
+      }
+      if (hadRim) show(board.pose());
+      return;
+    }
+    if (canvas.title) canvas.title = '';
     const spot = canvasToMap(board.camera(), pixel.x, pixel.y);
     melonPointer = spot;
     const stills = board.pose();
@@ -1591,6 +2290,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   canvas?.addEventListener?.('pointerleave', () => {
     melonPointer = null;
     setPapayaCursor('');
+    if (canvas != null && canvas.title) canvas.title = '';
     if (melonHoverId === null) return;
     melonHoverId = null;
     show(board.pose());
@@ -1660,6 +2360,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   page?.addEventListener?.('visibilitychange', () => {
     if (screenOpen()) citrus.start();
     else citrus.stop();
+    figMusic.setTabVisible(tabIsShown(page as { visibilityState?: string; hidden?: boolean }));
   });
   const Observer = (root as { MutationObserver?: new (cb: () => void) => { observe(target: unknown, options: { attributes: boolean; attributeFilter: string[] }): void } }).MutationObserver;
   if (typeof Observer === 'function' && canvas != null) {
@@ -1667,6 +2368,8 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
       const watch = new Observer(() => {
         if (screenOpen()) citrus.start();
         else citrus.stop();
+        figMusic.setCanvasVisible(papayaOnScreen());
+        figSfx.setCanvasVisible(papayaOnScreen());
       });
       watch.observe(canvas, { attributes: true, attributeFilter: ['hidden'] });
     } catch {

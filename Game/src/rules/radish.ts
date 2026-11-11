@@ -1,11 +1,12 @@
-// Radish patch: the disk one beet patrols around its own leek.
+// Radish patch: the part of its zone one beet patrols.
 // Used leeks are the first `count` points of that zone's row (seven wolves, seven bears, seven skeletons).
-// The disk radius is the cap, or the gap share to the nearest other used leek, whichever is smaller.
-// Three stops sit around the leek. A stop that leaves the zone or crosses a solid wall shrinks
-// along its ray, and a stop that still fails is dropped. No stops means the beet stands on the leek.
-// Neighbours start a third of a turn apart plus one step of the herd, so they do not walk the same way.
+// The zone is cut into one cell per used leek (every spot of the zone belongs to its nearest leek), so together the
+// cells cover the whole section and neighbours patrol different parts of it. Spots too near a wall, the zone edge
+// or a gate are left out, so the gates stay clear. The beet walks a loop of up to four stops spread across its cell.
+// The leek stays the beet's home: it is where a chase is measured from.
 
-import { firstSolidWallCrossing, inRing, spawnPoints, zoneRings, type Point } from './regions';
+import { berryCemeteryGate, firstSolidWallCrossing, inRing, limeTownGate, MAP_HEIGHT, MAP_WIDTH, spawnPoints, zoneRings, type Point } from './regions';
+import { nearWall } from './route';
 import { kaleConstants, onionMonsterRows, type ZoneName } from './tables';
 
 export interface RadishStop {
@@ -86,95 +87,128 @@ function segmentOpen(zone: ZoneName, from: Point, to: Point): boolean {
   return segmentInZone(zone, from, to) && firstSolidWallCrossing(from, to) === null;
 }
 
-function patchRadius(zone: ZoneName, spawnIndex: number, home: Point): number {
-  const used = usedLeeks(zone);
-  let nearest = Infinity;
-  for (let index = 0; index < used.length; index += 1) {
-    if (index === spawnIndex) continue;
-    const spot = used[index]!;
-    const gap = Math.hypot(spot[0] - home[0], spot[1] - home[1]);
-    if (gap < nearest) nearest = gap;
+// Spots of a zone that a beet may stand on, on a 10 px grid, with their nearest leek.
+const GRID_PX = 10;
+const WALL_CLEAR_PX = 14;
+const EDGE_CLEAR_PX = 10;
+const GATE_CLEAR_PX = 50;
+const STOPS_PER_LOOP = 4;
+
+function gateMids(): Point[] {
+  return [limeTownGate, berryCemeteryGate].map((g) => [(g[0][0] + g[1][0]) / 2, (g[0][1] + g[1][1]) / 2] as Point);
+}
+
+function distToSegment(p: Point, a: Point, b: Point): number {
+  const len2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2;
+  if (len2 < 1e-9) return Math.hypot(p[0] - a[0], p[1] - a[1]);
+  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / len2));
+  return Math.hypot(p[0] - (a[0] + t * (b[0] - a[0])), p[1] - (a[1] + t * (b[1] - a[1])));
+}
+
+// True when the spot is within `within` px of the middle of a gate opening.
+export function nearGateOpening(p: Point, within: number): boolean {
+  // The whole opening, not just its middle: the distance to the gate line.
+  return [limeTownGate, berryCemeteryGate].some((g) => distToSegment(p, g[0], g[1]) < within);
+}
+
+function nearGate(p: Point, within: number): boolean {
+  return gateMids().some((g) => Math.hypot(p[0] - g[0], p[1] - g[1]) < within);
+}
+
+function segmentNearGate(a: Point, b: Point, within: number): boolean {
+  return gateMids().some((g) => distToSegment(g, a, b) < within);
+}
+
+function standable(zone: ZoneName, p: Point): boolean {
+  if (!pointInZone(zone, p[0], p[1])) return false;
+  for (const [dx, dy] of [[EDGE_CLEAR_PX, 0], [-EDGE_CLEAR_PX, 0], [0, EDGE_CLEAR_PX], [0, -EDGE_CLEAR_PX]] as const) {
+    if (!pointInZone(zone, p[0] + dx, p[1] + dy)) return false;
   }
-  if (!Number.isFinite(nearest)) return kaleConstants.patchCapPx;
-  return Math.min(kaleConstants.patchCapPx, kaleConstants.patchGapShare * nearest);
+  return !nearWall(p, WALL_CLEAR_PX) && !nearGate(p, GATE_CLEAR_PX);
 }
 
-interface FitStop extends RadishStop {
-  readonly angle: number;
-  readonly reach: number;
+interface ZoneCells {
+  readonly cells: Point[][];
+  readonly spots: readonly Point[];
 }
 
-function stopAt(home: Point, angle: number, reach: number): FitStop {
-  return {
-    x: home[0] + Math.cos(angle) * reach,
-    y: home[1] + Math.sin(angle) * reach,
-    angle,
-    reach,
-  };
-}
+const cellCache = new Map<ZoneName, ZoneCells>();
 
-function spokeOpen(zone: ZoneName, home: Point, angle: number, reach: number): boolean {
-  const stop = stopAt(home, angle, reach);
-  return segmentOpen(zone, home, [stop.x, stop.y]);
-}
-
-function fitSpoke(zone: ZoneName, home: Point, angle: number, maxReach: number): FitStop | null {
-  if (maxReach >= 1 && spokeOpen(zone, home, angle, maxReach)) {
-    return stopAt(home, angle, maxReach);
-  }
-  for (let reach = Math.floor(maxReach - 1e-9); reach >= 1; reach -= 1) {
-    if (spokeOpen(zone, home, angle, reach)) return stopAt(home, angle, reach);
-  }
-  return null;
-}
-
-function chordOpen(zone: ZoneName, left: FitStop, right: FitStop): boolean {
-  return segmentOpen(zone, [left.x, left.y], [right.x, right.y]);
-}
-
-// Shrink the farther end of a bad chord, or drop it when nothing closer on that ray is open.
-function shrinkPair(zone: ZoneName, home: Point, stops: FitStop[], bad: number): FitStop[] {
-  const next = [...stops];
-  const left = next[bad]!;
-  const right = next[(bad + 1) % next.length]!;
-  const victim = left.reach >= right.reach ? bad : (bad + 1) % next.length;
-  const stop = next[victim]!;
-  for (let reach = Math.floor(stop.reach - 1e-9); reach >= 1; reach -= 1) {
-    if (!spokeOpen(zone, home, stop.angle, reach)) continue;
-    next[victim] = stopAt(home, stop.angle, reach);
-    return next;
-  }
-  next.splice(victim, 1);
-  return next;
-}
-
-function buildStops(zone: ZoneName, spawnIndex: number, home: Point, radius: number): readonly RadishStop[] {
-  const used = usedLeeks(zone).length;
-  const oliveTurn = used > 0 ? (spawnIndex * 2 * Math.PI) / used : 0;
-  const maxReach = kaleConstants.loopRadiusShare * radius;
-  const count = kaleConstants.loopStops;
-  let stops: FitStop[] = [];
-  for (let index = 0; index < count; index += 1) {
-    const angle = oliveTurn + (index * 2 * Math.PI) / count;
-    const fit = fitSpoke(zone, home, angle, maxReach);
-    if (fit !== null) stops.push(fit);
-  }
-  let guard = 0;
-  while (stops.length >= 2 && guard < 400) {
-    guard += 1;
-    let bad = -1;
-    for (let index = 0; index < stops.length; index += 1) {
-      const left = stops[index]!;
-      const right = stops[(index + 1) % stops.length]!;
-      if (!chordOpen(zone, left, right)) {
-        bad = index;
-        break;
+function zoneCells(zone: ZoneName): ZoneCells {
+  const known = cellCache.get(zone);
+  if (known !== undefined) return known;
+  const leeks = usedLeeks(zone);
+  const cells: Point[][] = leeks.map(() => []);
+  const spots: Point[] = [];
+  if (leeks.length > 0) {
+    for (let y = GRID_PX / 2; y < MAP_HEIGHT; y += GRID_PX) {
+      for (let x = GRID_PX / 2; x < MAP_WIDTH; x += GRID_PX) {
+        const p: Point = [x, y];
+        if (!standable(zone, p)) continue;
+        spots.push(p);
+        let best = 0;
+        let bestGap = Infinity;
+        for (let i = 0; i < leeks.length; i += 1) {
+          const gap = Math.hypot(leeks[i]![0] - x, leeks[i]![1] - y);
+          if (gap < bestGap) {
+            bestGap = gap;
+            best = i;
+          }
+        }
+        cells[best]!.push(p);
       }
     }
-    if (bad < 0) break;
-    stops = shrinkPair(zone, home, stops, bad);
   }
-  return stops.map((stop) => ({ x: stop.x, y: stop.y }));
+  const built = { cells, spots };
+  cellCache.set(zone, built);
+  return built;
+}
+
+// The spots a patrol of this zone may touch (for tests and measurements).
+export function patrolSpots(zone: ZoneName): readonly Point[] {
+  return zoneCells(zone).spots;
+}
+
+function buildLoop(zone: ZoneName, index: number): Point[] {
+  const cell = zoneCells(zone).cells[index] ?? [];
+  if (cell.length === 0) return [];
+  const cx = cell.reduce((n, p) => n + p[0], 0) / cell.length;
+  const cy = cell.reduce((n, p) => n + p[1], 0) / cell.length;
+  const turn = index * 0.7;
+  const stops: Point[] = [];
+  for (let k = 0; k < STOPS_PER_LOOP; k += 1) {
+    const angle = turn + (k * 2 * Math.PI) / STOPS_PER_LOOP;
+    const ux = Math.cos(angle);
+    const uy = Math.sin(angle);
+    // The spot farthest out along this direction, with little sideways drift.
+    let best: Point | null = null;
+    let bestScore = -Infinity;
+    for (const p of cell) {
+      const along = (p[0] - cx) * ux + (p[1] - cy) * uy;
+      const side = Math.abs(-(p[0] - cx) * uy + (p[1] - cy) * ux);
+      const score = along - 0.6 * side;
+      if (score > bestScore) {
+        bestScore = score;
+        best = p;
+      }
+    }
+    if (best !== null) stops.push(best);
+  }
+  // Drop a stop whose leg to the previous one is not open (a wall, the zone edge or a gate in the way).
+  const kept: Point[] = [];
+  for (const stop of stops) {
+    const prev = kept[kept.length - 1];
+    if (prev !== undefined && (!segmentOpen(zone, prev, stop) || segmentNearGate(prev, stop, GATE_CLEAR_PX * 0.8))) continue;
+    if (kept.some((q) => q[0] === stop[0] && q[1] === stop[1])) continue;
+    kept.push(stop);
+  }
+  while (kept.length >= 3) {
+    const last = kept[kept.length - 1]!;
+    const first = kept[0]!;
+    if (segmentOpen(zone, last, first) && !segmentNearGate(last, first, GATE_CLEAR_PX * 0.8)) break;
+    kept.pop();
+  }
+  return kept;
 }
 
 function buildPatch(zone: ZoneName, spawnIndex: number): RadishPatch {
@@ -184,12 +218,13 @@ function buildPatch(zone: ZoneName, spawnIndex: number): RadishPatch {
   }
   const index = Math.min(Math.max(spawnIndex, 0), leeks.length - 1);
   const home = leeks[index]!;
-  const radius = patchRadius(zone, index, home);
+  const stops = buildLoop(zone, index);
+  const radius = stops.reduce((m, s) => Math.max(m, Math.hypot(s[0] - home[0], s[1] - home[1])), 0);
   return {
     homeX: home[0],
     homeY: home[1],
     radius,
-    stops: buildStops(zone, index, home, radius),
+    stops: stops.map((s) => ({ x: s[0], y: s[1] })),
   };
 }
 

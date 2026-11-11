@@ -272,21 +272,101 @@ describe('coin expiry', () => {
     expect(stored!.coins).toBe(9);
   }, 60_000);
 
-  it('a duel transfer takes the loser oldest coins and gives the winner one new lot', async () => {
+  it('a duel takes coins at random from the loser lots and they reach the winner under their old dates', async () => {
     const loser = await withLots('Loser', [
       { amount: 6, ageDays: 5 },
       { amount: 6, ageDays: 1 },
     ]);
     const winner = await withLots('Winner', [{ amount: 2, ageDays: 3 }]);
-    await saveFactsPair(kiwiDb, { id: loser.facts.id, patch: { coins: 6 } }, { id: winner.facts.id, patch: { coins: 8 } });
+    const before = await readCoinLots(kiwiDb, loser.facts.id);
+    const stamps = new Set(before.map((row) => row.pickedAtMs));
+    // A fixed draw: always the first coin of the pool, so the oldest lot pays first.
+    await saveFactsPair(
+      kiwiDb,
+      { id: loser.facts.id, patch: { coins: 6, coinsDelta: -6, duelPot: 6 } },
+      { id: winner.facts.id, patch: { coins: 8, coinsDelta: 6, duelPot: 6 } },
+      () => 0,
+    );
     const loserLots = await readCoinLots(kiwiDb, loser.facts.id);
-    expect(loserLots.map((row) => row.amount)).toEqual([6]);
-    expect(Date.now() - loserLots[0]!.pickedAtMs).toBeLessThan(1.1 * DAY);
+    expect(loserLots.reduce((n, r) => n + r.amount, 0)).toBe(6);
     const winnerLots = await readCoinLots(kiwiDb, winner.facts.id);
-    expect(winnerLots.map((row) => row.amount).sort()).toEqual([2, 6]);
-    const fresh = winnerLots.find((row) => row.amount === 6)!;
-    expect(Date.now() - fresh.pickedAtMs).toBeLessThan(60_000);
+    expect(winnerLots.reduce((n, r) => n + r.amount, 0)).toBe(8);
+    // Every received coin carries a date the loser had; none is dated now.
+    const received = winnerLots.filter((row) => row.amount !== 2 || stamps.has(row.pickedAtMs));
+    for (const row of winnerLots) {
+      if (row.pickedAtMs !== winnerLots.find((r) => r.amount === 2 && !stamps.has(r.pickedAtMs))?.pickedAtMs) {
+        expect(stamps.has(row.pickedAtMs)).toBe(true);
+      }
+    }
+    expect(received.length).toBeGreaterThan(0);
     expect((await getById(kiwiDb, winner.facts.id))!.coins).toBe(8);
+    expect((await getById(kiwiDb, loser.facts.id))!.coins).toBe(6);
+  }, 60_000);
+
+  it('coins that lost a duel and were won keep the old expiry, so the sweep removes them on the old date', async () => {
+    const loser = await withLots('Old', [{ amount: 10, ageDays: 6.9 }]);
+    const winner = await withLots('Keeper', []);
+    await saveFactsPair(
+      kiwiDb,
+      { id: loser.facts.id, patch: { coinsDelta: -5, duelPot: 5 } },
+      { id: winner.facts.id, patch: { coinsDelta: 5, duelPot: 5 } },
+      () => 0.5,
+    );
+    const lots = await readCoinLots(kiwiDb, winner.facts.id);
+    expect(lots).toHaveLength(1);
+    expect(lots[0]!.amount).toBe(5);
+    expect(Date.now() - lots[0]!.pickedAtMs).toBeGreaterThan(6.8 * DAY);
+  }, 60_000);
+
+  it('a duel pot bigger than the live lots moves only live coins and never creates coins', async () => {
+    // Purse 12: 8 coins expired a moment ago (not swept yet) and 4 live ones. The strike thought the pot was 6.
+    const loser = await withLots('Short', [
+      { amount: 8, ageDays: 7.5 },
+      { amount: 4, ageDays: 2 },
+    ]);
+    const winner = await withLots('Gets', []);
+    const { moved, expired } = await saveFactsPair(
+      kiwiDb,
+      { id: loser.facts.id, patch: { coinsDelta: -6, duelPot: 6 } },
+      { id: winner.facts.id, patch: { coinsDelta: 6, duelPot: 6 } },
+      () => 0.3,
+    );
+    expect(moved).toBe(4);
+    expect(expired).toBe(8);
+    expect((await getById(kiwiDb, loser.facts.id))!.coins).toBe(0);
+    expect((await getById(kiwiDb, winner.facts.id))!.coins).toBe(4);
+    const winnerLots = await readCoinLots(kiwiDb, winner.facts.id);
+    expect(winnerLots.reduce((n, r) => n + r.amount, 0)).toBe(4);
+    expect(Date.now() - winnerLots[0]!.pickedAtMs).toBeGreaterThan(1.9 * DAY);
+    expect(await readCoinLots(kiwiDb, loser.facts.id)).toEqual([]);
+  }, 60_000);
+
+  it('a duel pot that is not a whole number or not finite never makes fractional or infinite lots', async () => {
+    const loser = await withLots('Odd', [{ amount: 10, ageDays: 2 }]);
+    const winner = await withLots('Odd2', []);
+    expect(
+      (await saveFactsPair(kiwiDb, { id: loser.facts.id, patch: { duelPot: 2.5 } }, { id: winner.facts.id, patch: { duelPot: 2.5 } }, () => 0)).moved,
+    ).toBe(2);
+    expect(
+      (await saveFactsPair(kiwiDb, { id: loser.facts.id, patch: { duelPot: Number.POSITIVE_INFINITY } }, { id: winner.facts.id, patch: { duelPot: Number.POSITIVE_INFINITY } }, () => 0)).moved,
+    ).toBe(0);
+    const lots = await readCoinLots(kiwiDb, winner.facts.id);
+    expect(lots.every((row) => Number.isInteger(row.amount))).toBe(true);
+    expect(lots.reduce((n, r) => n + r.amount, 0)).toBe(2);
+    expect((await getById(kiwiDb, winner.facts.id))!.coins).toBe(2);
+    expect((await getById(kiwiDb, loser.facts.id))!.coins).toBe(8);
+  }, 60_000);
+
+  it('coins arriving with a stamp the winner already has join that lot instead of piling up lots', async () => {
+    const loser = await withLots('Src', [{ amount: 6, ageDays: 3 }]);
+    const before = await readCoinLots(kiwiDb, loser.facts.id);
+    const winner = await withLots('Dst', []);
+    await kiwiDb.prepare('INSERT INTO coin_lots (id, character_id, amount, picked_at) VALUES (?, ?, ?, ?)').bind(crypto.randomUUID(), winner.facts.id, 2, before[0]!.pickedAtMs).run();
+    await kiwiDb.prepare('UPDATE characters SET coins = 2 WHERE id = ?').bind(winner.facts.id).run();
+    await saveFactsPair(kiwiDb, { id: loser.facts.id, patch: { duelPot: 3 } }, { id: winner.facts.id, patch: { duelPot: 3 } }, () => 0);
+    const lots = await readCoinLots(kiwiDb, winner.facts.id);
+    expect(lots).toHaveLength(1);
+    expect(lots[0]!.amount).toBe(5);
   }, 60_000);
 
   it('a plain purse write (a pickup) adds one lot dated now', async () => {

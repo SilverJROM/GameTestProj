@@ -14,8 +14,9 @@ vi.mock('cloudflare:workers', () => ({
 }));
 
 import { viewBox } from '../../src/client/camera';
-import { nearestStopIndex, radishPatch, type RadishPatch } from '../../src/rules/radish';
-import { firstSolidWallCrossing, spawnPoints, zoneAt } from '../../src/rules/regions';
+import { nearestStopIndex, patrolSpots, radishPatch, type RadishPatch } from '../../src/rules/radish';
+import { overlapShare, MAX_OVERLAP } from '../../src/rules/spacing';
+import { berryCemeteryGate, firstSolidWallCrossing, limeTownGate, spawnPoints, zoneAt, type Point } from '../../src/rules/regions';
 import { WORLD_EPOCH, ZOOM_CLOSE, ZOOM_FAR, kaleConstants, onionMonsterRows, type ZoneName } from '../../src/rules/tables';
 import { figSeesBeet, guavaWindow } from '../../src/rules/view';
 import { sproutFig, type FigWalk } from '../../src/world/core';
@@ -60,19 +61,14 @@ function walkBed(bed: CabbageBed, figs: ReadonlyMap<string, FigWalk>, ticks: num
   return { bed: current, trail };
 }
 
-function usedIndexCount(zone: ZoneName): number {
-  return onionMonsterRows.find((row) => row.zone === zone)?.count ?? 0;
+function segDist(p: Point, a: Point, b: Point): number {
+  const l2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2;
+  const t = l2 < 1e-9 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / l2));
+  return Math.hypot(p[0] - a[0] - t * (b[0] - a[0]), p[1] - a[1] - t * (b[1] - a[1]));
 }
 
-function gapToNearestUsed(zone: ZoneName, index: number): number {
-  const used = spawnPoints[zone].slice(0, usedIndexCount(zone));
-  const home = spawnPoints[zone][index]!;
-  let nearest = Infinity;
-  for (let other = 0; other < used.length; other += 1) {
-    if (other === index) continue;
-    nearest = Math.min(nearest, Math.hypot(used[other]![0] - home[0], used[other]![1] - home[1]));
-  }
-  return nearest;
+function usedIndexCount(zone: ZoneName): number {
+  return onionMonsterRows.find((row) => row.zone === zone)?.count ?? 0;
 }
 
 describe('guava window agrees with the client camera', () => {
@@ -119,7 +115,7 @@ describe('radish patches', () => {
     return Array.from({ length: usedIndexCount(zone) }, (_, index) => radishPatch(zone, index));
   }
 
-  it('sizes every used leek from the gap, keeps the disks apart, and keeps every stop in the zone and off the walls', () => {
+  it('gives every monster its own cell of the zone: stops in the zone, off the walls, legs open, gates clear', () => {
     for (const zone of HERD_ZONES) {
       const patches = patchesOf(zone);
       expect(patches).toHaveLength(7);
@@ -127,20 +123,19 @@ describe('radish patches', () => {
         const patch = patches[index]!;
         const home = spawnPoints[zone][index]!;
         expect([patch.homeX, patch.homeY]).toEqual([home[0], home[1]]);
-        const gap = gapToNearestUsed(zone, index);
-        expect(patch.radius).toBeCloseTo(Math.min(kaleConstants.patchCapPx, kaleConstants.patchGapShare * gap), 8);
-        expect(patch.radius).toBeLessThanOrEqual(kaleConstants.patchCapPx);
-        expect(patch.stops.length).toBeGreaterThan(0);
-        expect(patch.stops.length).toBeLessThanOrEqual(kaleConstants.loopStops);
-        for (const stop of patch.stops) {
-          expect(zoneAt(stop.x, stop.y)).toBe(zone);
-          expect(Math.hypot(stop.x - patch.homeX, stop.y - patch.homeY)).toBeLessThanOrEqual(kaleConstants.loopRadiusShare * patch.radius + 1e-6);
-          expect(firstSolidWallCrossing([patch.homeX, patch.homeY], [stop.x, stop.y])).toBeNull();
-        }
+        expect(zoneAt(home[0], home[1])).toBe(zone);
+        expect(patch.stops.length).toBeGreaterThanOrEqual(2);
+        expect(patch.stops.length).toBeLessThanOrEqual(4);
         for (let stopIndex = 0; stopIndex < patch.stops.length; stopIndex += 1) {
           const left = patch.stops[stopIndex]!;
           const right = patch.stops[(stopIndex + 1) % patch.stops.length]!;
+          expect(zoneAt(left.x, left.y)).toBe(zone);
           expect(firstSolidWallCrossing([left.x, left.y], [right.x, right.y])).toBeNull();
+          // The gates (cemetery road, town road) stay clear of every patrol leg.
+          for (const gate of [berryCemeteryGate, limeTownGate]) {
+            const mid: Point = [(gate[0][0] + gate[1][0]) / 2, (gate[0][1] + gate[1][1]) / 2];
+            expect(segDist(mid, [left.x, left.y], [right.x, right.y])).toBeGreaterThanOrEqual(30);
+          }
           const steps = 8;
           for (let step = 0; step <= steps; step += 1) {
             const t = step / steps;
@@ -148,12 +143,34 @@ describe('radish patches', () => {
           }
         }
       }
-      for (let left = 0; left < patches.length; left += 1) {
-        for (let right = left + 1; right < patches.length; right += 1) {
-          const a = patches[left]!;
-          const b = patches[right]!;
-          const apart = Math.hypot(a.homeX - b.homeX, a.homeY - b.homeY);
-          expect(apart).toBeGreaterThanOrEqual(a.radius + b.radius - 1e-6);
+    }
+  });
+
+  it('together the patrols reach 80% or more of each section (within 45 px of some monster path)', () => {
+    for (const zone of HERD_ZONES) {
+      const patches = patchesOf(zone);
+      const legs: Array<[Point, Point]> = [];
+      for (const patch of patches) {
+        for (let i = 0; i < patch.stops.length; i += 1) {
+          const a = patch.stops[i]!;
+          const b = patch.stops[(i + 1) % patch.stops.length]!;
+          legs.push([[a.x, a.y], [b.x, b.y]]);
+        }
+      }
+      const spots = patrolSpots(zone);
+      expect(spots.length).toBeGreaterThan(500);
+      let reached = 0;
+      for (const spot of spots) if (legs.some(([a, b]) => segDist(spot, a, b) <= 45)) reached += 1;
+      expect(reached / spots.length, zone).toBeGreaterThanOrEqual(0.8);
+    }
+  });
+
+  it('starts the monsters spread over the section: no two leeks closer than 80 px', () => {
+    for (const zone of HERD_ZONES) {
+      const leeks = spawnPoints[zone].slice(0, 7);
+      for (let a = 0; a < leeks.length; a += 1) {
+        for (let b = a + 1; b < leeks.length; b += 1) {
+          expect(Math.hypot(leeks[a]![0] - leeks[b]![0], leeks[a]![1] - leeks[b]![1])).toBeGreaterThanOrEqual(80);
         }
       }
     }
@@ -179,38 +196,58 @@ describe('radish patches', () => {
 describe('radish patrol on the rules tick', () => {
   const greenFig = figAt('fig-green', 'green', 800, 330);
 
-  it('keeps each beet inside its disk and at least 25 px from the others in its zone', () => {
-    const ticks = (30 * 1000) / kaleConstants.tickMs;
+  it('keeps every monster in its zone and clearly visible: pairs overlap at most 40%, never three in a row', () => {
+    const ticks = (60 * 1000) / kaleConstants.tickMs;
     const figs = new Map<string, FigWalk>([
       ['fig-green', figAt('fig-green', 'green', 800, 330)],
       ['fig-grey', figAt('fig-grey', 'grey', 1000, 180)],
-      // Clear of every skeleton's wake radius, so the herd patrols its radishes.
+      // Clear of every skeleton's wake radius, so the herd patrols.
       ['fig-cemetery', figAt('fig-cemetery', 'cemetery', 535, 130)],
     ]);
     const walked = walkBed(plantCabbage(), figs, ticks);
     for (const zone of HERD_ZONES) {
       const herd = walked.bed.beets.filter((beet) => beet.zone === zone);
       expect(herd.length).toBe(7);
-      let closest = Infinity;
-      for (const beet of herd) {
-        const patch = radishPatch(beet.zone, beet.spawnIndex);
-        const path = walked.trail.get(beet.id)!;
-        expect(path.length).toBe(ticks + 1);
-        for (const [x, y] of path) {
-          expect(Math.hypot(x - patch.homeX, y - patch.homeY)).toBeLessThanOrEqual(patch.radius + 1e-6);
-          expect(zoneAt(x, y)).toBe(zone);
-        }
-      }
+      let worstShare = 0;
+      let worstTouching = 0;
       for (let tick = 0; tick < ticks + 1; tick += 1) {
-        for (let left = 0; left < herd.length; left += 1) {
-          for (let right = left + 1; right < herd.length; right += 1) {
-            const a = walked.trail.get(herd[left]!.id)![tick]!;
-            const b = walked.trail.get(herd[right]!.id)![tick]!;
-            closest = Math.min(closest, Math.hypot(a[0] - b[0], a[1] - b[1]));
+        const spots = herd.map((beet) => {
+          const at = walked.trail.get(beet.id)![tick]!;
+          expect(zoneAt(at[0], at[1])).toBe(zone);
+          return { id: beet.id, kind: beet.kind, x: at[0], y: at[1] };
+        });
+        for (let a = 0; a < spots.length; a += 1) {
+          let touching = 0;
+          for (let b = 0; b < spots.length; b += 1) {
+            if (a === b) continue;
+            const share = overlapShare(spots[a]!, spots[b]!);
+            if (share > 0) touching += 1;
+            worstShare = Math.max(worstShare, share);
           }
+          worstTouching = Math.max(worstTouching, touching);
         }
       }
-      expect(closest).toBeGreaterThan(25);
+      expect(worstShare, zone).toBeLessThanOrEqual(MAX_OVERLAP + 1e-9);
+      expect(worstTouching, zone).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('patrols slowly: 11 px/s for wolf and skeleton, 8 px/s for the bear (chase stays 90)', () => {
+    expect(kaleConstants.monsterPatrolSpeedPxPerSec).toBe(11);
+    expect(kaleConstants.monsterBearPatrolSpeedPxPerSec).toBe(8);
+    expect(kaleConstants.monsterChaseSpeedPxPerSec).toBe(90);
+    const figs = new Map<string, FigWalk>([['fig-green', figAt('fig-green', 'green', 800, 330)], ['fig-grey', figAt('fig-grey', 'grey', 1000, 180)]]);
+    const walked = walkBed(plantCabbage(), figs, 100);
+    for (const beet of walked.bed.beets.filter((b) => b.zone === 'green' || b.zone === 'grey')) {
+      const path = walked.trail.get(beet.id)!;
+      const limit = ((beet.kind === 'bear' ? 8 : 11) * kaleConstants.tickMs) / 1000 + 1e-6;
+      let moved = 0;
+      for (let i = 1; i < path.length; i += 1) {
+        const step = Math.hypot(path[i]![0] - path[i - 1]![0], path[i]![1] - path[i - 1]![1]);
+        expect(step).toBeLessThanOrEqual(limit);
+        moved += step;
+      }
+      expect(moved).toBeGreaterThan(0);
     }
   });
 
@@ -282,7 +319,7 @@ describe('radish patrol on the rules tick', () => {
     const left = Math.hypot(released.x - stop.x, released.y - stop.y);
     const now = Math.hypot(back.x - stop.x, back.y - stop.y);
     expect(now).toBeLessThan(left);
-    expect(Math.hypot(back.x - patch.homeX, back.y - patch.homeY)).toBeLessThanOrEqual(patch.radius + 1e-6);
+    expect(zoneAt(back.x, back.y)).toBe(wolf.zone);
   });
 
   it('still clears aggro when the target leaves the zone and does not bite', () => {

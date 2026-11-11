@@ -243,17 +243,16 @@ describe('solid walls stop a walking fig', () => {
     sproutTicks(orchard, clock, 200);
   }
 
-  it('stops a courtyard fig at the town wall', () => {
+  it('takes a courtyard fig round the town wall by the gate', () => {
     const fig = freshFig('fig-wall-town', 300, 450, 'town');
     const hit = firstSolidWallCrossing([300, 450], [700, 450]);
     expect(hit).not.toBeNull();
     walk(fig, 700, 450);
-    // The wall is sloped, so the fig slides along it and then stops. It never reaches the far side.
-    expect(fig.facts.x).not.toBe(700);
-    expect(fig.facts.y).not.toBe(450);
-    expect(inRing(pearTownWalls, fig.facts.x, fig.facts.y)).toBe(true);
+    // The straight way is a wall, so the fig takes the best way round (out of the south gate) and arrives.
+    expect(fig.facts.x).toBeCloseTo(700, 5);
+    expect(fig.facts.y).toBeCloseTo(450, 5);
+    expect(inRing(pearTownWalls, fig.facts.x, fig.facts.y)).toBe(false);
     expect(figMoving(fig)).toBe(false);
-    expect(firstSolidWallCrossing([300, 450], [fig.facts.x, fig.facts.y])).toBeNull();
   });
 
   it('lets a fig leave through the town gate', () => {
@@ -263,16 +262,16 @@ describe('solid walls stop a walking fig', () => {
     expect(fig.facts.y).toBeCloseTo(613, 5);
   });
 
-  it('stops a cemetery fig at the cemetery wall', () => {
+  it('takes a cemetery fig round the cemetery wall by the gate', () => {
     const fig = freshFig('fig-wall-cem', 200, 150, 'cemetery');
     const targetY = 300;
     const hit = firstSolidWallCrossing([200, 150], [200, targetY]);
     expect(hit).not.toBeNull();
     walk(fig, 200, targetY);
-    expect(Math.abs(fig.facts.x - hit![0])).toBeLessThanOrEqual(1);
-    expect(Math.abs(fig.facts.y - hit![1])).toBeLessThanOrEqual(1);
-    expect(fig.facts.y).toBeLessThan(hit![1]);
-    expect(firstSolidWallCrossing([200, 150], [fig.facts.x, fig.facts.y])).toBeNull();
+    // The wall is in the way, so the fig goes out by the cemetery gate and arrives at the click.
+    expect(fig.facts.x).toBeCloseTo(200, 5);
+    expect(fig.facts.y).toBeCloseTo(targetY, 5);
+    expect(figMoving(fig)).toBe(false);
   });
 
   it('lets a cemetery fig through the cemetery gate', () => {

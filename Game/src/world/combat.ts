@@ -5,15 +5,22 @@
 
 import type { CharacterFactsPatch } from '../server/db';
 import { awardXp, deathResult, duelPayout, maxHealth, strike, type Hero } from '../rules/logic';
-import { radishPatch } from '../rules/radish';
+import { nearGateOpening, radishPatch } from '../rules/radish';
 import { firstSolidWallCrossing, inRing, skeletonRadiusPx, townSpawn, zoneRings } from '../rules/regions';
 import { kaleConstants, onionMonsterRows, pearTimings } from '../rules/tables';
 import { figSeesBeet } from '../rules/view';
+import { spotAllowed, type Spot } from '../rules/spacing';
 import { aggroBeet, dropTarget, hurtBeet, type Beet, type CabbageBed } from './monsters';
 import type { FigWalk, PersimmonWrite } from './core';
 
 // A beet whose walk stays blocked this many ticks in a row (1 second) goes back to its own leek.
 const blockedTicksLimit = 10;
+// A monster kept waiting by a neighbour for this many ticks (2 seconds) goes for the next stop of its loop.
+const crowdedTicksLimit = 20;
+// A chaser boxed in by other monsters for this many ticks (5 seconds) gives the chase up.
+const chaseBoxedTicksLimit = 50;
+// Monsters keep this far from a gate opening.
+const GATE_KEEP_CLEAR_PX = 30;
 
 // True when a beet may stand at the spot: inside its own zone ring.
 function inOwnPatch(beet: Beet, x: number, y: number): boolean {
@@ -28,18 +35,18 @@ function stepIsOpen(beet: Beet, x: number, y: number): boolean {
 // One idle step around the beet's radish at the rules patrol speed. The loop is the patch's stops.
 // Off the loop (after a chase) the same step walks to the stop loopAt already names, which dropTarget
 // set to the nearest one. A blocked step is not taken; ten blocked ticks in a row plant the beet on its leek.
-function patrolBeet(beet: Beet, patrolPx: number): Beet {
+function patrolBeet(beet: Beet, patrolPx: number, peers: readonly Spot[]): Beet {
   const patch = radishPatch(beet.zone, beet.spawnIndex);
   if (patch.stops.length === 0) {
-    return stepToward(beet, patch.homeX, patch.homeY, patrolPx, patch.homeX, patch.homeY, beet.loopAt);
+    return stepToward(beet, patch.homeX, patch.homeY, patrolPx, patch.homeX, patch.homeY, beet.loopAt, peers);
   }
   const count = patch.stops.length;
   const index = ((beet.loopAt % count) + count) % count;
   const stop = patch.stops[index]!;
-  return stepToward(beet, stop.x, stop.y, patrolPx, patch.homeX, patch.homeY, (index + 1) % count);
+  return stepToward(beet, stop.x, stop.y, patrolPx, patch.homeX, patch.homeY, (index + 1) % count, peers);
 }
 
-function stepToward(beet: Beet, goalX: number, goalY: number, patrolPx: number, homeX: number, homeY: number, nextLoop: number): Beet {
+function stepToward(beet: Beet, goalX: number, goalY: number, patrolPx: number, homeX: number, homeY: number, nextLoop: number, peers: readonly Spot[]): Beet {
   const dx = goalX - beet.x;
   const dy = goalY - beet.y;
   const dist = Math.hypot(dx, dy);
@@ -57,7 +64,18 @@ function stepToward(beet: Beet, goalX: number, goalY: number, patrolPx: number, 
     }
     return { ...beet, blockedTicks: blocked };
   }
-  const moved = { ...dropBlocked(beet), x: nextX, y: nextY };
+  // Keep clear of the other monsters: wait for a neighbour to move on, and after two seconds of waiting head for the
+  // next stop of the loop instead.
+  if (!spotAllowed(beet, nextX, nextY, peers)) {
+    const waited = (beet.crowdedTicks ?? 0) + 1;
+    if (waited >= crowdedTicksLimit && nextLoop !== beet.loopAt) {
+      const { crowdedTicks: _c, ...rest } = beet;
+      return { ...rest, loopAt: nextLoop };
+    }
+    return { ...beet, crowdedTicks: waited };
+  }
+  const { crowdedTicks: _c, ...free } = dropBlocked(beet) as Beet & { crowdedTicks?: number };
+  const moved = { ...free, x: nextX, y: nextY };
   return arrives ? { ...moved, loopAt: nextLoop } : moved;
 }
 
@@ -231,9 +249,18 @@ export function stepAggro(
   let changed = false;
   let patrolled = false;
   const chasePx = (kaleConstants.monsterChaseSpeedPxPerSec * elapsedMs) / 1000;
-  const patrolPx = (kaleConstants.monsterPatrolSpeedPxPerSec * elapsedMs) / 1000;
+  const patrolPxFor = (kind: string): number =>
+    ((kind === 'bear' ? kaleConstants.monsterBearPatrolSpeedPxPerSec : kaleConstants.monsterPatrolSpeedPxPerSec) * elapsedMs) / 1000;
+  // Where every monster stands right now; updated as each one moves so later ones see earlier moves.
+  const live: Beet[] = [...bed.beets];
 
-  let beets: Beet[] = bed.beets.map((sprout) => {
+  let beets: Beet[] = bed.beets.map((sprout, beetIndex) => {
+    const result = stepOneBeet(sprout);
+    live[beetIndex] = result;
+    return result;
+  });
+
+  function stepOneBeet(sprout: Beet): Beet {
     let beet = sprout;
     if (beet.targetId === undefined) {
       // A proximity beet wakes on the nearest cemetery fig inside the rules radius. Others walk their radish.
@@ -244,7 +271,7 @@ export function stepAggro(
       const nearestFig =
         rootRow !== undefined && rootRow.aggro === 'proximity' ? nearestCemeteryFig(beet, figs, felledFigs) : null;
       if (nearestFig === null) {
-        const walked = patrolBeet(beet, patrolPx);
+        const walked = patrolBeet(beet, patrolPxFor(beet.kind), live);
         if (walked !== beet) {
           patrolled = true;
         }
@@ -271,15 +298,36 @@ export function stepAggro(
     const dy = fig.facts.y - beet.y;
     const dist = Math.hypot(dx, dy);
     if (dist > kaleConstants.meleeReachPx) {
+      // A wolf or a bear gives up when it is too far from its home; it then walks back at the slow speed.
+      if (row.aggro === 'hit') {
+        const home = radishPatch(beet.zone, beet.spawnIndex);
+        if (Math.hypot(beet.x - home.homeX, beet.y - home.homeY) > kaleConstants.monsterLeashPx) {
+          changed = true;
+          return dropTarget(beet);
+        }
+      }
       // Close in to half reach so the beet lands inside reach with room to spare.
       const travel = Math.min(chasePx, dist - kaleConstants.meleeReachPx / 2);
-      const chaseX = beet.x + (dx / dist) * travel;
-      const chaseY = beet.y + (dy / dist) * travel;
-      if (!stepIsOpen(beet, chaseX, chaseY)) {
-        return beet;
+      // Keep clear of the other monsters and of the gate openings: try straight on, then sidestep either way.
+      for (const turn of [0, 0.6, -0.6, 1.2, -1.2]) {
+        const cos = Math.cos(turn);
+        const sin = Math.sin(turn);
+        const ux = (dx / dist) * cos - (dy / dist) * sin;
+        const uy = (dx / dist) * sin + (dy / dist) * cos;
+        const chaseX = beet.x + ux * travel;
+        const chaseY = beet.y + uy * travel;
+        if (!stepIsOpen(beet, chaseX, chaseY) || !spotAllowed(beet, chaseX, chaseY, live) || nearGateOpening([chaseX, chaseY], GATE_KEEP_CLEAR_PX)) continue;
+        changed = true;
+        const { crowdedTicks: _c, ...moving } = beet as Beet & { crowdedTicks?: number };
+        return { ...moving, x: chaseX, y: chaseY };
       }
-      changed = true;
-      return { ...beet, x: chaseX, y: chaseY };
+      // Boxed in by neighbours: wait, and after five seconds give the chase up (the wolf or bear walks home).
+      const boxed = (beet.crowdedTicks ?? 0) + 1;
+      if (boxed >= chaseBoxedTicksLimit) {
+        changed = true;
+        return dropTarget(beet);
+      }
+      return { ...beet, crowdedTicks: boxed };
     }
     // Advance the bite clock by the exact gap so a 0.75 s skeleton does not snap to the 100 ms tick.
     // A bite a full tick or more late starts again from now, so late bites are not queued.
@@ -318,7 +366,7 @@ export function stepAggro(
       writes.push({ id: fig.facts.id, patch: { hp: risen.health, place: risen.place, x: townX, y: townY } });
     }
     return { ...beet, swingMs: nextSwing };
-  });
+  }
 
   if (felledFigs.size > 0) {
     beets = beets.map((beet) =>
@@ -389,8 +437,8 @@ export function strikeFig(
     mark,
     // Loser first, winner second: saveFactsPair writes both in one batch.
     writes: [
-      { id: target.facts.id, patch: { hp: risen.health, place: risen.place, x: townX, y: townY, coins: loserCoins, coinsDelta: -pot } },
-      { id: attacker.facts.id, patch: { coins: winnerCoins, coinsDelta: pot } },
+      { id: target.facts.id, patch: { hp: risen.health, place: risen.place, x: townX, y: townY, coins: loserCoins, coinsDelta: -pot, duelPot: pot } },
+      { id: attacker.facts.id, patch: { coins: winnerCoins, coinsDelta: pot, duelPot: pot } },
     ],
   };
 }
