@@ -10,6 +10,7 @@ import { removeMagenta } from './sprites';
 import { glideCitrus } from './smooth';
 import { canvasToMap, mapToCanvas, viewBox, type PeachView } from './camera';
 import { createMusicEngine, type MusicAudio, type MusicEngine } from './music';
+import { createSfxEngine, type SfxAudio, type SfxEngine } from './sfx';
 import {
   actionForKey,
   adoptSettings,
@@ -223,6 +224,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   let askerHeld = '';
   let oliveDepth = 0;
   let papayaSwings = 0;
+  // The monster this player clicked to fight, for the creature sound. Cleared by a walk click or when it is gone.
+  let fightingMonsterId: string | null = null;
   const genderMap = new Map<string, Gender>();
   if (selfGender !== undefined && selfId.length > 0) {
     genderMap.set(selfId, selfGender);
@@ -314,6 +317,20 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       if (snap !== null) noteHits(snap.hits);
       const selfRow = orchard.players.find((fig) => fig.id === selfId);
       if (selfRow !== undefined) setSelfPlace(selfRow.place);
+      if (fightingMonsterId !== null && !orchard.monsters.some((m) => m.id === fightingMonsterId)) fightingMonsterId = null;
+      if (snap !== null) {
+        figSfx.frame({
+          selfId,
+          self: selfRow === undefined ? null : { x: selfRow.x, y: selfRow.y, attacking: selfRow.attacking === true },
+          monsters: orchard.monsters,
+          fightingId: fightingMonsterId,
+          hits: Array.isArray(snap.hits)
+            ? (snap.hits as { id?: unknown; targetKind?: unknown; targetId?: unknown }[])
+                .filter((h) => typeof h?.id === 'string')
+                .map((h) => ({ id: String(h.id), targetKind: String(h.targetKind ?? ''), targetId: String(h.targetId ?? '') }))
+            : [],
+        });
+      }
       // New figs and far jumps land now, so the camera and the click see them before the next frame.
       glideFeet(0);
       hooks.onSnapshot?.();
@@ -652,6 +669,10 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     if (peeled.message !== null) {
       if (peeled.message.type === 'attack') {
         papayaSwings = 2;
+        const target = (peeled.message as { monsterId?: unknown }).monsterId;
+        fightingMonsterId = typeof target === 'string' ? target : null;
+      } else if (peeled.message.type === 'move') {
+        fightingMonsterId = null;
       }
       sendOne(peeled.message);
     }
@@ -893,6 +914,35 @@ const QUIET_MUSIC: MusicEngine = {
 };
 // The live music for the signed-in fig. Sign-in and the picker never start it.
 let figMusic: MusicEngine = QUIET_MUSIC;
+const QUIET_SFX: SfxEngine = {
+  frame() {},
+  noteGesture() {},
+  setCanvasVisible() {},
+  dispose() {},
+};
+// The live effects (sword, stab, creature sounds) for the signed-in fig.
+let figSfx: SfxEngine = QUIET_SFX;
+
+function startFigSfx(): SfxEngine {
+  try {
+    if (typeof (globalThis as { Audio?: unknown }).Audio !== 'function') return QUIET_SFX;
+    return createSfxEngine({
+      createAudio: (src) => browserAudio(src) as unknown as SfxAudio,
+      now: () => Date.now(),
+      readSettings() {
+        const settings = getSettings();
+        return { effectsVolume: settings.effectsVolume, muted: settings.muted };
+      },
+      listenSettings(fn) {
+        return onSettingsChange(() => {
+          fn();
+        });
+      },
+    });
+  } catch {
+    return QUIET_SFX;
+  }
+}
 
 function tabIsShown(page: { visibilityState?: string; hidden?: boolean }): boolean {
   if (page.visibilityState === 'hidden') return false;
@@ -958,6 +1008,7 @@ function reloadFigPage(): void {
 export function changeAvatarFig(reload: () => void): void {
   melonHalt?.();
   figMusic.setCanvasVisible(false);
+  figSfx.setCanvasVisible(false);
   reload();
 }
 
@@ -994,6 +1045,7 @@ export async function logOutFig(
   }
   melonHalt?.();
   figMusic.setCanvasVisible(false);
+  figSfx.setCanvasVisible(false);
   reload();
   return { ok: true, error: '' };
 }
@@ -1209,6 +1261,9 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   figMusic = startFigMusic(selfPlace);
   figMusic.setTabVisible(tabIsShown(doc as { visibilityState?: string; hidden?: boolean }));
   figMusic.setCanvasVisible(canvas != null && canvas.hidden !== true);
+  figSfx.dispose();
+  figSfx = startFigSfx();
+  figSfx.setCanvasVisible(canvas != null && canvas.hidden !== true);
   const smith = doc.getElementById('quince-smith');
   const smithList = doc.getElementById('quince-list');
   const plumDuel = doc.getElementById('plum-duel');
@@ -2133,6 +2188,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   });
   const armMusic = (): void => {
     figMusic.noteGesture();
+    figSfx.noteGesture();
   };
   // Capture so a control that stops the event (the zoom rail) still counts as the first gesture.
   keyHost.addEventListener?.('pointerdown', armMusic, true);
@@ -2313,6 +2369,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
         if (screenOpen()) citrus.start();
         else citrus.stop();
         figMusic.setCanvasVisible(papayaOnScreen());
+        figSfx.setCanvasVisible(papayaOnScreen());
       });
       watch.observe(canvas, { attributes: true, attributeFilter: ['hidden'] });
     } catch {
