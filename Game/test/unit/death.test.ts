@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { CANVAS_HEIGHT, CANVAS_WIDTH, viewBox } from '../../src/client/camera';
+import { peelClick } from '../../src/client/input';
 import { plantFigBoard } from '../../src/client/main';
 import { GRAVE_LIFETIME_MS, RESPAWN_GLOW_MS, paintGraves, paintRespawnGlow } from '../../src/client/view';
 import { ZOOM_CLOSE } from '../../src/rules/tables';
@@ -140,5 +141,22 @@ describe('death panel and cross', () => {
     expect(draws).toHaveLength(1);
     board.paintRespawnGlow(ctx, viewBox('town', 300, 440, ZOOM_CLOSE), Date.now() + RESPAWN_GLOW_MS + 500);
     expect(draws).toHaveLength(1);
+  });
+
+  it('in a duel a left click on the partner sends an attack at that player; elsewhere it walks', () => {
+    const orchard = {
+      selfId: 'me',
+      selfPlace: 'green' as const,
+      duelPartnerId: 'foe',
+      players: [
+        { id: 'me', x: 100, y: 100 },
+        { id: 'foe', x: 300, y: 300 },
+      ],
+      monsters: [],
+    };
+    expect(peelClick({ x: 300, y: 270, button: 0 }, orchard).message).toEqual({ type: 'attack', playerId: 'foe' });
+    expect(peelClick({ x: 400, y: 270, button: 0 }, orchard).message).toEqual({ type: 'move', x: 400, y: 270 });
+    // Without a duel the same click is a walk.
+    expect(peelClick({ x: 300, y: 270, button: 0 }, { ...orchard, duelPartnerId: null }).message).toEqual({ type: 'move', x: 300, y: 270 });
   });
 });

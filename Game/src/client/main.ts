@@ -719,6 +719,7 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     const peeled = peelClick(berry, {
       selfId,
       selfPlace,
+      duelPartnerId: orchard.players.find((fig) => fig.id === selfId)?.duelPartnerId ?? null,
       players: stills
         .filter((still) => still.role === 'player')
         .map((still) => ({ id: still.id, x: still.x, y: still.y })),
