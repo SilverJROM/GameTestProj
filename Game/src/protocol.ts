@@ -197,6 +197,10 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
     }
     peeled[key] = value;
   }
+  // Ids and names are short; a very long string is junk (or an attempt to make the room copy it around).
+  for (const value of Object.values(peeled)) {
+    if (typeof value === 'string' && value.length > 200) return null;
+  }
   if (peeled.type === 'ping') {
     return { type: 'ping' };
   }

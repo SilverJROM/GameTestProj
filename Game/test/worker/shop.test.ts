@@ -31,7 +31,7 @@ import {
 import { kaleConstants, mangoGearRows, onionMonsterRows } from '../../src/rules/tables';
 import { ACCOUNT_COOKIE_NAME, SESSION_COOKIE_NAME } from '../../src/server/cookie';
 import { getById, saveFacts, type CharacterDb, type CharacterFacts, type CharacterFactsPatch } from '../../src/server/db';
-import { berryStepPx, buyQuince, sipMelon, sproutFig, stashQuince, wearQuince, type FigWalk } from '../../src/world/core';
+import { berryStepPx, buyQuince, sproutFig, stashQuince, wearQuince, type FigWalk } from '../../src/world/core';
 import { applyMigrations, plantPlayingFig } from '../helpers/orchard';
 
 const guavaSecret = 'quince-session-secret';
@@ -189,8 +189,6 @@ describe('quince buy on the fig', () => {
 
     const center = melonCenter();
     expect(hitBox(melonFountainBox, center.x, center.y)).toBe(true);
-    const sip = sipMelon(clad, center.x, center.y);
-    expect(sip).toEqual({ hp: melonBase });
     expect(clad.facts.hp).toBe(melonBase);
     expect(clad.facts.coins).toBe(leatherQuince.price);
 
@@ -209,11 +207,10 @@ describe('quince buy on the fig', () => {
     expect(worn?.hp).toBe(melonBase);
     expect(worn?.maxHp).toBe(leatherCap);
     expect(clad.facts.sword).toBeNull();
-    const full = sipMelon(clad, center.x, center.y);
-    expect(full).toEqual({ hp: leatherCap });
+    // Health is clamped to the new maximum when the armor comes off (no click heal any more).
     const stowed = stashQuince(clad, 'armor');
     expect(stowed?.armor).toBeNull();
-    expect(stowed?.hp).toBe(leatherCap > melonBase ? melonBase : leatherCap);
+    expect(stowed?.hp).toBe(melonBase);
     expect(stowed?.maxHp).toBe(melonBase);
     expect(clad.facts.hp).toBe(melonBase);
     expect(clad.facts.items).toEqual(['leather', 'plate']);
@@ -712,7 +709,8 @@ describe('lemon forge quince', () => {
     expect(figSnap(fountainSip, berryReady.id).character).toEqual(berryReady);
     const chiveFull = await readFig(chiveReady.id);
     expect(chiveFull).toEqual(chivePlate);
-    expect(await figWrites(chiveReady.id)).toBe(chiveWrites + 2);
+    // The fountain click no longer writes (plan 14); only the plate purchase did.
+    expect(await figWrites(chiveReady.id)).toBe(chiveWrites + 1);
 
     const leatherBuy = await hearAll(chiveJoin.socket, {
       type: 'buy',
@@ -736,7 +734,7 @@ describe('lemon forge quince', () => {
       items: ['leather', 'plate'],
     });
     expect(chiveLeather.coins).toBe(chiveReady.coins - plateQuince.price - leatherQuince.price);
-    expect(await figWrites(chiveReady.id)).toBe(chiveWrites + 3);
+    expect(await figWrites(chiveReady.id)).toBe(chiveWrites + 2);
     expect(await figWrites(berryReady.id)).toBe(berryWrites);
     expect(await readFig(berryReady.id)).toEqual(berryReady);
 
@@ -1030,10 +1028,11 @@ describe('lemon forge quince', () => {
     expect(figSnap(armorAgain, ready.id).character).toMatchObject({ hp: 40, maxHp: 82, armor: 'leather' });
     const center = melonCenter();
     const sipped = await hearAll(mangoJoin.socket, { type: 'fountain', x: center.x, y: center.y });
-    expect(figSnap(sipped, ready.id).character).toMatchObject({ hp: 82, maxHp: 82, armor: 'leather' });
+    // The old click heal is gone: the fountain message changes nothing (regeneration needs standing near the fountain).
+    expect(figSnap(sipped, ready.id).character).toMatchObject({ hp: 40, maxHp: 82, armor: 'leather' });
     const clamped = await hearAll(mangoJoin.socket, { type: 'unequip', slot: 'armor' });
     const clampedMango = figSnap(clamped, ready.id).character;
-    expect(clampedMango.hp).toBe(70);
+    expect(clampedMango.hp).toBe(40);
     expect(clampedMango.maxHp).toBe(70);
     expect(clampedMango.armor).toBeNull();
     expect(clampedMango.items).toEqual(['leather', 'shortSword']);
@@ -1047,7 +1046,7 @@ describe('lemon forge quince', () => {
     expect(again.welcome.character.items).toEqual(['leather', 'shortSword']);
     expect(again.welcome.character.sword).toBeNull();
     expect(again.welcome.character.armor).toBeNull();
-    expect(again.welcome.character.hp).toBe(70);
+    expect(again.welcome.character.hp).toBe(40);
     expect(again.welcome.character.maxHp).toBe(70);
     expect(again.welcome.character.coins).toBe(0);
     again.socket.terminate();

@@ -37,12 +37,12 @@ Walls are solid. Fence pixels, and the uneven top of the near town wall, are pai
 - Left click on a monster walks to it and swings once. Left click on the duel partner (once a duel has started) does the same.
 - Right click on a monster walks to it and keeps swinging until it dies. Right click on the duel partner walks over and keeps swinging until one of them falls.
 - Right click on any other player opens a small menu: Duel (sends the request; while it waits the menu shows Cancel and waiting dots).
-- Left click on the fountain (in town) sips. Left click on the forge (in town) opens the smith.
+- Left click on the fountain (in town) walks to it (standing near it regenerates health). Left click on the forge (in town) opens the smith.
 - The partner's outline lights up on hover during a duel. A swing out of reach does nothing while walking, and one swing is one swing.
 
 The player starts in town after login.
 
-The fountain is the courtyard well painted on the town. Clicking it sets that player's health to their current maximum. It costs nothing and has no cooldown. It does not revive a dead avatar: only Respawn does.
+The fountain is the courtyard well painted on the town. There is no click heal (removed in plan 14). It does not revive a dead avatar: only Respawn does.
 
 **Regeneration (plan 11).** The fountain glows light green while you are in town. A living avatar standing in the fountain or within 40 pixels of it regenerates **5 health per second** up to its maximum, with no click and no cost. Dead avatars, and avatars anywhere else, do not regenerate. The server keeps the health in memory and saves it at most every 2 seconds (and when the player stops or leaves), so the regeneration does not write the database 5 times a second.
 

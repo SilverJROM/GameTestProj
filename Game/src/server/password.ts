@@ -48,7 +48,7 @@ function peelsMatch(expectedPear: string, givenPear: string): boolean {
 async function derivePear(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey('raw', textEncoder.encode(password), 'PBKDF2', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations },
+    { name: 'PBKDF2', hash: 'SHA-256', salt: salt as BufferSource, iterations },
     key,
     HASH_BYTES * 8,
   );

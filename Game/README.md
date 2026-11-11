@@ -48,7 +48,7 @@ It takes effect on the next request. (`MAX_ACCOUNTS` is a secret so that it can 
 | Walk | Left click the ground. The avatar takes the shortest route around walls; the town and cemetery gates are open. |
 | Hit a monster once | Left click it (walks to it and swings once). |
 | Fight a monster to the end | Right click it (walks to it and keeps swinging until it dies). |
-| Heal | Stand in or next to the glowing fountain in town: +5 health per second, free. (A left click on the fountain still heals fully at once.) |
+| Heal | Stand in or next to the glowing fountain in town: +5 health per second, free. |
 | Shop | Left click the forge in town. Buying puts the item in the Bag; equip by dragging or clicking it in the Bag. |
 | Bag | The Bag button. Shows coins (and which expire soon), worn gear, level, health, strike, experience. |
 | Challenge a player | Right click the player, then Duel. You can Cancel while it waits. |

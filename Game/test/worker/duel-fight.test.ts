@@ -370,8 +370,10 @@ describe('duel fight', () => {
 
     it('a duel swing at 0 blocks a monster swing at 400 ms, and either lands at the rules gap', async () => {
       const wolf = wolves[1]!;
-      const { asker, target } = await pairUp('ClockA', 'ClockB', { x: wolf.x, y: wolf.y }, { hp: 40, maxHp: 40 });
+      const { asker, target } = await pairUp('ClockA', 'ClockB', { x: wolf.x, y: wolf.y }, { x: wolf.x, y: wolf.y, hp: 40, maxHp: 40 });
       await ripenOntoBeet(asker, wolf.id);
+      // A duel swing needs reach: the partner stands at the wolf too.
+      await ripenOntoBeet(target, wolf.id);
       const startHp = wolfHpOf(await ask(asker, { type: 'ping' }), wolf.id);
       const targetStart = duelHpOf(await ask(asker, { type: 'ping' }), target.id)!;
       await ask(asker, { type: 'attack', playerId: target.id });
@@ -392,8 +394,10 @@ describe('duel fight', () => {
 
     it('a monster swing at 0 blocks a duel swing at 400 ms, and either lands at the rules gap', async () => {
       const wolf = wolves[2]!;
-      const { asker, target } = await pairUp('ClockC', 'ClockD', { x: wolf.x, y: wolf.y, hp: 40, maxHp: 40 }, { hp: 40, maxHp: 40 });
+      const { asker, target } = await pairUp('ClockC', 'ClockD', { x: wolf.x, y: wolf.y, hp: 40, maxHp: 40 }, { x: wolf.x, y: wolf.y, hp: 40, maxHp: 40 });
       await ripenOntoBeet(asker, wolf.id);
+      // A duel swing needs reach: the partner stands at the wolf too.
+      await ripenOntoBeet(target, wolf.id);
       const startHp = wolfHpOf(await ask(asker, { type: 'ping' }), wolf.id);
       await ask(asker, { type: 'attack', once: true, monsterId: wolf.id });
       const wolfOnce = await wolfBelow(asker, wolf.id, startHp);
@@ -454,6 +458,15 @@ describe('duel fight', () => {
     await ask(target, { type: 'duel_decline', playerId: asker.id });
     expect(asker.heard.some((row) => (row as { type: string }).type === 'duel_declined')).toBe(true);
     noPartners(await ask(asker, { type: 'ping' }), asker.id, target.id);
+  }, 60_000);
+
+  it('a plain duel swing from outside melee reach lands nothing', async () => {
+    const { asker, target } = await pairUp('FarA', 'FarB', { x: wolfSpot.x, y: wolfSpot.y }, { x: wolfSpot.x + 130, y: wolfSpot.y });
+    const max = duelHpOf(await ask(asker, { type: 'ping' }), target.id)!;
+    await ripenMs(asker, 1000);
+    await ask(asker, { type: 'attack', playerId: target.id });
+    await ripenMs(asker, 1000);
+    expect(duelHpOf(await ask(asker, { type: 'ping' }), target.id)).toBe(max);
   }, 60_000);
 
   it('a left click on the partner (attack once with walk) walks over and swings exactly once, then stops', async () => {

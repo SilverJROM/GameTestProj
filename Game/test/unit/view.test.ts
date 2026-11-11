@@ -328,7 +328,7 @@ describe('world view', () => {
 
     board.click({ x: 242, y: 566, button: 0 });
     expect(lemon.sent).toHaveLength(2);
-    expect(mangoOf(lemon, 1)).toEqual({ type: 'fountain', x: 242, y: 566 });
+    expect(mangoOf(lemon, 1)).toEqual({ type: 'move', x: 242, y: 566 }); // the fountain click only walks (regeneration heals)
 
     board.click({ x: 150, y: 480, button: 0 });
     expect(lemon.sent).toHaveLength(2);

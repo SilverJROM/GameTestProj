@@ -267,9 +267,11 @@ describe('G3 room core flow', () => {
       x: center.x,
       y: center.y,
     });
-    const healedHp = sipped.senderSnap.character.maxHp;
-    expect(healedHp).toBeGreaterThan(woundedHp);
-    expect(sipped.senderSnap.character.hp).toBe(healedHp);
+    // The old click heal is gone (plan 14): clicking the fountain message changes nothing; the fountain regenerates health
+    // for anyone standing near it (see the regeneration test in aggro.test.ts).
+    const healedHp = woundedHp;
+    const maxHpNow = sipped.senderSnap.character.maxHp;
+    expect(sipped.senderSnap.character.hp).toBe(woundedHp);
 
     // The walker never paid or healed.
     expect(sipped.otherSnap.character.coins).toBe(0);
@@ -285,7 +287,7 @@ describe('G3 room core flow', () => {
       items: [shortSwordRow.id],
       coins: 0,
       hp: healedHp,
-      maxHp: healedHp,
+      maxHp: maxHpNow,
       place: 'town',
     });
     expect(await getById(kiwiDb, shopper.facts.id)).toMatchObject({

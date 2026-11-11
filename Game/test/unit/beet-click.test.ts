@@ -226,7 +226,7 @@ describe('peelClick on the beet picture', () => {
 
     const town = orchard([beet('beet-wolf', 'wolf', 900, 360)], 'town');
     expect(peelClick({ x: 242, y: 566, button: 0 }, town)).toEqual({
-      message: { type: 'fountain', x: 242, y: 566 },
+      message: { type: 'move', x: 242, y: 566 },
       smithOpen: false,
     });
     expect(peelClick({ x: 150, y: 480, button: 0 }, town)).toEqual({ message: null, smithOpen: true });

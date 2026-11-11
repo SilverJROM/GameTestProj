@@ -31,7 +31,7 @@ D1's `database_id` is in `wrangler.jsonc`. It is an identifier, not a credential
 ## What is not protected (limits)
 
 - Access is email based: anyone who can read an allowed inbox can enter. Removing an email from the policy ends that access for new sessions; existing sessions last until their Access session expires.
-- The WebSocket handler does not check the `Origin` header itself. It relies on Access, the signed cookie and `SameSite=Lax` (a cross-site page cannot make a browser send the cookie on a WebSocket opened from another site under Lax in current browsers, but I did not test every browser). A second check would be cheap to add.
+- The WebSocket handler refuses an `Origin` header that is present and not the site's own (plan 14); a client that sends no Origin (a script) is still allowed, because it still needs the Access session and the signed cookie. Each avatar's messages are rate limited (30 a second, burst 60) and strings over 200 characters are refused.
 - There is no rate limiting of sign-in or sign-up beyond the account cap and the fixed failure delay. A stolen allowed email could be used to guess passwords at the speed Access allows.
 - PBKDF2 uses 10,000 rounds because the Workers Free plan gives 10 ms of CPU per request. That is far below current guidance for password hashing (hundreds of thousands of rounds). On a paid plan the constant should be raised (`PASSWORD_ITERATIONS` in `src/rules/tables.ts`) and old hashes upgraded at sign-in.
 - Passwords cannot be recovered or reset (by design).

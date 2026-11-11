@@ -179,30 +179,6 @@ export function regenAtFountain(fig: FigWalk, dtMs: number, carry: Map<string, n
   return true;
 }
 
-// Sip the melon well. The click must land inside melonFountainBox.
-// The fig must already stand in town. A fig at 0 hp stays at 0.
-// A ripe sip sets hp to the stored maxHp on the row. That value is already
-// the fig's maximum. This does not add armor again and does not spend coins.
-// A second sip in a row is also ripe. A click off the box changes nothing.
-// A fig in the green, the grey, or the cemetery is refused even when the click is inside the box.
-export function sipMelon(fig: FigWalk, melonX: number, melonY: number): CharacterFactsPatch | null {
-  if (!Number.isFinite(melonX) || !Number.isFinite(melonY)) {
-    return null;
-  }
-  if (fig.facts.place !== 'town') {
-    return null;
-  }
-  if (fig.facts.hp <= 0) {
-    return null;
-  }
-  if (!hitBox(melonFountainBox, melonX, melonY)) {
-    return null;
-  }
-  const ripeHp = fig.facts.maxHp;
-  fig.facts = { ...fig.facts, hp: ripeHp };
-  return { hp: ripeHp };
-}
-
 function ownedGear(fig: FigWalk): OwnedGear {
   return {
     level: fig.facts.level,

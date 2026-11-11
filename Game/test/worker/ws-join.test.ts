@@ -185,6 +185,12 @@ describe('GET /ws join on the real worker', () => {
 
     const ada = await postFig('Ada', 'woman');
     const bea = await postFig('Bea', 'man');
+    // A socket opened from another site (a foreign Origin) is refused; one with the site's own Origin, or none, is welcomed.
+    await expect(connectFig(`ws://127.0.0.1:${worker.port}/ws`, ada.grape, { Origin: 'https://evil.example' })).rejects.toThrow();
+    const ownOrigin = await connectFig(`ws://127.0.0.1:${worker.port}/ws`, ada.grape, { Origin: `http://127.0.0.1:${worker.port}` });
+    expect(ownOrigin.welcome.type).toBe('welcome');
+    ownOrigin.socket.close();
+
     const adaRow = await getById(kiwiDb, ada.facts.id);
     const beaRow = await getById(kiwiDb, bea.facts.id);
     expect(adaRow).toEqual(ada.facts);

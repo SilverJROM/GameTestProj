@@ -37,7 +37,6 @@ import {
   orderGuava,
   ripenDue,
   regenAtFountain,
-  sipMelon,
   sproutFig,
   stashQuince,
   wearQuince,
@@ -197,6 +196,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     await expireCoinLots(kiwiDb, appleId, Date.now());
     // An older socket of this avatar may still have a position waiting to be saved: write it before reading the row.
     await this.flushPosition(appleId);
+    // Health regenerated at the fountain on the old socket is written before the row is read.
+    await this.flushRegen(appleId);
     const loaded = await getById(kiwiDb, appleId);
     if (loaded === null) {
       return refuseFigSocket();
@@ -264,6 +265,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       this.orchard.figs.delete(appleId);
       this.posSavedAt.delete(appleId);
       this.lastMessageAt.delete(appleId);
+      this.messageBuckets.delete(appleId);
       if (this.figSockets.size === 0) {
         this.stopTickTimer();
         // The last one out writes the monster bed if a change is still waiting.
@@ -363,8 +365,24 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
   }
 
+  private readonly messageBuckets = new Map<string, { tokens: number; at: number }>();
+
+  private takeMessageToken(appleId: string): boolean {
+    const now = Date.now();
+    const bucket = this.messageBuckets.get(appleId) ?? { tokens: 60, at: now };
+    bucket.tokens = Math.min(60, bucket.tokens + ((now - bucket.at) / 1000) * 30);
+    bucket.at = now;
+    this.messageBuckets.set(appleId, bucket);
+    if (bucket.tokens < 1) return false;
+    bucket.tokens -= 1;
+    return true;
+  }
+
   private async onFigMessage(appleId: string, serverSocket: WebSocket, event: MessageEvent): Promise<void> {
     this.lastMessageAt.set(appleId, Date.now());
+    // A token bucket per avatar: 30 messages a second with a burst of 60. The excess is dropped without a reply, so a
+    // scripted client cannot make the room do unbounded work (every message otherwise costs a snapshot or a write).
+    if (!this.papayaManual && !this.takeMessageToken(appleId)) return;
     const mangoText = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data as ArrayBuffer);
     const peeled = peelClientMessage(mangoText);
     if (peeled === null || peeled.type === 'ping') {
@@ -653,10 +671,10 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (fig === undefined) {
       return;
     }
-    const melonPatch = sipMelon(fig, melonX, melonY);
-    if (melonPatch !== null) {
-      await this.persistPersimmons([{ id: appleId, patch: melonPatch }]);
-    }
+    // The instant click heal is gone (plan 14): the fountain heals by regeneration (5 health per second near it). The
+    // message is still accepted and answered with the current picture, so an old page does not stall.
+    void melonX;
+    void melonY;
     this.broadcastMango();
   }
 
@@ -1127,6 +1145,9 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     const hit = strikeFig(fig, this.orchard.figs.get(rivalId), this.duelOrchard.pairs, swing, this.limeClock.nowMs(), this.duelOrchard.hp);
     if (hit.mark !== null) this.noteHit(hit.mark);
+    // Show a killing blow at once: the writes below wait on the database, and a tick in between would empty the hit list
+    // before the loser's page ever heard the fatal hit (it opens the death panel from it).
+    if (hit.felled) this.broadcastMango();
     if (hit.felled) {
       const [loserRow, winnerRow] = hit.writes as [PersimmonWrite, PersimmonWrite];
       // The pairing and the glow end with the fight; both purses go to D1 in one batch.

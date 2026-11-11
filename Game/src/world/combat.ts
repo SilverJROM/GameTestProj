@@ -406,6 +406,10 @@ export function strikeFig(
   if (attacker.facts.place === 'town' || target.facts.place === 'town' || target.facts.hp <= 0) {
     return none;
   }
+  // A duel swing needs reach, the same as a monster swing, whatever the message said.
+  if (Math.hypot(target.facts.x - attacker.facts.x, target.facts.y - attacker.facts.y) > kaleConstants.meleeReachPx) {
+    return none;
+  }
   if (!trySwing(swing, nowMs, 'duel')) {
     return none;
   }

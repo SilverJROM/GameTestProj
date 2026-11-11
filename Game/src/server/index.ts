@@ -137,6 +137,11 @@ export default {
       if (request.method !== 'GET' || !isLemonUpgrade(request)) {
         return new Response('Expected a lemon socket.', { status: 426 });
       }
+      // A browser always sends its page's Origin on a WebSocket. A socket opened from another site is refused.
+      const socketOrigin = request.headers.get('Origin');
+      if (socketOrigin !== null && socketOrigin !== new URL(request.url).origin) {
+        return new Response('Wrong origin.', { status: 403 });
+      }
       const guavaId = env.WorldRoom.idFromName('world');
       const stub = env.WorldRoom.get(guavaId);
       return stub.fetch(forwardFig(request, figFacts.id, env.ALLOW_TEST_CLOCK === '1'));

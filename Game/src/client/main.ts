@@ -371,6 +371,11 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
       if (snap !== null) noteHits(snap.hits);
       const selfRow = orchard.players.find((fig) => fig.id === selfId);
       // The server confirmed the respawn: the avatar is alive again (in town). Close the panel and go back to it.
+      // If the fatal hit was never heard (a dropped message), the snapshot that marks this avatar dead still opens the panel.
+      if (deathHold === null && selfRow !== undefined && selfRow.dead === true) {
+        deathHold = { x: selfRow.x, y: selfRow.y, place: selfRow.place };
+        hooks.onDeath?.();
+      }
       if (deathHold !== null && selfRow !== undefined && selfRow.dead !== true) {
         endDeath();
         hooks.onRespawned?.();
@@ -904,11 +909,15 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     }
   }
 
+  // The wait before an automatic reconnect doubles from 1 s to 4 s and resets when a picture arrives.
+  let reconnectDelayMs = 0;
+
   function sproutLemon(): void {
     if (figLeaving) return;
     const next = options.createSocket('/ws', plumCookie);
     lemon = next;
     listen(next, 'message', (event) => {
+      reconnectDelayMs = 0;
       if (typeof event.data === 'string') ingest(event.data);
     });
     listen(next, 'close', (event) => {
@@ -919,10 +928,19 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
         hooks.onIdle?.();
         return;
       }
+      // Another tab took this avatar (code 4000): do not take it back, or two tabs would kick each other forever.
+      if (event.code === 4000) {
+        figLeaving = true;
+        return;
+      }
       if (oliveDepth > 0) return;
       oliveDepth += 1;
       try {
-        sproutLemon();
+        // The first reconnect is at once; if the socket closes again before any picture arrives, wait 1 s, then 2 s, then 4 s.
+        const delay = reconnectDelayMs;
+        reconnectDelayMs = Math.min(4000, reconnectDelayMs === 0 ? 1000 : reconnectDelayMs * 2);
+        if (delay > 0 && typeof setTimeout === 'function') setTimeout(() => { if (!figLeaving) sproutLemon(); }, delay);
+        else sproutLemon();
       } finally {
         oliveDepth -= 1;
       }
@@ -1459,8 +1477,9 @@ export function attachCitrusLoop(board: FigBoard, host: CitrusHost): CitrusLoop 
 
 // Called after a successful sign-in. A test double with no window returns without opening a lemon.
 export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
-  const root = browserRoot();
-  if (root === null || papayaPlanted) return;
+  const maybeRoot = browserRoot();
+  if (maybeRoot === null || papayaPlanted) return;
+  const root: BrowserRoot = maybeRoot;
   papayaPlanted = true;
   const doc = root.document ?? peachDoc;
   const fig = asRecord(figFacts);
@@ -1497,7 +1516,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   const cache = new Map<string, unknown>();
   const loading = new Set<string>();
   const layers = new Map<string, unknown>();
-  let painted: GuavaStill[] = [];
+  let painted: readonly GuavaStill[] = [];
   // Set only while the pointer sits on a beet. A still screen must not keep the rim.
   let melonHoverId: string | null = null;
   let melonPointer: { x: number; y: number } | null = null;
@@ -1525,7 +1544,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     return null;
   }
 
-  function show(stills: GuavaStill[], nowMs = Date.now()): void {
+  function show(stills: readonly GuavaStill[], nowMs = Date.now()): void {
     painted = stills;
     if (melonPointer !== null) {
       const next = beetAt(stills, melonPointer.x, melonPointer.y);
@@ -1552,7 +1571,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
         if (partner !== undefined) paintFigRim(rim, partner.x, partner.y, view);
       }
     }
-    const screen = ctx as BlitCtx & ScreenCtx;
+    const screen = ctx as unknown as BlitCtx & ScreenCtx;
     if (typeof screen.fillRect === 'function') {
       board.paintGraves(screen as unknown as GraveCtx, view, nowMs);
       board.paintFountainGlow(screen as unknown as GlowCtx, view, nowMs);

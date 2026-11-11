@@ -1,12 +1,12 @@
 // One papaya click becomes one mango, or opens a panel and sends nothing.
 // Left click: on a monster, or on the duel partner once the duel has started, walk to it and swing once; on the fountain
-// (in town) sip; on the forge (in town) open the smith; anywhere else, including on a player who is not the partner, only walk.
+// (in town) only walk (the fountain heals by regeneration, plan 14); on the forge (in town) open the smith; anywhere else, including on a player who is not the partner, only walk.
 // Right click: on a monster, walk to it and keep swinging until it dies; on the duel partner, walk to them and keep
 // swinging until one falls; on any other player, open the duel menu (nothing is sent until the player picks Duel);
 // on the ground, nothing.
 
 import type { ClientMessage } from '../protocol';
-import { hitForge, hitFountain } from '../rules/regions';
+import { hitForge } from '../rules/regions';
 import type { ZoneName } from '../rules/tables';
 import { scaleFor } from './sprites';
 import { beetSpriteRect, melonHolds } from './view';
@@ -133,9 +133,6 @@ export function peelClick(click: ClickBerry, orchard: ClickOrchard): ClickPeel {
   if (beet !== null) {
     // Walk to the monster and swing once.
     return { message: { type: 'attack', monsterId: beet.id, once: true, walk: true }, smithOpen: false };
-  }
-  if (orchard.selfPlace === 'town' && hitFountain(click.x, click.y)) {
-    return { message: { type: 'fountain', x: click.x, y: click.y }, smithOpen: false };
   }
   if (orchard.selfPlace === 'town' && hitForge(click.x, click.y)) {
     return { message: null, smithOpen: true };
