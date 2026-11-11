@@ -6,6 +6,7 @@
   "main": "index.js",
   "scripts": {
     "build:client": "node scripts/build-client.mjs",
+    "build:precompute": "node scripts/build-precompute.mjs",
     "test": "vitest run",
     "sim": "node scripts/run-sim.mjs",
     "e2e:two-client": "node scripts/e2e-two-client.mjs"

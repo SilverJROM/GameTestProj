@@ -507,3 +507,48 @@ describe('menu panel on the page', () => {
     expect(settingsPanel.hidden).toBe(true);
   });
 });
+
+
+describe('idle close', () => {
+  function recordingLemons() {
+    const lemons: { listeners: Map<string, (event: unknown) => void> }[] = [];
+    return {
+      lemons,
+      create() {
+        const record = { listeners: new Map<string, (event: unknown) => void>() };
+        lemons.push(record);
+        return {
+          send() {},
+          close() {},
+          addEventListener(type: string, fn: (event: unknown) => void) {
+            record.listeners.set(type, fn);
+          },
+        };
+      },
+    };
+  }
+
+  it('does not reconnect after the server closes the socket for inactivity (4001) and shows the message once', () => {
+    const rec = recordingLemons();
+    const onIdle = vi.fn();
+    plantFigBoard({ selfId: 'fig-self', selfPlace: 'town', createSocket: () => rec.create(), hooks: { onIdle } });
+    expect(rec.lemons).toHaveLength(1);
+    rec.lemons[0]!.listeners.get('close')!({ code: 4001 });
+    expect(onIdle).toHaveBeenCalledTimes(1);
+    expect(rec.lemons).toHaveLength(1);
+  });
+
+  it('still reconnects after an ordinary close', () => {
+    const rec = recordingLemons();
+    const onIdle = vi.fn();
+    plantFigBoard({ selfId: 'fig-self', selfPlace: 'town', createSocket: () => rec.create(), hooks: { onIdle } });
+    rec.lemons[0]!.listeners.get('close')!({ code: 1006 });
+    expect(onIdle).not.toHaveBeenCalled();
+    expect(rec.lemons).toHaveLength(2);
+  });
+
+  it('the page has the reload message', () => {
+    expect(pageHtml).toContain('id="idle-panel"');
+    expect(pageHtml).toContain('id="idle-reload"');
+  });
+});

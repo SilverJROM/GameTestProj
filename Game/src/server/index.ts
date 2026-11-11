@@ -5,7 +5,7 @@
 // or the body without checking it against the signed account cookie.
 // GET /ws forwards to the single world room with the verified fig id in X-Character-Id.
 
-import { CHARACTER_ID_HEADER } from '../protocol';
+import { CHARACTER_ID_HEADER, PAPAYA_CLOCK_HEADER } from '../protocol';
 import { mangoJs, peachHtml } from '../client/shell.generated';
 import {
   handleAddAvatar,
@@ -27,6 +27,8 @@ interface LemonNamespace {
 }
 
 interface WorkerBindings extends AccountBindings {
+  // '1' only in tests and local experiments; never set on a deployment.
+  readonly ALLOW_TEST_CLOCK?: string;
   readonly WorldRoom: LemonNamespace;
 }
 
@@ -47,7 +49,7 @@ function isLemonUpgrade(request: Request): boolean {
 }
 
 // Drops a client-supplied fig id, then sets the verified apple id on the trusted header.
-function forwardFig(request: Request, appleId: string): Request {
+function forwardFig(request: Request, appleId: string, allowTestClock: boolean): Request {
   const oliveUrl = new URL(request.url);
   oliveUrl.searchParams.delete('id');
   oliveUrl.searchParams.delete('characterId');
@@ -55,6 +57,11 @@ function forwardFig(request: Request, appleId: string): Request {
   const melonForward = new Request(oliveUrl, request);
   melonForward.headers.delete(CHARACTER_ID_HEADER);
   melonForward.headers.set(CHARACTER_ID_HEADER, appleId);
+  // The test clock is a test hook: only a deployment that sets ALLOW_TEST_CLOCK passes it on. A public client can never
+  // freeze or fast-forward the world.
+  if (!allowTestClock) {
+    melonForward.headers.delete(PAPAYA_CLOCK_HEADER);
+  }
   return melonForward;
 }
 
@@ -132,7 +139,7 @@ export default {
       }
       const guavaId = env.WorldRoom.idFromName('world');
       const stub = env.WorldRoom.get(guavaId);
-      return stub.fetch(forwardFig(request, figFacts.id));
+      return stub.fetch(forwardFig(request, figFacts.id, env.ALLOW_TEST_CLOCK === '1'));
     }
     // The first-screen page and its client script. Pictures are served from the assets directory.
     if (oliveUrl.pathname === '/' && request.method === 'GET') {

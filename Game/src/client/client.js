@@ -175,7 +175,13 @@ function readGate(peachDoc) {
   const username = kiwiUser.value;
   const password = kiwiPass.value;
   kiwiPass.value = '';
-  return { username, password };
+  // New accounts also send an invited email and the invite code (read only when those boxes exist on the page).
+  const kiwiEmail = peachDoc.getElementById('kiwi-email');
+  const kiwiInvite = peachDoc.getElementById('kiwi-invite');
+  const email = kiwiEmail ? kiwiEmail.value : '';
+  const invite = kiwiInvite ? kiwiInvite.value : '';
+  if (kiwiInvite) kiwiInvite.value = '';
+  return { username, password, email, invite };
 }
 
 function postJson(fetchFn, path, body) {
@@ -228,7 +234,13 @@ async function postGate(peachDoc, fetchFn, path, fallback) {
   const pearRefusal = peachDoc.getElementById('pear-refusal');
   const gate = readGate(peachDoc);
   pearRefusal.textContent = '';
-  const response = await postJson(fetchFn, path, { username: gate.username, password: gate.password });
+  const body = { username: gate.username, password: gate.password };
+  // Only a new account sends the email and invite code; sign-in sends the two original fields.
+  if (path === '/api/account') {
+    body.email = gate.email;
+    body.invite = gate.invite;
+  }
+  const response = await postJson(fetchFn, path, body);
   if (!response.ok) {
     pearRefusal.textContent = await melonError(response, fallback);
     return false;

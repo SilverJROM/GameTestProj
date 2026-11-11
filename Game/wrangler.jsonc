@@ -6,7 +6,7 @@
   "compatibility_date": "2025-09-01",
   // Bundles the first-screen page and client script into src/client/shell.generated.ts.
   "build": {
-    "command": "node scripts/build-client.mjs",
+    "command": "node scripts/build-client.mjs && node scripts/build-precompute.mjs",
   },
   "assets": {
     "directory": "./assets",

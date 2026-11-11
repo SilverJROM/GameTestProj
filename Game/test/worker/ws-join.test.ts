@@ -144,7 +144,7 @@ describe('GET /ws join on the real worker', () => {
     worker = await unstable_dev('src/server/index.ts', {
       config: 'wrangler.jsonc',
       persistTo: orchardDir,
-      vars: { SESSION_SECRET: guavaSecret },
+      vars: { SESSION_SECRET: guavaSecret, ALLOW_TEST_CLOCK: '1' },
       logLevel: 'error',
       experimental: {
         disableExperimentalWarning: true,

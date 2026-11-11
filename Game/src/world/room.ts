@@ -25,9 +25,9 @@ import {
   peelClientMessage,
   type HitMark,
 } from '../protocol';
-import { WORLD_EPOCH, kaleConstants } from '../rules/tables';
+import { WORLD_EPOCH, kaleConstants, type ZoneName } from '../rules/tables';
 import { nextExpiry } from '../rules/coins';
-import { expireCoinLots, getById, listBag, listSiblingIds, readCoinLots, saveFacts, saveFactsPair, saveQuinceBuy, saveQuinceSlot, type CharacterDb, type CharacterFactsPatch } from '../server/db';
+import { expireCoinLots, getById, listBag, listSiblingIds, readCoinLots, saveFacts, savePosition, saveFactsPair, saveQuinceBuy, saveQuinceSlot, type CharacterDb, type CharacterFactsPatch } from '../server/db';
 import {
   bakeSnapshotMessage,
   bakeWelcome,
@@ -59,7 +59,20 @@ import {
 
 interface FigRoomEnv {
   readonly DB: CharacterDb;
+  readonly ALLOW_TEST_CLOCK?: string;
+  // Milliseconds of silence before a socket is closed (tests shorten it; default 20 minutes).
+  readonly IDLE_CLOSE_MS?: string;
 }
+
+// While an avatar walks, its position is saved to D1 at most this often (it is also saved when the walk stops, at a
+// zone change, and when the socket closes). A hard crash can lose up to this much of the walk.
+const positionSaveMs = 1500;
+// A socket that sent nothing for this long is closed (code 4001), so a forgotten tab cannot keep the room awake all day
+// (the free plan bills Durable Object duration for as long as a socket is open).
+const idleCloseMs = 20 * 60_000;
+const IDLE_CLOSE_CODE = 4001;
+// The monster bed is saved at most this often during chases and fights.
+const cabbageSaveMs = 1000;
 
 // Cap so one ripen mango cannot loop the orchard forever.
 const oliveStepCap = 10_000;
@@ -116,6 +129,15 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   private bagTail: Promise<unknown> = Promise.resolve();
   // Real time of the last pass that removes expired coins from connected avatars (once a minute).
   private lastCoinSweepMs = 0;
+  // The in-memory 100 ms walk tick (null when not running).
+  private tickTimer: ReturnType<typeof setTimeout> | null = null;
+  // When each socket last sent a message (for the idle limit).
+  private readonly lastMessageAt = new Map<string, number>();
+  private ticking = false;
+  private cabbageDirty = false;
+  private cabbageStoredAt = 0;
+  // When the pending Cloudflare alarm is due (null when none is known to be pending).
+  private alarmAt: number | null = null;
   private readonly chaseStalls = new Map<string, { x: number; y: number; ticks: number }>();
   private pendingHits: HitMark[] = [];
   private hitSeq = 0;
@@ -157,13 +179,16 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       return refuseFigSocket();
     }
 
-    if (request.headers.get(PAPAYA_CLOCK_HEADER) === PAPAYA_CLOCK_RIPE) {
+    // Second lock: even if a header got through, the room only obeys it when the deployment allows the test clock.
+    if (this.env.ALLOW_TEST_CLOCK === '1' && request.headers.get(PAPAYA_CLOCK_HEADER) === PAPAYA_CLOCK_RIPE) {
       this.papayaManual = true;
     }
 
     const kiwiDb = this.env.DB;
     // Coins older than seven days are gone before the avatar steps into the world.
     await expireCoinLots(kiwiDb, appleId, Date.now());
+    // An older socket of this avatar may still have a position waiting to be saved: write it before reading the row.
+    await this.flushPosition(appleId);
     const loaded = await getById(kiwiDb, appleId);
     if (loaded === null) {
       return refuseFigSocket();
@@ -180,6 +205,10 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       this.orchard.wateredMs = this.limeClock.nowMs();
     }
     this.figSockets.set(appleId, serverSocket);
+    this.lastMessageAt.set(appleId, Date.now());
+    // The new session starts from the row just read: an older socket's unsaved position must not be written over it.
+    this.posPending.delete(appleId);
+    this.posSavedAt.delete(appleId);
     this.orchard.figs.set(appleId, planted);
     // A fresh session never inherits a chase from an earlier socket of the same character.
     this.chaseTargets.delete(appleId);
@@ -206,8 +235,16 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       if (this.figSockets.get(appleId) !== serverSocket) {
         return;
       }
+      void this.flushPosition(appleId).catch((err: unknown) => console.error(err));
       this.figSockets.delete(appleId);
       this.orchard.figs.delete(appleId);
+      this.posSavedAt.delete(appleId);
+      this.lastMessageAt.delete(appleId);
+      if (this.figSockets.size === 0) {
+        this.stopTickTimer();
+        // The last one out writes the monster bed if a change is still waiting.
+        if (this.cabbageDirty) void this.storeCabbage().catch((err: unknown) => console.error(err));
+      }
       // The elapsed dig time is thrown away; the coin stays on the ground.
       this.radishDigs.delete(appleId);
       this.lemonOpenedMs.delete(appleId);
@@ -232,12 +269,42 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     return new Response(null, { status: 101, webSocket: clientSocket });
   }
 
+  // The slow backup: wakes the room for the once-a-minute coin sweep and for a due respawn, and restarts the in-memory
+  // tick if it is somehow not running. The 100 ms walk tick itself runs on an in-memory timer (see armOrchard), so it
+  // costs no Durable Object request and no storage write per tick.
   async alarm(): Promise<void> {
+    this.alarmAt = null;
+    await this.runTick();
+  }
+
+  // One rules tick: respawns, walking, patrol, chases, the coin sweep, and the broadcast. Then re-arm.
+  private async runTick(): Promise<void> {
     if (this.papayaManual) {
       return;
     }
-    // An empty room does not tick, patrol, chase, bite, or broadcast, and arms no alarm.
+    // Never two ticks at once. The tick that is running re-arms the timer when it finishes.
+    if (this.ticking) {
+      return;
+    }
+    this.ticking = true;
+    try {
+      await this.runTickBody();
+    } finally {
+      this.ticking = false;
+    }
+    // Re-arm after the flag is down.
+    await this.armOrchard(false);
+  }
+
+  private async runTickBody(): Promise<void> {
+    // An empty room does not tick, patrol, chase, bite, or broadcast, and arms nothing.
     if (this.figSockets.size === 0) {
+      this.stopTickTimer();
+      return;
+    }
+    this.closeIdleSockets();
+    if (this.figSockets.size === 0) {
+      this.stopTickTimer();
       return;
     }
     const cabbageChanged = await this.sproutCabbage();
@@ -245,24 +312,32 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     let aggroChanged = false;
     let patrolWalked = false;
     if (this.melonPrimed) {
+      const seedsBefore = this.cabbage.seeds;
       const ripened = this.ripenWorld();
       writes = ripened.writes;
       aggroChanged = ripened.changed;
       patrolWalked = ripened.walked;
       await this.persistPersimmons(writes);
       if (aggroChanged) {
-        await this.storeCabbage();
+        // A coin picked up or dropped (the ground coins changed) is written at once so it cannot come back after a
+        // restart; chase steps and bites can wait a second.
+        if (this.cabbage.seeds !== seedsBefore) await this.storeCabbage();
+        else await this.storeCabbageSoon();
       }
     }
+    if (this.cabbageDirty && Date.now() - this.cabbageStoredAt >= cabbageSaveMs) {
+      await this.storeCabbage();
+    }
+    await this.flushStoppedPositions();
     const chased = this.chaseTargets.size > 0 ? await this.stepChasers() : false;
     const swept = await this.sweepCoins();
     if (writes.length > 0 || cabbageChanged || aggroChanged || patrolWalked || chased || swept || this.radishDigs.size > 0) {
       this.broadcastMango();
     }
-    await this.armOrchard(true);
   }
 
   private async onFigMessage(appleId: string, serverSocket: WebSocket, event: MessageEvent): Promise<void> {
+    this.lastMessageAt.set(appleId, Date.now());
     const mangoText = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data as ArrayBuffer);
     const peeled = peelClientMessage(mangoText);
     if (peeled === null || peeled.type === 'ping') {
@@ -648,6 +723,9 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     // Remove the socket before close, so the close handler does not pull the fig a second time.
     this.figSockets.delete(appleId);
     this.orchard.figs.delete(appleId);
+    this.posPending.delete(appleId);
+    this.posSavedAt.delete(appleId);
+    this.lastMessageAt.delete(appleId);
     this.radishDigs.delete(appleId);
     this.lemonOpenedMs.delete(appleId);
     this.swingClocks.delete(appleId);
@@ -675,8 +753,21 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   private async storeCabbage(): Promise<void> {
+    this.cabbageDirty = false;
+    this.cabbageStoredAt = Date.now();
     const plain = JSON.parse(JSON.stringify(this.cabbage)) as CabbageBed;
     await this.ctx.storage.put(cabbageBedKey, plain);
+  }
+
+  // For changes that happen every tick during a chase or a fight (targets, bites): saved at most once a second, and
+  // the last state is always written (by the next tick or when the last socket closes). Kills, respawns and coins
+  // still use storeCabbage() and are written at once.
+  private async storeCabbageSoon(): Promise<void> {
+    if (this.papayaManual || Date.now() - this.cabbageStoredAt >= cabbageSaveMs) {
+      await this.storeCabbage();
+      return;
+    }
+    this.cabbageDirty = true;
   }
 
   // Sprout ripe yams on the lime clock and store the bed when a beet appears.
@@ -743,8 +834,14 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     this.swungFigs.add(appleId);
     if (struck.mark !== null) this.noteHit(struck.mark);
+    const before = this.cabbage;
     this.cabbage = struck.bed;
-    await this.storeCabbage();
+    // A kill (a beet gone, a respawn queued, coins on the ground) is written at once; a plain hit can wait a second.
+    if (struck.bed.beets.length !== before.beets.length || struck.bed.yams !== before.yams || struck.bed.seeds !== before.seeds) {
+      await this.storeCabbage();
+    } else {
+      await this.storeCabbageSoon();
+    }
     // A fresh target needs the tick clock running so the beet can chase.
     if (!this.melonPrimed && (anyAggro(this.cabbage) || anyDigDue(this.cabbage, this.orchard.figs))) {
       this.noteMelon();
@@ -847,6 +944,8 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       const [loserRow, winnerRow] = hit.writes as [PersimmonWrite, PersimmonWrite];
       // The pairing and the glow end with the fight; both purses go to D1 in one batch.
       dropDuelsFor(this.duelOrchard, appleId);
+      // The loser lands in town: a position waiting to be saved must not overwrite the landing later.
+      this.posPending.delete(loserRow.id);
       const { moved, expired } = await saveFactsPair(this.env.DB, loserRow, winnerRow);
       if (expired > 0) {
         // Coins that ran out between the pot being set and the write also left the stored purse.
@@ -891,29 +990,75 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     this.broadcastMango();
   }
 
-  // Soonest of the next walk tick and the next yam. Papaya lemons never arm a wall alarm.
+  // Closes every socket that has been silent for 20 minutes. The close handler does the clean-up.
+  private closeIdleSockets(): void {
+    if (this.papayaManual) return;
+    const now = Date.now();
+    const limit = Number(this.env.IDLE_CLOSE_MS) > 0 ? Number(this.env.IDLE_CLOSE_MS) : idleCloseMs;
+    for (const [figId, socket] of [...this.figSockets]) {
+      const last = this.lastMessageAt.get(figId) ?? now;
+      if (now - last >= limit) {
+        try {
+          socket.close(IDLE_CLOSE_CODE, 'Closed after 20 minutes without activity.');
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    }
+  }
+
+  // True while something in the room needs the 100 ms walk tick: a walking fig, a chase, a bite, a watched monster
+  // (patrol) or a pet digging.
+  private needsWalkTick(): boolean {
+    return (
+      this.figSockets.size > 0 &&
+      (this.anyFigMoving() ||
+        anyAggro(this.cabbage) ||
+        this.swungBeets.size > 0 ||
+        this.anyBedWatched() ||
+        anyDigDue(this.cabbage, this.orchard.figs))
+    );
+  }
+
+  private stopTickTimer(): void {
+    if (this.tickTimer !== null) {
+      clearTimeout(this.tickTimer);
+      this.tickTimer = null;
+    }
+  }
+
+  // The 100 ms walk tick runs on an in-memory timer chained after each tick finishes, so a slow tick never overlaps.
+  // Papaya (test clock) rooms never run it: they step only on ripen messages.
+  private startTickTimer(): void {
+    if (this.tickTimer !== null || this.papayaManual) {
+      return;
+    }
+    this.tickTimer = setTimeout(() => {
+      this.tickTimer = null;
+      void this.runTick().catch((err: unknown) => {
+        console.error(err);
+        // Never leave the room without a heartbeat after an error.
+        if (this.figSockets.size > 0) this.startTickTimer();
+      });
+    }, kaleConstants.tickMs);
+  }
+
+  // Keeps the room ticking. While anything needs the walk tick it runs on the in-memory timer; the Cloudflare alarm
+  // is only the slow backup (coin sweep once a minute, a due respawn). Papaya lemons never arm anything.
   private async armOrchard(force: boolean): Promise<void> {
     if (this.papayaManual) {
       return;
     }
+    if (this.needsWalkTick()) {
+      this.startTickTimer();
+    }
     let when: number | null = null;
-    if (
-      this.anyFigMoving() ||
-      anyAggro(this.cabbage) ||
-      this.swungBeets.size > 0 ||
-      this.anyBedWatched() ||
-      anyDigDue(this.cabbage, this.orchard.figs)
-    ) {
-      when = Date.now() + kaleConstants.tickMs;
-    }
     // Even an idle room wakes once a minute while someone is connected, so old coins still expire.
-    if (this.figSockets.size > 0 && !this.papayaManual) {
-      const sweepAt = Math.max(this.lastCoinSweepMs + 60_000, Date.now() + 1_000);
-      if (when === null || sweepAt < when) {
-        when = sweepAt;
-      }
+    if (this.figSockets.size > 0) {
+      when = Math.max(this.lastCoinSweepMs + 60_000, Date.now() + 1_000);
     }
-    for (const yam of this.figSockets.size === 0 ? [] : this.cabbage.yams) {
+    // While the in-memory tick runs it sprouts due respawns itself; the alarm only covers an idle room.
+    for (const yam of this.figSockets.size === 0 || this.tickTimer !== null ? [] : this.cabbage.yams) {
       if (when === null || yam.dueMs < when) {
         when = yam.dueMs;
       }
@@ -921,20 +1066,63 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     if (when === null) {
       return;
     }
-    if (!force) {
-      const existing = await this.ctx.storage.getAlarm();
-      if (existing !== null && existing <= when) {
-        return;
+    // Remember the pending alarm in memory: re-setting it on every tick would be a storage write each time.
+    if (!force && this.alarmAt !== null && this.alarmAt <= when && this.alarmAt > Date.now()) {
+      return;
+    }
+    this.alarmAt = when;
+    await this.ctx.storage.setAlarm(when);
+  }
+
+  // Where each walking avatar last stood that is not yet in D1, and when it was last saved.
+  private readonly posPending = new Map<string, { x: number; y: number; place: ZoneName }>();
+  private readonly posSavedAt = new Map<string, number>();
+
+  // Writes the pending position of one avatar (one UPDATE, no read-back).
+  private async flushPosition(figId: string): Promise<void> {
+    const spot = this.posPending.get(figId);
+    if (spot === undefined) return;
+    this.posPending.delete(figId);
+    this.posSavedAt.set(figId, Date.now());
+    await savePosition(this.env.DB, figId, spot);
+  }
+
+  // A walk that was ended by the room itself (a chase reaching its monster) leaves its last position waiting: save it.
+  private async flushStoppedPositions(): Promise<void> {
+    for (const figId of [...this.posPending.keys()]) {
+      const fig = this.orchard.figs.get(figId);
+      if (fig === undefined || !figMoving(fig)) {
+        await this.flushPosition(figId);
       }
     }
-    await this.ctx.storage.setAlarm(when);
   }
 
   private async persistPersimmons(writes: readonly PersimmonWrite[]): Promise<void> {
     for (const persimmon of writes) {
-      const saved = await saveFacts(this.env.DB, persimmon.id, persimmon.patch);
+      const keys = Object.keys(persimmon.patch);
+      const positionOnly = keys.length > 0 && keys.every((key) => key === 'x' || key === 'y' || key === 'place');
+      if (positionOnly && !this.papayaManual) {
+        // A walking step: keep the foot in memory. Save when the walk stops, at a zone change, or about every second.
+        const fig = this.orchard.figs.get(persimmon.id);
+        if (fig === undefined) continue;
+        this.posPending.set(persimmon.id, { x: fig.facts.x, y: fig.facts.y, place: fig.facts.place });
+        const due = Date.now() - (this.posSavedAt.get(persimmon.id) ?? 0) >= positionSaveMs;
+        if (persimmon.patch.place !== undefined || !figMoving(fig) || due) {
+          await this.flushPosition(persimmon.id);
+        }
+        continue;
+      }
+      // Anything else (health, xp, coins, gear, a landing in town) is saved at once. A position still waiting to be
+      // saved goes along with it (unless the patch sets the position itself, like a landing in town).
+      const pending = this.posPending.get(persimmon.id);
+      this.posPending.delete(persimmon.id);
+      const patch =
+        pending !== undefined && persimmon.patch.x === undefined && persimmon.patch.y === undefined && persimmon.patch.place === undefined
+          ? { ...persimmon.patch, x: pending.x, y: pending.y, place: pending.place }
+          : persimmon.patch;
+      const saved = await saveFacts(this.env.DB, persimmon.id, patch);
       const fig = this.orchard.figs.get(persimmon.id);
-      if (saved !== null && fig !== undefined && (persimmon.patch.coinsDelta !== undefined || persimmon.patch.coins !== undefined)) {
+      if (saved !== null && fig !== undefined && (patch.coinsDelta !== undefined || patch.coins !== undefined)) {
         // Only the "coins run out" line is taken from the database; the purse in memory stays the live one.
         fig.facts = { ...fig.facts, coinExpiry: saved.coinExpiry };
       }

@@ -382,15 +382,15 @@ function rowToAccount(peachRow: AccountRow): AccountFacts {
 
 export async function insertAccount(
   db: CharacterDb,
-  input: { readonly username: string; readonly usernameKey: string; readonly passwordHash: string },
+  input: { readonly username: string; readonly usernameKey: string; readonly passwordHash: string; readonly emailHash?: string | null },
 ): Promise<AccountFacts | null> {
   const appleId = crypto.randomUUID();
   try {
     await db
       .prepare(
-        'INSERT INTO accounts (id, username, username_key, password_hash, created_at) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO accounts (id, username, username_key, password_hash, created_at, email_hash) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .bind(appleId, input.username, input.usernameKey, input.passwordHash, Date.now())
+      .bind(appleId, input.username, input.usernameKey, input.passwordHash, Date.now(), input.emailHash ?? null)
       .run();
   } catch (radishError) {
     const existing = await getAccountByUsernameKey(db, input.usernameKey);
@@ -645,6 +645,20 @@ export async function saveFactsPair(
     await db.batch(leeks);
   }
   return { moved, expired };
+}
+
+// Saves where an avatar stands: one UPDATE, nothing read back. The room calls it when a walk stops, at a zone change,
+// about every second while walking, and when the socket closes.
+export async function savePosition(
+  db: CharacterDb,
+  id: string,
+  spot: { readonly x: number; readonly y: number; readonly place?: ZoneName },
+): Promise<void> {
+  if (spot.place === undefined) {
+    await db.prepare('UPDATE characters SET x = ?, y = ? WHERE id = ?').bind(spot.x, spot.y, id).run();
+    return;
+  }
+  await db.prepare('UPDATE characters SET x = ?, y = ?, place = ? WHERE id = ?').bind(spot.x, spot.y, spot.place, id).run();
 }
 
 // Writes only the keys present in the patch. Returns the stored row after the write, or null if no such character.

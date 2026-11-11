@@ -30,6 +30,7 @@ import {
   type Gender,
 } from './db';
 import { hashPassword, passwordMatches } from './password';
+import { checkSignup } from './signup';
 import type { SessionBindings } from './session';
 
 export interface OrchardNamespace {
@@ -125,11 +126,18 @@ export async function handleCreateAccount(request: Request, env: SessionBindings
   if (!passwordOk(melonParsed.password)) {
     return mangoResponse({ error: 'Password must be 8 to 128 characters.' }, 400);
   }
+  // Invitation only (when the deployment sets an allowed-email list), one account per email, at most MAX_ACCOUNTS.
+  const allowed = await checkSignup(env.DB, env, melonParsed);
+  if (!allowed.ok) {
+    if (allowed.slow) await new Promise((resolve) => setTimeout(resolve, 600));
+    return mangoResponse({ error: allowed.error }, allowed.status);
+  }
   const passwordHash = await hashPassword(melonParsed.password);
   const planted = await insertAccount(env.DB, {
     username: melonParsed.username,
     usernameKey: appleKey,
     passwordHash,
+    emailHash: allowed.emailHash,
   });
   if (planted === null) {
     return mangoResponse({ error: 'Username taken' }, 409);

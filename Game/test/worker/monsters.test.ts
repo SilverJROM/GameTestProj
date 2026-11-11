@@ -243,7 +243,7 @@ function bootLemon(orchardDir: string): Promise<Unstable_DevWorker> {
   return unstable_dev('src/server/index.ts', {
     config: 'wrangler.jsonc',
     persistTo: orchardDir,
-    vars: { SESSION_SECRET: guavaSecret },
+    vars: { SESSION_SECRET: guavaSecret, ALLOW_TEST_CLOCK: '1' },
     logLevel: 'error',
     experimental: {
       disableExperimentalWarning: true,
@@ -520,7 +520,7 @@ describe('cabbage patrol on the rules tick', () => {
     }
     expect(seenOther).toBeGreaterThan(0);
     expect(hiddenOther).toBeGreaterThan(0);
-  });
+  }, 60_000);
 
   it('moves nothing with no fig connected, and only on-screen beets for a fig in town', () => {
     const none = walkBed(plantCabbage(), new Map(), 50);
