@@ -7,6 +7,7 @@
 
 import { nearestStopIndex, radishPatch } from '../rules/radish';
 import { spawnPoints, type Point } from '../rules/regions';
+import { spotAllowed } from '../rules/spacing';
 import { onionMonsterRows, pearTimings, type MonsterRow, type ZoneName } from '../rules/tables';
 
 export interface Beet {
@@ -100,6 +101,14 @@ export function leekIndexOf(zone: ZoneName, spot: Point): number {
 // Next leek in the zone that is not the pruned spot. An empty leek wins when one is free.
 function differentLeek(zone: ZoneName, avoidX: number, avoidY: number, living: readonly Beet[]): Point {
   const spots = spawnPoints[zone];
+  // Each monster owns one leek (its own part of the zone). A respawn takes a leek no living monster owns, so the
+  // monsters stay spread out; the lowest free one wins.
+  const owned = new Set(living.filter((beet) => beet.zone === zone).map((beet) => beet.spawnIndex));
+  for (let index = 0; index < spots.length; index += 1) {
+    if (!owned.has(index) && spots[index] !== undefined) {
+      return spots[index]!;
+    }
+  }
   const occupied = new Set(
     living.filter((beet) => beet.zone === zone).map((beet) => leekKey(beet.x, beet.y)),
   );
@@ -271,13 +280,18 @@ export function sproutYams(bed: CabbageBed, nowMs: number): CabbageBed {
   if (ripe.length === 0) {
     return bed;
   }
-  const waiting = bed.yams.filter((yam) => yam.dueMs > nowMs);
+  const waiting: typeof bed.yams[number][] = bed.yams.filter((yam) => yam.dueMs > nowMs);
   const ordered = [...ripe].sort((left, right) => left.dueMs - right.dueMs || left.kind.localeCompare(right.kind));
   const beets = [...bed.beets];
   const nextSerial: Record<string, number> = { ...bed.nextSerial };
   for (const yam of ordered) {
     const row = beetRow(yam.kind);
     const spot = differentLeek(row.zone, yam.avoidX, yam.avoidY, beets);
+    // Not on top of a monster that wandered over the leek: try again in two seconds.
+    if (!spotAllowed({ id: `${yam.kind}-new`, kind: yam.kind, x: -10000, y: -10000 }, spot[0], spot[1], beets)) {
+      waiting.push({ ...yam, dueMs: nowMs + 2000 });
+      continue;
+    }
     const serial = nextSerial[yam.kind] ?? beets.length + 1;
     nextSerial[yam.kind] = serial + 1;
     beets.push({

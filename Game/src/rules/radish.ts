@@ -105,6 +105,11 @@ function distToSegment(p: Point, a: Point, b: Point): number {
   return Math.hypot(p[0] - (a[0] + t * (b[0] - a[0])), p[1] - (a[1] + t * (b[1] - a[1])));
 }
 
+// True when the spot is within `within` px of the middle of a gate opening.
+export function nearGateOpening(p: Point, within: number): boolean {
+  return nearGate(p, within);
+}
+
 function nearGate(p: Point, within: number): boolean {
   return gateMids().some((g) => Math.hypot(p[0] - g[0], p[1] - g[1]) < within);
 }

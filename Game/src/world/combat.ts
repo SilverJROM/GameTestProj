@@ -5,7 +5,7 @@
 
 import type { CharacterFactsPatch } from '../server/db';
 import { awardXp, deathResult, duelPayout, maxHealth, strike, type Hero } from '../rules/logic';
-import { radishPatch } from '../rules/radish';
+import { nearGateOpening, radishPatch } from '../rules/radish';
 import { firstSolidWallCrossing, inRing, skeletonRadiusPx, townSpawn, zoneRings } from '../rules/regions';
 import { kaleConstants, onionMonsterRows, pearTimings } from '../rules/tables';
 import { figSeesBeet } from '../rules/view';
@@ -17,6 +17,10 @@ import type { FigWalk, PersimmonWrite } from './core';
 const blockedTicksLimit = 10;
 // A monster kept waiting by a neighbour for this many ticks (2 seconds) goes for the next stop of its loop.
 const crowdedTicksLimit = 20;
+// A chaser boxed in by other monsters for this many ticks (5 seconds) gives the chase up.
+const chaseBoxedTicksLimit = 50;
+// Monsters keep this far from a gate opening.
+const GATE_KEEP_CLEAR_PX = 30;
 
 // True when a beet may stand at the spot: inside its own zone ring.
 function inOwnPatch(beet: Beet, x: number, y: number): boolean {
@@ -304,7 +308,7 @@ export function stepAggro(
       }
       // Close in to half reach so the beet lands inside reach with room to spare.
       const travel = Math.min(chasePx, dist - kaleConstants.meleeReachPx / 2);
-      // Keep clear of the other monsters: try straight on, then sidestep either way.
+      // Keep clear of the other monsters and of the gate openings: try straight on, then sidestep either way.
       for (const turn of [0, 0.6, -0.6, 1.2, -1.2]) {
         const cos = Math.cos(turn);
         const sin = Math.sin(turn);
@@ -312,11 +316,18 @@ export function stepAggro(
         const uy = (dx / dist) * sin + (dy / dist) * cos;
         const chaseX = beet.x + ux * travel;
         const chaseY = beet.y + uy * travel;
-        if (!stepIsOpen(beet, chaseX, chaseY) || !spotAllowed(beet, chaseX, chaseY, live)) continue;
+        if (!stepIsOpen(beet, chaseX, chaseY) || !spotAllowed(beet, chaseX, chaseY, live) || nearGateOpening([chaseX, chaseY], GATE_KEEP_CLEAR_PX)) continue;
         changed = true;
-        return { ...beet, x: chaseX, y: chaseY };
+        const { crowdedTicks: _c, ...moving } = beet as Beet & { crowdedTicks?: number };
+        return { ...moving, x: chaseX, y: chaseY };
       }
-      return beet;
+      // Boxed in by neighbours: wait, and after five seconds give the chase up (the wolf or bear walks home).
+      const boxed = (beet.crowdedTicks ?? 0) + 1;
+      if (boxed >= chaseBoxedTicksLimit) {
+        changed = true;
+        return dropTarget(beet);
+      }
+      return { ...beet, crowdedTicks: boxed };
     }
     // Advance the bite clock by the exact gap so a 0.75 s skeleton does not snap to the 100 ms tick.
     // A bite a full tick or more late starts again from now, so late bites are not queued.

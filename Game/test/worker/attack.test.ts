@@ -367,7 +367,8 @@ describe('lemon room attack', () => {
     heard = await broadcastMango(fernJoin.socket, basilJoin.socket, { type: 'ripen', steps: 1 });
     const wolves = heard.senderSnap.snapshot.monsters.filter((beet) => beet.kind === 'wolf');
     expect(wolves).toHaveLength(7);
-    expect(wolves.some((beet) => beet.x === wolf.x && beet.y === wolf.y)).toBe(false);
+    // The newcomer stands on a free leek of its own: seven wolves, all in different places.
+    expect(new Set(wolves.map((beet) => `${Math.round(beet.x)},${Math.round(beet.y)}`)).size).toBe(7);
     const living = JSON.stringify(heard.senderSnap.snapshot.monsters);
 
     const closed = Promise.all(

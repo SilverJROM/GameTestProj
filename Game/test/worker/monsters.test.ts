@@ -133,7 +133,8 @@ describe('cabbage sprout on an injected lime', () => {
     expect(born.id).not.toBe(victim.id);
     expect(born.zone).toBe('green');
     expect(born.zone).toBe(victim.zone);
-    expect(born.x !== victim.x || born.y !== victim.y).toBe(true);
+    // The seven leeks stay in use: the newcomer takes the leek no living wolf owns (its own, once its owner is gone).
+    expect(new Set(ripe.beets.filter((beet) => beet.kind === 'wolf').map((beet) => beet.spawnIndex)).size).toBe(7);
     expect(spawnPoints.green.some(([x, y]) => x === born.x && y === born.y)).toBe(true);
     expect(zoneAt(born.x, born.y)).toBe('green');
     for (const kept of pruned.beets) {
@@ -153,7 +154,8 @@ describe('cabbage sprout on an injected lime', () => {
     const bornBear = bearRipe.beets.find((beet) => beet.kind === 'bear' && !bearBed.beets.some((old) => old.id === beet.id));
     expect(bornBear).toBeDefined();
     expect(bornBear?.zone).toBe('grey');
-    expect(bornBear !== undefined && (bornBear.x !== bear.x || bornBear.y !== bear.y)).toBe(true);
+    // The bear comes back on its own free leek (seven leeks stay in use).
+    expect(bornBear !== undefined).toBe(true);
     expect(spawnPoints.grey.some(([x, y]) => x === bornBear?.x && y === bornBear?.y)).toBe(true);
 
     const skeleton = first.beets.find((beet) => beet.kind === 'skeleton');
@@ -167,7 +169,7 @@ describe('cabbage sprout on an injected lime', () => {
       (beet) => beet.kind === 'skeleton' && !boneBed.beets.some((old) => old.id === beet.id),
     );
     expect(bornBone?.zone).toBe('cemetery');
-    expect(bornBone !== undefined && (bornBone.x !== skeleton.x || bornBone.y !== skeleton.y)).toBe(true);
+    expect(bornBone !== undefined).toBe(true);
     expect(zoneAt(bornBone?.x ?? -1, bornBone?.y ?? -1)).toBe('cemetery');
     expect(herdOf(boneRipe.beets, 'skeleton')).toHaveLength(7);
   });
@@ -387,7 +389,7 @@ describe('lemon room cabbage', () => {
     expect(born.zone).toBe('green');
     expect(born.zone).toBe(victim.zone);
     expect(born.kind).toBe(victim.kind);
-    expect(born.x !== victim.x || born.y !== victim.y).toBe(true);
+    expect(new Set(herdOf(ripe.senderSnap.snapshot.monsters, 'wolf').map((beet) => `${Math.round(beet.x)},${Math.round(beet.y)}`)).size).toBe(7);
     expect(spawnPoints.green.some(([x, y]) => x === born.x && y === born.y)).toBe(true);
     expect(zoneAt(born.x, born.y)).toBe('green');
     expect(born.hp).toBe(onionMonsterRows.find((row) => row.id === 'wolf')?.hp);

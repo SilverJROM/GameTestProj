@@ -15,7 +15,7 @@ import {
 } from './regions';
 
 // How far a corner node sits off the wall.
-export const ROUTE_PAD_PX = 7;
+export const ROUTE_PAD_PX = 5;
 // A node closer than this to any wall is dropped.
 const MIN_CLEARANCE_PX = 3;
 
@@ -28,8 +28,30 @@ function onMap(p: Point): boolean {
   return p[0] >= 0 && p[1] >= 0 && p[0] < MAP_WIDTH && p[1] < MAP_HEIGHT && zoneAt(p[0], p[1]) !== null;
 }
 
+// Every wall corner (the ends of the solid segments).
+const wallCorners: readonly Point[] = (() => {
+  const seen = new Map<string, Point>();
+  for (const [a, b] of guavaSolidWalls) {
+    seen.set(`${a[0]},${a[1]}`, a);
+    seen.set(`${b[0]},${b[1]}`, b);
+  }
+  return [...seen.values()];
+})();
+
+// Closest the leg may pass a wall corner (a leg that grazes a corner makes the walker slide on it).
+const CORNER_CLEARANCE_PX = 1.5;
+
+// A leg is clear when it crosses no solid wall and does not graze a wall corner. A corner right at either end of the
+// leg does not count (the leg starts or ends beside it).
 function clear(a: Point, b: Point): boolean {
-  return firstSolidWallCrossing(a, b) === null;
+  if (firstSolidWallCrossing(a, b) !== null) return false;
+  const len2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2;
+  for (const c of wallCorners) {
+    if (Math.hypot(c[0] - a[0], c[1] - a[1]) < 2 * CORNER_CLEARANCE_PX || Math.hypot(c[0] - b[0], c[1] - b[1]) < 2 * CORNER_CLEARANCE_PX) continue;
+    const t = len2 < 1e-9 ? 0 : Math.max(0, Math.min(1, ((c[0] - a[0]) * (b[0] - a[0]) + (c[1] - a[1]) * (b[1] - a[1])) / len2));
+    if (Math.hypot(a[0] + t * (b[0] - a[0]) - c[0], a[1] + t * (b[1] - a[1]) - c[1]) < CORNER_CLEARANCE_PX) return false;
+  }
+  return true;
 }
 
 function dist(a: Point, b: Point): number {

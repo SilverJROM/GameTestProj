@@ -621,6 +621,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
     }
     this.cabbage = plantCabbage();
     await this.storeCabbage();
+    await this.ctx.storage.put(monsterLayoutKey, MONSTER_LAYOUT);
   }
 
   // Drops the monster bed, ground coins, pending digs, and any pear keyed to an old fig, then plants a fresh bed.
