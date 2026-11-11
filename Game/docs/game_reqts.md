@@ -73,18 +73,20 @@ The level cap is 6. Experience to the next level is spent when the bar is reache
 
 | Level | Base HP | Strike | Experience to next |
 | --- | --- | --- | --- |
-| 1 | 70 | 4 | 200 |
-| 2 | 80 | 5 | 400 |
+| 1 | 70 | 4 | 24 |
+| 2 | 80 | 5 | 50 |
 | 3 | 92 | 6 | 900 |
 | 4 | 106 | 8 | 2,200 |
 | 5 | 122 | 10 | 4,400 |
 | 6 | 140 | 12 | — |
 
-Total experience from level 1 to level 6 is 8,100. The ladder takes hours of play (plan 10; it was 115). Avatars saved under the old ladder keep the experience they had earned and their level is recalculated on this ladder; strike and maximum health follow it, and coins, gear and place are kept.
+Total experience from level 1 to level 6 is 7,574. The first two levels are quick (12 wolves, then 25 wolves) and the rest takes hours of play (plans 10 and 12; the whole ladder was 115). Avatars saved under an older ladder keep the experience they had earned and their level is recalculated on this ladder (migrations 0007 and 0008); strike and maximum health follow it, and coins, gear and place are kept.
 
 Maximum health is base HP plus the worn armor's HP. Current health never sits above that maximum. A new character is at maximum. On level-up, current health increases by the base HP that was gained, then clamps to the new maximum.
 
 The screen shows current and maximum health as a bar and the numbers, for example `54 / 70`. It does not use the word Health. The bar sits at the top left of the window and stays there when the camera moves. The back of the bar is `#5a0d0d` and the fill is `#ff2a2a`. The numbers come from that character's current health and maximum health.
+
+When an avatar's level rises, a bright burst of light and sparkles surround it and a "Level N" plate rises over its head for about 3 seconds, then fades (only the player who levelled up sees it). Monsters keep one body size in every pose: a picture is scaled by its kind's stand picture, so a bear that rears up to swipe is drawn taller, not shrunk.
 
 A hit shows a number at the target for about one second. Damage on a monster is white. Damage on a player is red. Each hit is shown once.
 

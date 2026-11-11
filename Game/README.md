@@ -64,7 +64,8 @@ It takes effect on the next request. (`MAX_ACCOUNTS` is a secret so that it can 
 
 ### Progress and money
 
-- Levels 1 to 6; experience comes only from monsters, and the ladder takes hours (200, 400, 900, 2,200, 4,400 xp per level). Max health is the level's base plus your armor; strike is the level's base plus your sword. Armor does not reduce damage.
+- Levels 1 to 6; experience comes only from monsters, and the first two levels are quick (24 and 50 xp: 12 and 25 wolves) while the rest takes hours (900, 2,200, 4,400 xp per level). Max health is the level's base plus your armor; strike is the level's base plus your sword. Armor does not reduce damage.
+- Levelling up shows a bright glow and a rising "Level N" plate over your avatar.
 - A kill drops a coin; your axolotl pet fetches it (a short pickup) and the coin is added to your purse.
 - Forge: short sword 900, long sword 2,000, great sword 3,500 (more strike); leather 800, chain 1,800, plate 3,200 (more max health).
 - Coins expire 7 days after you get them (spent oldest first). The Bag warns two days ahead.

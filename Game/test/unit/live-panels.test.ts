@@ -469,7 +469,7 @@ describe('live bag and blacksmith panels', () => {
 
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(false);
-    expect(xp.textContent).toBe('0 / 200');
+    expect(xp.textContent).toBe('0 / 24');
     expect(coins.textContent).toBe('Coins: 0');
     expect(fieldText(sword, 'name')).toBe('Nothing worn');
     expect((elements.get('olive-fig') as FakeEl).src).toBe('/avatars/warrior-f/stand.png');
@@ -477,7 +477,7 @@ describe('live bag and blacksmith panels', () => {
     deliver(figSnapshot(rich));
 
     expect(sheet.hidden).toBe(false);
-    expect(xp.textContent).toBe('2 / 200');
+    expect(xp.textContent).toBe('2 / 24');
     expect(coins.textContent).toBe('Coins: 5000');
     const xpWrites = xp.writes;
     const coinWrites = coins.writes;
@@ -486,10 +486,10 @@ describe('live bag and blacksmith panels', () => {
     expect(xp.writes).toBe(xpWrites);
     expect(coins.writes).toBe(coinWrites);
     expect(sword.writes).toBe(swordWrites);
-    expect(xp.textContent).toBe('2 / 200');
+    expect(xp.textContent).toBe('2 / 24');
 
     const lv = painted.filter((mark) => mark.text === 'Lv 1');
-    const xpLine = painted.filter((mark) => mark.text === 'XP 2 / 200');
+    const xpLine = painted.filter((mark) => mark.text === 'XP 2 / 24');
     const coinLine = painted.filter((mark) => mark.text === 'Coins 5000');
     expect(lv.length).toBeGreaterThan(0);
     expect(xpLine.length).toBeGreaterThan(0);
@@ -601,17 +601,17 @@ describe('live bag and blacksmith panels', () => {
 
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(false);
-    expect(xp.textContent).toBe('2 / 200');
+    expect(xp.textContent).toBe('2 / 24');
     expect(coins.textContent).toBe('Coins: 5000');
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(true);
     deliver(figSnapshot({ ...rich, xp: 9, coins: 1 }));
-    expect(xp.textContent).toBe('2 / 200');
+    expect(xp.textContent).toBe('2 / 24');
     expect(coins.textContent).toBe('Coins: 5000');
 
     press(canvas, bag!.x + 4, bag!.y + 4);
     expect(sheet.hidden).toBe(false);
-    expect(xp.textContent).toBe('9 / 200');
+    expect(xp.textContent).toBe('9 / 24');
     expect(coins.textContent).toBe('Coins: 1');
     click(oliveClose);
     expect(sheet.hidden).toBe(true);

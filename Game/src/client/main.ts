@@ -64,6 +64,9 @@ import {
   paintFigRim,
   paintGraves,
   paintFountainGlow,
+  paintLevelUp,
+  LEVEL_UP_MS,
+  type LevelUpCtx,
   paintRespawnGlow,
   type DotsCtx,
   type GlowCtx,
@@ -190,6 +193,10 @@ export interface FigBoard {
   paintRespawnGlow(ctx: GlowCtx, view: PeachView, nowMs: number): void;
   // The light green glow on the town fountain; drawn only while this player is in town.
   paintFountainGlow(ctx: GlowCtx, view: PeachView, nowMs: number): void;
+  // The level-up burst and the rising "Level N" plate over this player's head (about 3 seconds after a level rises).
+  paintLevelUp(ctx: LevelUpCtx, view: PeachView, nowMs: number): void;
+  // True while the level-up effect is still showing (tests and the frame loop use it to keep painting).
+  levelUpShowing(nowMs: number): boolean;
   // The death panel was dismissed (the player chose to respawn): the camera returns to the avatar.
   endDeath(): void;
   // Stops the lemon from sprouting again, then closes it so the fig leaves the world.
@@ -245,6 +252,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   let selfHp = 0;
   let selfMaxHp = 1;
   let selfLevel = 1;
+  let levelKnown = false;
+  let levelUp: { level: number; at: number } | null = null;
   let selfXp = 0;
   let selfCoins = 0;
   let selfSword: string | null = null;
@@ -296,7 +305,12 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     }
     if (typeof fig.hp === 'number') selfHp = fig.hp;
     if (typeof fig.maxHp === 'number') selfMaxHp = fig.maxHp;
-    if (typeof fig.level === 'number') selfLevel = fig.level;
+    if (typeof fig.level === 'number') {
+      // A rise in the level after the first picture is a level up: start the glow and the rising plate.
+      if (levelKnown && fig.level > selfLevel) levelUp = { level: fig.level, at: Date.now() };
+      levelKnown = true;
+      selfLevel = fig.level;
+    }
     if (typeof fig.xp === 'number') selfXp = fig.xp;
     if (typeof fig.coins === 'number') selfCoins = fig.coins;
     if (typeof fig.sword === 'string' || fig.sword === null) selfSword = fig.sword as string | null;
@@ -761,6 +775,23 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
   // Where the avatar came back in town (for the respawn glow), and when.
   let respawnGlow: { x: number; y: number; at: number } | null = null;
 
+  function paintLevelUpOn(ctx: LevelUpCtx, view: PeachView, nowMs: number): void {
+    if (levelUp === null) return;
+    const self = orchard.players.find((fig) => fig.id === selfId);
+    const feet = self === undefined ? undefined : citrusShown.get(citrusKey('player', self.id));
+    const spot = townSpawn;
+    const x = feet?.x ?? self?.x ?? spot[0];
+    const y = feet?.y ?? self?.y ?? spot[1];
+    const screen = mapToCanvas(view, x, y);
+    if (!paintLevelUp(ctx, levelUp.level, levelUp.at, screen, view.scale, nowMs)) {
+      if (nowMs - levelUp.at >= LEVEL_UP_MS) levelUp = null;
+    }
+  }
+
+  function levelUpShowing(nowMs: number): boolean {
+    return levelUp !== null && nowMs - levelUp.at < LEVEL_UP_MS;
+  }
+
   function paintFountainGlowOn(ctx: GlowCtx, view: PeachView, nowMs: number): void {
     if (selfPlace === 'town') paintFountainGlow(ctx, view, nowMs);
   }
@@ -957,6 +988,8 @@ export function plantFigBoard(options: PlantOptions): FigBoard {
     paintGraves: paintGravesOn,
     paintRespawnGlow: paintRespawnGlowOn,
     paintFountainGlow: paintFountainGlowOn,
+    paintLevelUp: paintLevelUpOn,
+    levelUpShowing,
     haltLemon,
     get smithOpen() {
       return quinceOpen;
@@ -1525,6 +1558,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
       board.paintFountainGlow(screen as unknown as GlowCtx, view, nowMs);
       board.paintRespawnGlow(screen as unknown as GlowCtx, view, nowMs);
       board.paintDuelWaiting(screen as unknown as DotsCtx, view, nowMs);
+      if (typeof screen.fillText === 'function') board.paintLevelUp(screen as unknown as LevelUpCtx, view, nowMs);
     }
     if (typeof screen.fillRect === 'function' && typeof screen.fillText === 'function') {
       paintHealth(screen, board.health());

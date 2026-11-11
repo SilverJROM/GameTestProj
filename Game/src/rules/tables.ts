@@ -38,10 +38,10 @@ export interface MonsterRow {
 // Highest level a character can reach.
 export const LEVEL_CAP = 6;
 
-// Papaya ladder: the level rows. The five xpToNext costs sum to 8,100 (plan 10: hours of play, was 115).
+// Papaya ladder: the level rows. The five xpToNext costs sum to 7,574 (plans 10 and 12: hours of play, was 115; the first two levels are 12 and 25 wolves).
 export const papayaLevelRows: readonly LevelRow[] = [
-  { level: 1, baseHp: 70, strike: 4, xpToNext: 200 },
-  { level: 2, baseHp: 80, strike: 5, xpToNext: 400 },
+  { level: 1, baseHp: 70, strike: 4, xpToNext: 24 },
+  { level: 2, baseHp: 80, strike: 5, xpToNext: 50 },
   { level: 3, baseHp: 92, strike: 6, xpToNext: 900 },
   { level: 4, baseHp: 106, strike: 8, xpToNext: 2200 },
   { level: 5, baseHp: 122, strike: 10, xpToNext: 4400 },

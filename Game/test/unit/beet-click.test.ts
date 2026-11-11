@@ -72,7 +72,8 @@ describe('beet sprite rectangle', () => {
 
     rememberGuavaPixels('/avatars/wolf/ripe.png', 200, 100);
     const ripe = beetSpriteRect(0, 50, 'wolf', '/avatars/wolf/ripe.png');
-    expect(ripe.pictureWidth).toBe(scaledSize(200, 100, 'wolf').width);
+    // Scaled with the wolf's stand picture (496 px tall), so a pose keeps the body size.
+    expect(ripe.pictureWidth).toBe(Math.round((200 * scaleFor('wolf')) / 496));
     expect(ripe.pictureWidth).not.toBe(beetSpriteRect(0, 50, 'wolf').pictureWidth);
   });
 
@@ -99,7 +100,11 @@ describe('beet sprite rectangle', () => {
     expect(bite?.src).toBe('/avatars/wolf/bite.png');
     const biteBox = beetSpriteRect(bite!.x, bite!.y, 'wolf', bite!.src);
     expect(bite!.width).toBe(biteBox.pictureWidth);
-    expect(biteBox.pictureWidth).toBeGreaterThan(beetSpriteRect(bite!.x, bite!.y, 'wolf').pictureWidth);
+    // The bite picture is 423 px tall against 496 standing: same body scale, so it is drawn shorter and no wider.
+    expect(biteBox.pictureHeight).toBeLessThan(beetSpriteRect(bite!.x, bite!.y, 'wolf').pictureHeight);
+    // The bear's swipe rears up (633 px against 449 standing) and is drawn taller, at the same body size.
+    const swipeBox = beetSpriteRect(0, 100, 'bear', '/avatars/bear/swipe.png');
+    expect(swipeBox.pictureHeight).toBeGreaterThan(beetSpriteRect(0, 100, 'bear').pictureHeight);
   });
 });
 
@@ -148,18 +153,19 @@ describe('peelClick on the beet picture', () => {
   });
 
   it('uses the picture that is on screen when the still src is known', () => {
-    const stand = beetSpriteRect(100, 200, 'wolf');
-    const bite = beetSpriteRect(100, 200, 'wolf', '/avatars/wolf/bite.png');
-    const x = stand.x + stand.width + 1;
-    const y = 200 - 2;
-    expect(x).toBeLessThanOrEqual(bite.x + bite.width);
+    // The bear rears up to swipe, so the swipe picture reaches higher than the stand picture: a click above the standing
+    // bear's head hits only while the swipe is on screen.
+    const stand = beetSpriteRect(100, 200, 'bear');
+    const swipe = beetSpriteRect(100, 200, 'bear', '/avatars/bear/swipe.png');
+    const x = stand.x + stand.width / 2;
+    const y = 200 - 55;
     expect(melonHolds(stand, x, y)).toBe(false);
-    expect(melonHolds(bite, x, y)).toBe(true);
-    const standing = orchard([beet('beet-wolf', 'wolf', 100, 200)]);
-    const biting = orchard([beet('beet-wolf', 'wolf', 100, 200, '/avatars/wolf/bite.png')]);
+    expect(melonHolds(swipe, x, y)).toBe(true);
+    const standing = orchard([beet('beet-bear', 'bear', 100, 200)]);
+    const biting = orchard([beet('beet-bear', 'bear', 100, 200, '/avatars/bear/swipe.png')]);
     expect(peelClick({ x, y, button: 0 }, standing).message?.type).toBe('move');
     expect(peelClick({ x, y, button: 0 }, biting)).toEqual({
-      message: { type: 'attack', monsterId: 'beet-wolf', once: true, walk: true },
+      message: { type: 'attack', monsterId: 'beet-bear', once: true, walk: true },
       smithOpen: false,
     });
   });

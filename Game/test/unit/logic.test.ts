@@ -29,15 +29,15 @@ function makeHero(overrides: Partial<Hero> = {}): Hero {
 
 describe('award XP', () => {
   it('spends the bar and keeps the leftover', () => {
-    // Level 1 needs 200 XP. 212 XP raises the level and leaves 12 in the bar.
-    const apple = awardXp(makeHero(), 212);
+    // Level 1 needs 24 XP (12 wolves). 36 XP raises the level and leaves 12 in the bar.
+    const apple = awardXp(makeHero(), 36);
     expect(apple.level).toBe(2);
     expect(apple.xp).toBe(12);
   });
 
   it('carries leftover through more than one level in a single award', () => {
-    // 200 spends level 1's bar, 400 spends level 2's bar, and 1 is left for level 3.
-    const carrot = awardXp(makeHero(), 601);
+    // 24 spends level 1's bar, 50 spends level 2's bar, and 1 is left for level 3.
+    const carrot = awardXp(makeHero(), 75);
     expect(carrot.level).toBe(3);
     expect(carrot.xp).toBe(1);
   });
@@ -83,32 +83,32 @@ describe('max health, strike, and damage', () => {
 
 describe('level-up health', () => {
   it('full health 70/70 goes to 80/80 with no armor', () => {
-    const lemon = awardXp(makeHero({ health: 70 }), 200);
+    const lemon = awardXp(makeHero({ health: 70 }), 24);
     expect(lemon.level).toBe(2);
     expect(lemon.health).toBe(80);
     expect(maxHealth(lemon)).toBe(80);
   });
 
   it('full health 82/82 goes to 92/92 in leather', () => {
-    const melon = awardXp(makeHero({ health: 82, armor: 'leather' }), 200);
+    const melon = awardXp(makeHero({ health: 82, armor: 'leather' }), 24);
     expect(melon.health).toBe(92);
     expect(maxHealth(melon)).toBe(92);
   });
 
   it('full health 94/94 goes to 104/104 in chain', () => {
-    const kiwi = awardXp(makeHero({ health: 94, armor: 'chain' }), 200);
+    const kiwi = awardXp(makeHero({ health: 94, armor: 'chain' }), 24);
     expect(kiwi.health).toBe(104);
     expect(maxHealth(kiwi)).toBe(104);
   });
 
   it('full health 110/110 goes to 120/120 in plate', () => {
-    const banana = awardXp(makeHero({ health: 110, armor: 'plate' }), 200);
+    const banana = awardXp(makeHero({ health: 110, armor: 'plate' }), 24);
     expect(banana.health).toBe(120);
     expect(maxHealth(banana)).toBe(120);
   });
 
   it('a wounded hero at 10 goes to 20', () => {
-    const potato = awardXp(makeHero({ health: 10 }), 200);
+    const potato = awardXp(makeHero({ health: 10 }), 24);
     expect(potato.health).toBe(20);
     expect(maxHealth(potato)).toBe(80);
   });
@@ -122,7 +122,7 @@ describe('level-up health', () => {
 
   it('a two-level jump adds both base HP gains', () => {
     // Level 1 to 3 in plate: base 70 to 92 is a gain of 22, so 110/110 goes to 132/132.
-    const pepper = awardXp(makeHero({ health: 110, armor: 'plate' }), 600);
+    const pepper = awardXp(makeHero({ health: 110, armor: 'plate' }), 74);
     expect(pepper.level).toBe(3);
     expect(pepper.health).toBe(132);
     expect(maxHealth(pepper)).toBe(132);
@@ -138,7 +138,7 @@ describe('level-up health', () => {
   });
 });
 
-describe('five fights worth 40 xp at level 1', () => {
+describe('five fights worth 5 xp at level 1', () => {
   it('ends the fifth fight at 20/70 and enters level 2 at 30/80', () => {
     let hero = makeHero();
     expect(Math.ceil(20 / damage(hero))).toBe(5);
@@ -148,13 +148,13 @@ describe('five fights worth 40 xp at level 1', () => {
       if (wolf === 4) {
         beforeLastLevel = hero;
       }
-      hero = awardXp(hero, 40);
+      hero = awardXp(hero, 5);
     }
     expect(beforeLastLevel.level).toBe(1);
     expect(beforeLastLevel.health).toBe(20);
     expect(maxHealth(beforeLastLevel)).toBe(70);
     expect(hero.level).toBe(2);
-    expect(hero.xp).toBe(0);
+    expect(hero.xp).toBe(1);
     expect(hero.health).toBe(30);
     expect(maxHealth(hero)).toBe(80);
     expect(hero.health).toBeGreaterThanOrEqual(70 / 4);

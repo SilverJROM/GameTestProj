@@ -175,7 +175,7 @@ describe('health readout', () => {
 
 describe('hud readout', () => {
   it('formats a level 1 start, a mid level, and the level cap', () => {
-    expect(hudReadout({ level: 1, xp: 0, coins: 0 }).lines).toEqual(['Lv 1', 'XP 0 / 200', 'Coins 0']);
+    expect(hudReadout({ level: 1, xp: 0, coins: 0 }).lines).toEqual(['Lv 1', 'XP 0 / 24', 'Coins 0']);
     expect(hudReadout({ level: 3, xp: 7, coins: 12 }).lines).toEqual(['Lv 3', 'XP 7 / 900', 'Coins 12']);
     const cap = hudReadout({ level: 6, xp: 40, coins: 3 });
     expect(cap.lines).toEqual(['Lv 6', 'XP 40', 'Coins 3']);
@@ -198,14 +198,14 @@ describe('hud readout', () => {
     paintHud(ctx, row);
     expect(marks).toEqual([
       `Lv 1 ${row.x} ${row.y} 700 20px Georgia, serif #ffffff`,
-      `XP 0 / 200 ${row.x} ${row.y + row.lineGap} 700 20px Georgia, serif #ffffff`,
+      `XP 0 / 24 ${row.x} ${row.y + row.lineGap} 700 20px Georgia, serif #ffffff`,
       `Coins 0 ${row.x} ${row.y + row.lineGap * 2} 700 20px Georgia, serif #ffffff`,
     ]);
   });
 
   it('follows the latest snapshot on the board', () => {
     const { board } = openBoard();
-    expect(board.hud().lines).toEqual(['Lv 1', 'XP 0 / 200', 'Coins 0']);
+    expect(board.hud().lines).toEqual(['Lv 1', 'XP 0 / 24', 'Coins 0']);
     board.ingest({
       type: 'snapshot',
       character: { id: 'fig-self', place: 'town', gender: 'woman', level: 6, xp: 40, coins: 3, hp: 140, maxHp: 140 },
@@ -532,9 +532,11 @@ describe('world view', () => {
     expect(role(moving, 'monster', 'wolf').src).toBe('/avatars/wolf/step.png');
     expect(role(moving, 'monster', 'bear').src).toBe('/avatars/bear/charge.png');
     expect(role(moving, 'monster', 'skeleton').src).toBe('/avatars/skeleton/thrust.png');
-    expect(role(moving, 'monster', 'wolf').height).toBe(scaleFor('wolf'));
-    expect(role(moving, 'monster', 'bear').height).toBe(scaleFor('bear'));
-    expect(role(moving, 'monster', 'skeleton').height).toBe(scaleFor('skeleton'));
+    // One scale per kind, set by its stand picture (wolf 496, bear 449, skeleton 1641 px tall): the charging bear (384 px)
+    // is drawn shorter than standing and the thrusting skeleton (716 px) much shorter, not stretched to the stand height.
+    expect(role(moving, 'monster', 'wolf').height).toBe(Math.round((473 * scaleFor('wolf')) / 496));
+    expect(role(moving, 'monster', 'bear').height).toBe(Math.round((384 * scaleFor('bear')) / 449));
+    expect(role(moving, 'monster', 'skeleton').height).toBe(Math.round((716 * scaleFor('skeleton')) / 1641));
     for (const id of ['wolf', 'bear', 'skeleton'] as const) {
       const still = role(moving, 'monster', id);
       const box = beetSpriteRect(still.x, still.y, still.kind, still.src);
@@ -840,7 +842,7 @@ describe('blacksmith shop and inventory', () => {
       level: 2,
       health: '54 / 92',
       strike: 7,
-      experience: '4 / 400',
+      experience: '4 / 50',
       tiles: [],
       portrait: '/avatars/warrior-f/stand.png',
     });
@@ -857,7 +859,7 @@ describe('blacksmith shop and inventory', () => {
       level: 1,
       health: '70 / 70',
       strike: 4,
-      experience: '0 / 200',
+      experience: '0 / 24',
       tiles: [],
       portrait: '/avatars/warrior-f/stand.png',
     });

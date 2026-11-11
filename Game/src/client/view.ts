@@ -171,7 +171,16 @@ function beetPictureSize(kind: string, src?: string): { width: number; height: n
   const named = beetKindName(kind);
   const picture = src !== undefined && src.length > 0 ? src : beetStandSrc(named);
   const pixels = pixelsOf(picture);
-  if (pixels !== undefined) return scaledSize(pixels.width, pixels.height, named);
+  if (pixels !== undefined) {
+    // One scale per kind, set by the kind's stand picture, so a monster keeps its body size in every pose: a bear that
+    // rears up to swipe is drawn taller, not shrunk to the same height as when it stands (which made it look small).
+    const stand = pixelsOf(beetStandSrc(named));
+    if (stand !== undefined && stand.height > 0) {
+      const scale = scaleFor(named) / stand.height;
+      return { width: Math.max(1, Math.round(pixels.width * scale)), height: Math.max(1, Math.round(pixels.height * scale)) };
+    }
+    return scaledSize(pixels.width, pixels.height, named);
+  }
   const height = scaleFor(named);
   return { width: Math.max(1, Math.round(height * beetFallbackRatio(named))), height };
 }
@@ -1444,6 +1453,74 @@ export function paintFountainGlow(ctx: GlowCtx, view: PeachView, nowMs: number):
     ctx.fillStyle = 'rgba(150, 240, 175, 0.3)';
     ctx.fillRect(centre.x - radius / 2, centre.y - radius / 2, radius, radius);
   }
+}
+
+// Level up: a bright burst of light around the avatar and a "Level N" plate that rises from above its head, then fades.
+export const LEVEL_UP_MS = 3000;
+export interface LevelUpCtx extends GlowCtx {
+  font: string;
+  textAlign?: string;
+  fillText(text: string, x: number, y: number): void;
+}
+
+// feet is where the avatar stands on the canvas (already mapped), k the view scale. Returns whether it drew.
+export function paintLevelUp(ctx: LevelUpCtx, level: number, at: number, feet: { x: number; y: number }, k: number, nowMs: number): boolean {
+  const age = nowMs - at;
+  if (age < 0 || age >= LEVEL_UP_MS) return false;
+  const t = age / LEVEL_UP_MS;
+  const bodyY = feet.y - 30 * Math.max(0.6, k);
+  const kk = Math.max(0.6, k);
+  // Burst: grows quickly, then eases out and fades.
+  const burst = Math.min(1, age / 350);
+  const fade = 1 - Math.max(0, (t - 0.45) / 0.55);
+  const radius = (40 + 70 * burst + 10 * Math.sin(age / 120)) * kk;
+  if (typeof ctx.createRadialGradient === 'function') {
+    const gradient = ctx.createRadialGradient(feet.x, bodyY, 2, feet.x, bodyY, radius);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+    gradient.addColorStop(0.35, 'rgba(255, 236, 140, 0.6)');
+    gradient.addColorStop(1, 'rgba(255, 210, 80, 0)');
+    const before = ctx.globalAlpha ?? 1;
+    ctx.globalAlpha = before * Math.max(0, fade);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(feet.x - radius, bodyY - radius, radius * 2, radius * 2);
+    ctx.globalAlpha = before;
+  } else {
+    ctx.fillStyle = 'rgba(255, 240, 160, 0.5)';
+    ctx.fillRect(feet.x - radius / 2, bodyY - radius / 2, radius, radius);
+  }
+  // Sparkles rising around the body.
+  const beforeSpark = ctx.globalAlpha ?? 1;
+  ctx.globalAlpha = beforeSpark * Math.max(0, fade);
+  ctx.fillStyle = '#fff7c2';
+  for (let i = 0; i < 10; i += 1) {
+    const angle = (i / 10) * Math.PI * 2 + age / 700;
+    const rise = ((t * 1.4 + i / 10) % 1) * 70 * kk;
+    const sx = feet.x + Math.cos(angle) * (26 + (i % 3) * 8) * kk;
+    const sy = bodyY + 24 * kk - rise;
+    ctx.fillRect(sx - 2, sy - 2, 4, 4);
+  }
+  ctx.globalAlpha = beforeSpark;
+  // The plate: rises from over the head by about 22 map px and fades out in the last third.
+  const label = `Level ${level}`;
+  const riseY = (1 - Math.pow(1 - Math.min(1, t * 1.6), 3)) * 22 * kk;
+  const plateW = 120 * Math.max(0.9, kk * 0.8);
+  const plateH = 36 * Math.max(0.9, kk * 0.8);
+  const plateX = feet.x - plateW / 2;
+  const plateY = feet.y - 58 * kk - 20 - plateH - riseY;
+  const plateAlpha = Math.min(1, age / 250) * (t > 0.7 ? Math.max(0, (1 - t) / 0.3) : 1);
+  const before = ctx.globalAlpha ?? 1;
+  ctx.globalAlpha = before * plateAlpha;
+  ctx.fillStyle = '#e6b84a';
+  ctx.fillRect(plateX - 3, plateY - 3, plateW + 6, plateH + 6);
+  ctx.fillStyle = '#2a1d0c';
+  ctx.fillRect(plateX, plateY, plateW, plateH);
+  ctx.fillStyle = '#ffe58a';
+  ctx.font = `700 ${Math.round(plateH * 0.56)}px Georgia, serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(label, feet.x, plateY + plateH * 0.7);
+  ctx.textAlign = 'left';
+  ctx.globalAlpha = before;
+  return true;
 }
 
 // Three dots over a player's head while a duel request waits for an answer: a white bubble like the blacksmith's, with

@@ -10,16 +10,16 @@ Per-kill overhead not modelled by the fight sim: 5.25 s (rules coin pickup 2.25 
 
 | zone | level | sword | armor | max HP | strike | kills before first death (stand) | retreat: kills / deaths per 100 fights | coins per minute (retreat) |
 |---|---|---|---|---|---|---|---|---|
-| green (wolf) | 1 | - | - | 70 | 4 | 4.0 | 100 / 0.0 | 33.6 |
-| green (wolf) | 1 | shortSword | leather | 82 | 6 | 8.0 | 100 / 0.0 | 35.6 |
+| green (wolf) | 1 | - | - | 70 | 4 | 4.0 | 100 / 0.0 | 35.3 |
+| green (wolf) | 1 | shortSword | leather | 82 | 6 | 8.0 | 100 / 0.0 | 38.0 |
 | green (wolf) | 3 | - | - | 92 | 6 | 9.0 | 100 / 0.0 | 35.6 |
 | green (wolf) | 3 | shortSword | leather | 104 | 8 | 10.0 | 100 / 0.0 | 38.4 |
 | green (wolf) | 3 | longSword | chain | 116 | 10 | 23.0 | 100 / 0.0 | 41.0 |
 | green (wolf) | 5 | longSword | chain | 146 | 14 | 29.0 | 100 / 0.0 | 41.0 |
 | green (wolf) | 5 | greatSword | plate | 162 | 17 | 32.0 | 100 / 0.0 | 41.0 |
 | green (wolf) | 6 | greatSword | plate | 180 | 19 | 35.0 | 100 / 0.0 | 41.0 |
-| grey (bear) | 1 | - | - | 70 | 4 | 1.0 | 98 / 2.0 | 57.8 |
-| grey (bear) | 1 | shortSword | leather | 82 | 6 | 1.3 | 88 / 12.3 | 66.6 |
+| grey (bear) | 1 | - | - | 70 | 4 | 1.0 | 86 / 14.0 | 57.0 |
+| grey (bear) | 1 | shortSword | leather | 82 | 6 | 1.3 | 99 / 0.6 | 77.3 |
 | grey (bear) | 3 | - | - | 92 | 6 | 2.0 | 100 / 0.0 | 70.2 |
 | grey (bear) | 3 | shortSword | leather | 104 | 8 | 3.0 | 100 / 0.0 | 78.4 |
 | grey (bear) | 3 | longSword | chain | 116 | 10 | 4.0 | 100 / 0.0 | 83.9 |
@@ -41,7 +41,7 @@ Retreat strategy, 100 fights per seed, each build in a zone it can handle. Inclu
 
 | zone | build | coins per minute | minutes to afford short sword + leather (1700 coins) | minutes to afford great sword + plate (6700 coins) |
 |---|---|---|---|---|
-| green (wolf) | L1 -/- | 33.6 | 50.6 | 199.6 |
+| green (wolf) | L1 -/- | 35.3 | 48.2 | 189.8 |
 | green (wolf) | L3 shortSword/leather | 38.4 | 44.3 | 174.5 |
 | grey (bear) | L3 longSword/chain | 83.9 | 20.3 | 79.8 |
 | grey (bear) | L5 longSword/chain | 88.9 | 19.1 | 75.4 |
@@ -107,15 +107,15 @@ Greedy policy with the retreat strategy: hunt wolves below level 3, bears at lev
 
 | milestone | 0.00 s per kill | 5.25 s per kill | 15.00 s per kill |
 |---|---|---|---|
-| level 2 | 3.2 | 11.9 | 28.2 |
-| level 3 | 8.2 | 34.4 | 83.2 |
-| level 4 | 16.1 | 58.1 | 136.1 |
-| level 5 | 28.8 | 109.3 | 258.8 |
-| level 6 | 44.9 | 163.9 | 384.9 |
-| bought shortSword | 10.9 | 41.5 | 98.4 |
-| bought leather | 5.7 | 23.2 | 55.7 |
-| bought longSword | 24.0 | 87.9 | 206.5 |
-| bought chain | 17.7 | 64.1 | 150.2 |
-| bought greatSword | 39.5 | 143.3 | 336.2 |
-| bought plate | 31.7 | 118.6 | 280.0 |
+| level 2 | 0.4 | 1.4 | 3.4 |
+| level 3 | 1.0 | 4.2 | 10.3 |
+| level 4 | 10.5 | 29.5 | 64.8 |
+| level 5 | 23.9 | 81.4 | 188.2 |
+| level 6 | 40.6 | 136.6 | 314.8 |
+| bought shortSword | 9.6 | 26.5 | 57.8 |
+| bought leather | 4.6 | 13.6 | 30.4 |
+| bought longSword | 21.8 | 72.0 | 165.1 |
+| bought chain | 15.5 | 48.1 | 108.7 |
+| bought greatSword | 37.0 | 123.0 | 282.7 |
+| bought plate | 29.2 | 98.1 | 226.2 |
 

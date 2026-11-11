@@ -1,4 +1,5 @@
-// Migration 0007 recalculates existing avatars onto the hours-long ladder, keeping earned xp, coins and gear.
+// Migrations 0007 and 0008 recalculate existing avatars onto the current ladder, keeping earned xp, coins and gear.
+// An avatar saved on the original ladder (10, 15, 20, 30, 40) goes through both and must land where the TypeScript ladder says.
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
@@ -13,8 +14,10 @@ function run(level: number, xp: number, armor: string | null, hp: number) {
     `CREATE TABLE characters (id TEXT, level INTEGER, xp INTEGER, hp INTEGER, max_hp INTEGER, coins INTEGER, sword TEXT, armor TEXT, place TEXT)`,
   );
   db.prepare('INSERT INTO characters VALUES (?,?,?,?,?,?,?,?,?)').run('a', level, xp, hp, 999, 77, 'longSword', armor, 'green');
-  const sqlText = readFileSync(new URL('../../migrations/0007_ladder_hours.sql', import.meta.url), 'utf8');
-  for (const statement of migrationStatements(sqlText)) db.exec(statement);
+  for (const file of ['0007_ladder_hours.sql', '0008_ladder_quick_start.sql']) {
+    const sqlText = readFileSync(new URL(`../../migrations/${file}`, import.meta.url), 'utf8');
+    for (const statement of migrationStatements(sqlText)) db.exec(statement);
+  }
   return db.prepare('SELECT * FROM characters').get() as Record<string, number | string | null>;
 }
 
@@ -31,7 +34,7 @@ function expected(totalXp: number): { level: number; xp: number } {
   return { level, xp: level === 6 ? 0 : xp };
 }
 
-describe('migration 0007 ladder recalculation', () => {
+describe('migrations 0007 and 0008 ladder recalculation', () => {
   it('matches the TypeScript ladder for every old level and leftover', () => {
     for (let level = 1; level <= 6; level += 1) {
       const spent = OLD_COST.slice(0, level - 1).reduce((a, b) => a + b, 0);
@@ -47,10 +50,13 @@ describe('migration 0007 ladder recalculation', () => {
   it('keeps coins, gear and place; max health follows the new level and armor; hp clamps; dead stays dead', () => {
     const plate = mangoGearRows.find((g) => g.id === 'plate')!.amount;
     const worn = run(6, 0, 'plate', 500);
-    expect(worn).toMatchObject({ coins: 77, sword: 'longSword', armor: 'plate', place: 'green', level: 1, xp: 115 });
-    expect(worn.max_hp).toBe(baseHp(1) + plate);
+    // 115 xp on the current ladder: 24 + 50 spent on levels 1 and 2, 41 left toward level 3.
+    expect(worn).toMatchObject({ coins: 77, sword: 'longSword', armor: 'plate', place: 'green', level: 3, xp: 41 });
+    expect(worn.max_hp).toBe(baseHp(3) + plate);
+    // Health was clamped to the level 1 maximum by 0007 and is not raised again.
     expect(worn.hp).toBe(baseHp(1) + plate);
     expect(run(3, 5, null, 0).hp).toBe(0);
     expect(run(1, 3, null, 40).hp).toBe(40);
+    expect(run(6, 0, null, 500).hp).toBe(baseHp(1));
   });
 });
