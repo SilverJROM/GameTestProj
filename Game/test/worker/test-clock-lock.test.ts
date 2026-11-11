@@ -143,4 +143,49 @@ describe('test clock lock', () => {
     expect(snap2.character.x).toBe(joined.welcome.character.x);
     expect(snap2.character.y).toBe(joined.welcome.character.y);
   }, 60_000);
+
+  it('the real-time tick still walks the fig and moves the monsters (in-memory timer, no alarm chain)', async () => {
+    const planted = await plantPlayingFig((p, init) => fetchWorker(p, init), 'Walker', 'woman');
+    const joined = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, planted.grape);
+    openSockets.push(joined.socket);
+    const startX = joined.welcome.character.x;
+    const startY = joined.welcome.character.y;
+    // Collect snapshots for a while after a walk order.
+    const seen: SnapshotMessage[] = [];
+    joined.socket.on('message', (data) => seen.push(JSON.parse(mangoText(data)) as SnapshotMessage));
+    joined.socket.send(JSON.stringify({ type: 'move', x: startX + 60, y: startY }));
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    const last = seen[seen.length - 1]!;
+    expect(seen.length).toBeGreaterThan(5);
+    expect(last.character.x).toBeGreaterThan(startX + 40);
+  }, 60_000);
+
+  it('saves the position when the walk stops, not on every tick, and when the socket closes', async () => {
+    const planted = await plantPlayingFig((p, init) => fetchWorker(p, init), 'Saver', 'woman');
+    const db = (proxy!.env as unknown as { DB: CharacterDb }).DB;
+    const joined = await connectFig(`ws://127.0.0.1:${worker!.port}/ws`, planted.grape);
+    const startX = joined.welcome.character.x;
+    const startY = joined.welcome.character.y;
+    // Count the position updates by watching the stored x over a long walk.
+    joined.socket.send(JSON.stringify({ type: 'move', x: startX + 200, y: startY }));
+    const values = new Set<number>();
+    for (let i = 0; i < 28; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const row = await getById(db, planted.facts.id);
+      values.add(Math.round(row!.x));
+    }
+    // 2.8 s of walking is about 28 ticks of 12 px; saves are about every 1.5 s, so only a few distinct stored values.
+    expect(values.size).toBeLessThanOrEqual(4);
+    // Arrived: the final spot is stored.
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(Math.round((await getById(db, planted.facts.id))!.x)).toBe(Math.round(startX + 200));
+    // A new short walk, then close the socket mid-walk: the last known spot is saved.
+    joined.socket.send(JSON.stringify({ type: 'move', x: startX + 40, y: startY }));
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    joined.socket.close();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    const closed = await getById(db, planted.facts.id);
+    expect(closed!.x).toBeLessThan(startX + 200);
+    expect(closed!.x).toBeGreaterThan(startX + 40);
+  }, 90_000);
 });

@@ -647,6 +647,20 @@ export async function saveFactsPair(
   return { moved, expired };
 }
 
+// Saves where an avatar stands: one UPDATE, nothing read back. The room calls it when a walk stops, at a zone change,
+// about every second while walking, and when the socket closes.
+export async function savePosition(
+  db: CharacterDb,
+  id: string,
+  spot: { readonly x: number; readonly y: number; readonly place?: ZoneName },
+): Promise<void> {
+  if (spot.place === undefined) {
+    await db.prepare('UPDATE characters SET x = ?, y = ? WHERE id = ?').bind(spot.x, spot.y, id).run();
+    return;
+  }
+  await db.prepare('UPDATE characters SET x = ?, y = ?, place = ? WHERE id = ?').bind(spot.x, spot.y, spot.place, id).run();
+}
+
 // Writes only the keys present in the patch. Returns the stored row after the write, or null if no such character.
 export async function saveFacts(
   db: CharacterDb,
