@@ -1293,6 +1293,27 @@ export function paintBeetRim(
   ctx.restore();
 }
 
+// The same white outline for the duel partner: around the drawn body (feet at the bottom middle), shown while the pointer
+// is over them once the duel has started.
+export function paintFigRim(ctx: RimCtx, feetX: number, feetY: number, view: PeachView): void {
+  const height = scaleFor('player');
+  const halfWidth = Math.ceil(height * 0.36);
+  const left = feetX - halfWidth;
+  const top = feetY - height;
+  const screen = mapToCanvas(view, left, top);
+  const width = halfWidth * 2 * view.scale;
+  const tall = height * view.scale;
+  const radius = Math.min(BEET_RIM_RADIUS, width / 2, tall / 2);
+  ctx.save();
+  ctx.strokeStyle = BEET_RIM_INK;
+  ctx.lineWidth = BEET_RIM_PX;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  traceMelonRound(ctx, screen.x, screen.y, width, tall, radius);
+  ctx.stroke();
+  ctx.restore();
+}
+
 // Paints the whole stack through the camera: one scale, map pixels in, canvas pixels out.
 // The caller clears the canvas. Each still keeps its head glow behind its own art (see blitGuava).
 export function paintStack(

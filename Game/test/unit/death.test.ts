@@ -143,7 +143,7 @@ describe('death panel and cross', () => {
     expect(draws).toHaveLength(1);
   });
 
-  it('in a duel a right click on the partner walks over and swings until one falls; a left click only walks', () => {
+  it('in a duel a right click on the partner walks over and swings until one falls; a left click swings once', () => {
     const orchard = {
       selfId: 'me',
       selfPlace: 'green' as const,
@@ -156,7 +156,9 @@ describe('death panel and cross', () => {
       monsters: [],
     };
     expect(peelClick({ x: 300, y: 270, button: 2 }, orchard).message).toEqual({ type: 'attack', playerId: 'foe', walk: true });
-    expect(peelClick({ x: 300, y: 270, button: 0 }, orchard).message).toEqual({ type: 'move', x: 300, y: 270 });
+    expect(peelClick({ x: 300, y: 270, button: 0 }, orchard).message).toEqual({ type: 'attack', playerId: 'foe', once: true, walk: true });
+    // A left click on someone who is not the partner only walks.
+    expect(peelClick({ x: 500, y: 270, button: 0 }, orchard).message).toEqual({ type: 'move', x: 500, y: 270 });
     // Someone who is not the partner gets the duel menu, even in the middle of a duel.
     expect(peelClick({ x: 500, y: 270, button: 2 }, orchard)).toEqual({ message: null, smithOpen: false, duelMenu: { playerId: 'other' } });
     // Without a duel the partner's spot is just another player.

@@ -78,12 +78,28 @@ try {
   await a.page.locator('#plum-accept').click();
   await sleep(900);
   await b.page.screenshot({ path: out + '/duel-accepted.png' });
-  // 5. LEFT click on the partner during the duel only walks (health unchanged); a RIGHT click attacks until dead.
-  const h0 = (await hp()).level;
-  await b.page.mouse.click(cx2, cy2);
-  await sleep(1200);
-  await b.page.mouse.click(cx2, cy2, { button: 'right' });
-  await sleep(6000);
+  // 5. Once paired: hover shows the white outline on the partner; a LEFT click walks over and swings ONCE; a RIGHT click
+  //    walks over and swings until dead.
+  const hpOf = (p) => p.st.msg.character.hp;
+  const before = hpOf(a);
+  const here2 = pos(b.st, slayer.id);
+  const cx3 = box.x + box.width / 2 + (pos(b.st, dyer.id).x - here2.x) * scale, cy3 = box.y + box.height / 2 + (pos(b.st, dyer.id).y - here2.y) * scale - 24 * scale;
+  await b.page.mouse.move(cx3, cy3);
+  await sleep(500);
+  await b.page.screenshot({ path: out + '/duel-hover-outline.png' });
+  console.log('cursor over the partner:', await b.page.evaluate(() => document.querySelector('#papaya-canvas').style.cursor));
+  await b.page.mouse.click(cx3, cy3);
+  await sleep(3500);
+  const afterOne = hpOf(a);
+  await sleep(2500);
+  const afterWait = hpOf(a);
+  console.log('Dyer hp before', before, 'after one left click', afterOne, 'later', afterWait, '(one swing only when equal and lower than before)');
+  const here3 = pos(b.st, slayer.id);
+  const cx4 = box.x + box.width / 2 + (pos(b.st, dyer.id).x - here3.x) * scale, cy4 = box.y + box.height / 2 + (pos(b.st, dyer.id).y - here3.y) * scale - 24 * scale;
+  await b.page.mouse.click(cx4, cy4, { button: 'right' });
+  const trail = [];
+  for (let i = 0; i < 14; i += 1) { await sleep(1000); trail.push(hpOf(a)); }
+  console.log('Dyer hp each second after the right click:', trail.join(','));
   const dead = await a.page.evaluate(() => !document.getElementById('death-panel').hidden);
   const winner = await b.page.evaluate(() => !document.getElementById('death-panel').hidden);
   console.log('killed player sees the death panel:', dead, '| winner sees it:', winner);

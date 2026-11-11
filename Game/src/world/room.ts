@@ -125,6 +125,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   private readonly chaseOnce = new Set<string>();
   // Figs walking to their duel partner to swing at them until one falls (a right click on the partner): fig id -> partner id.
   private readonly duelChases = new Map<string, string>();
+  private readonly duelChaseOnce = new Set<string>();
   private readonly chaseAims = new Map<string, { x: number; y: number }>();
   private swungFigs = new Set<string>();
   // Ticks a chasing fig has stood still out of reach. A chase that cannot get closer is given up.
@@ -824,12 +825,23 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
         this.stopChase(appleId);
         this.duelChases.delete(appleId);
         if (walk && duelPartnerOf(this.duelOrchard, appleId) === rivalId) {
-          // Right click on the duel partner: walk to them and keep swinging until one falls.
+          // Walk to the duel partner and swing: a right click keeps swinging until one falls, a left click (once) swings once.
           this.duelChases.set(appleId, rivalId);
+          if (once) this.duelChaseOnce.add(appleId);
+          else this.duelChaseOnce.delete(appleId);
           this.noteMelon();
         }
-        await this.onDuelSwing(appleId, fig, rivalId);
-        if (walk) this.aimAtRival(appleId, fig);
+        // A click that walks (left or right click on the partner) swings only once the fig stands in reach; a plain attack
+        // message (no walk) is the one-swing message the protocol always had.
+        const rivalFig = this.orchard.figs.get(rivalId);
+        const inReach = rivalFig !== undefined && Math.hypot(rivalFig.facts.x - fig.facts.x, rivalFig.facts.y - fig.facts.y) <= kaleConstants.meleeReachPx;
+        const landed = !walk || inReach ? await this.onDuelSwing(appleId, fig, rivalId) : false;
+        if (landed && once && walk) {
+          this.duelChases.delete(appleId);
+          this.duelChaseOnce.delete(appleId);
+        } else if (walk) {
+          this.aimAtRival(appleId, fig);
+        }
         await this.armOrchard(false);
       }
       return;
@@ -862,6 +874,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
 
   private stopChase(appleId: string): void {
     this.duelChases.delete(appleId);
+    this.duelChaseOnce.delete(appleId);
     this.chaseOnce.delete(appleId);
     this.chaseTargets.delete(appleId);
     this.chaseAims.delete(appleId);
@@ -1013,8 +1026,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
         }
         this.chaseAims.delete(appleId);
         fig.apricotFacing = rival.facts.x < fig.facts.x ? 'left' : 'right';
-        await this.onDuelSwing(appleId, fig, rivalId);
+        const landed = await this.onDuelSwing(appleId, fig, rivalId);
         changed = true;
+        if (landed && this.duelChaseOnce.has(appleId)) {
+          this.duelChases.delete(appleId);
+          this.duelChaseOnce.delete(appleId);
+        }
         continue;
       }
       this.aimAtRival(appleId, fig);
@@ -1024,11 +1041,12 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
   }
 
   // A duel swing shares the fig's one attack clock with monster swings.
-  private onDuelSwing(appleId: string, fig: FigWalk, rivalId: string): Promise<void> {
+  private onDuelSwing(appleId: string, fig: FigWalk, rivalId: string): Promise<boolean> {
     return this.serializeBag(() => this.doDuelSwing(appleId, fig, rivalId));
   }
 
-  private async doDuelSwing(appleId: string, fig: FigWalk, rivalId: string): Promise<void> {
+  // Returns whether the swing landed (the attack clock allowed it and the two are paired).
+  private async doDuelSwing(appleId: string, fig: FigWalk, rivalId: string): Promise<boolean> {
     sweepTownOffers(this.duelOrchard, this.orchard.figs);
     sweepTownPairs(this.duelOrchard, this.orchard.figs);
     let swing = this.swingClocks.get(appleId);
@@ -1082,6 +1100,7 @@ export class WorldRoom extends DurableObject<FigRoomEnv> {
       await this.persistPersimmons(hit.writes);
     }
     this.broadcastMango();
+    return hit.struck;
   }
 
   private async onPrune(beetId: string): Promise<void> {

@@ -1,6 +1,6 @@
 // One papaya click becomes one mango, or opens a panel and sends nothing.
-// Left click: on a monster, walk to it and swing once; on the fountain (in town) sip; on the forge (in town) open the
-// smith; anywhere else, including on another player, only walk.
+// Left click: on a monster, or on the duel partner once the duel has started, walk to it and swing once; on the fountain
+// (in town) sip; on the forge (in town) open the smith; anywhere else, including on a player who is not the partner, only walk.
 // Right click: on a monster, walk to it and keep swinging until it dies; on the duel partner, walk to them and keep
 // swinging until one falls; on any other player, open the duel menu (nothing is sent until the player picks Duel);
 // on the ground, nothing.
@@ -139,6 +139,11 @@ export function peelClick(click: ClickBerry, orchard: ClickOrchard): ClickPeel {
   }
   if (orchard.selfPlace === 'town' && hitForge(click.x, click.y)) {
     return { message: null, smithOpen: true };
+  }
+  // The duel partner is fought like a monster: a left click walks over and swings once.
+  const partner = orchard.duelPartnerId == null ? null : frontFig(click.x, click.y, others.filter((fig) => fig.id === orchard.duelPartnerId));
+  if (partner !== null) {
+    return { message: { type: 'attack', playerId: partner.id, once: true, walk: true }, smithOpen: false };
   }
   // Everything else, another player included, only walks: a fight with a player starts from a right click and a duel.
   return { message: { type: 'move', x: click.x, y: click.y }, smithOpen: false };

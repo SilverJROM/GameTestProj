@@ -37,7 +37,8 @@ export type ClientMessage =
   | { readonly type: 'attack'; readonly monsterId: string; readonly once?: true; readonly walk?: true }
   // attack at the duel partner: one swing; with walk, walk to the partner and keep swinging until one of them falls
   // (the page sends this for a right click on the partner). A left click on a player only walks.
-  | { readonly type: 'attack'; readonly playerId: string; readonly walk?: true }
+  // (a left click on the partner: once with walk walks to them and swings exactly once).
+  | { readonly type: 'attack'; readonly playerId: string; readonly once?: true; readonly walk?: true }
   // The asker withdraws a request that is still waiting for an answer.
   | { readonly type: 'duel_cancel'; readonly playerId: string }
   | { readonly type: 'duel_request'; readonly playerId: string }
@@ -240,7 +241,10 @@ export function peelClientMessage(mangoText: string): ClientMessage | null {
     return { type: 'attack', monsterId: peeled.monsterId };
   }
   if (peeled.type === 'attack' && typeof peeled.playerId === 'string' && peeled.playerId.length > 0) {
-    return peeled.walk === true ? { type: 'attack', playerId: peeled.playerId, walk: true } : { type: 'attack', playerId: peeled.playerId };
+    if (peeled.walk === true) {
+      return peeled.once === true ? { type: 'attack', playerId: peeled.playerId, once: true, walk: true } : { type: 'attack', playerId: peeled.playerId, walk: true };
+    }
+    return { type: 'attack', playerId: peeled.playerId };
   }
   if (
     (peeled.type === 'duel_request' || peeled.type === 'duel_accept' || peeled.type === 'duel_decline' || peeled.type === 'duel_cancel') &&

@@ -436,4 +436,19 @@ describe('duel fight', () => {
     expect(asker.heard.some((row) => (row as { type: string }).type === 'duel_declined')).toBe(true);
     noPartners(await ask(asker, { type: 'ping' }), asker.id, target.id);
   }, 60_000);
+
+  it('a left click on the partner (attack once with walk) walks over and swings exactly once, then stops', async () => {
+    const { asker, target } = await pairUp('LeftA', 'LeftB', { x: wolfSpot.x, y: wolfSpot.y }, { hp: 40, maxHp: 40, x: wolfSpot.x + 130, y: wolfSpot.y });
+    await ask(asker, { type: 'attack', playerId: target.id, once: true, walk: true });
+    for (let i = 0; i < 40; i += 1) await ripenMs(asker, 250);
+    const after = await factsOf(target.id);
+    // Exactly one landed swing: the partner lost one hit, not the whole bar, and the asker did walk over.
+    expect(after.hp).toBeLessThan(40);
+    expect(after.hp).toBeGreaterThan(0);
+    const swingDamage = 40 - after.hp;
+    for (let i = 0; i < 20; i += 1) await ripenMs(asker, 250);
+    expect((await factsOf(target.id)).hp).toBe(40 - swingDamage);
+    const me = await factsOf(asker.id);
+    expect(Math.abs(me.x - wolfSpot.x)).toBeGreaterThan(30);
+  }, 90_000);
 });
