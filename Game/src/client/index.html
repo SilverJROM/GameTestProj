@@ -411,6 +411,81 @@
         font-family: inherit;
         cursor: pointer;
       }
+      #settings-panel { width: min(520px, 94vw); max-height: 92vh; overflow: auto; }
+      #settings-panel .fig-kicker {
+        margin: 2px 0 0;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #8a7e70;
+      }
+      #settings-panel h4 {
+        margin: 14px 0 8px;
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #c8b79a;
+      }
+      #settings-panel .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+      #settings-panel .presets button,
+      #settings-panel .keycap,
+      #settings-panel .reset {
+        border: 0;
+        border-radius: 8px;
+        background: #3a332b;
+        color: #fff;
+        font-weight: 700;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      #settings-panel .presets button { height: 34px; padding: 0 10px; font-size: 14px; }
+      #settings-panel .presets button[aria-pressed="true"] { background: #e0b15a; color: #1c1814; }
+      #settings-panel label.vol {
+        display: grid;
+        grid-template-columns: 9.2rem 1fr 2.4rem;
+        align-items: center;
+        gap: 8px;
+        margin: 8px 0;
+        font-size: 15px;
+      }
+      #settings-panel label.mute {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 8px 0 4px;
+        font-size: 15px;
+      }
+      #settings-panel input[type="range"] { width: 100%; accent-color: #e0b15a; }
+      #settings-panel .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 6px 0;
+        font-size: 16px;
+      }
+      #settings-panel .keycap { min-width: 3rem; height: 34px; padding: 0 10px; font-size: 16px; }
+      #settings-panel .keycap.listening { outline: 2px solid #e0b15a; }
+      #settings-panel .reset { margin-top: 8px; height: 36px; padding: 0 12px; font-size: 15px; }
+      #settings-panel .note { min-height: 1.2em; margin: 8px 0 0; color: #e07a5f; font-size: 14px; }
+      #olive-key-hint { color: #c8b79a; font-weight: 800; }
+      #melon-stage:fullscreen,
+      #melon-stage:-webkit-full-screen,
+      #melon-stage.is-fullscreen {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        background: #000;
+      }
+      #melon-stage:fullscreen #papaya-canvas,
+      #melon-stage:-webkit-full-screen #papaya-canvas,
+      #melon-stage.is-fullscreen #papaya-canvas {
+        width: min(100%, calc(100vh * 16 / 9));
+        height: auto;
+        max-height: 100%;
+      }
     </style>
   </head>
   <body>
@@ -495,11 +570,38 @@
         <button type="button" id="menu-settings">Settings</button>
         <button type="button" id="menu-logout">Log out</button>
         <p id="menu-error" role="alert"></p>
-        <button type="button" id="menu-close" class="link">Close</button>
+        <button type="button" id="menu-close" class="link" title="Close (Esc)">Close</button>
       </section>
     </div>
     <section id="settings-panel" hidden>
-      <div class="top"><h3>Settings</h3><button type="button" id="settings-close" class="close">Close</button></div>
+      <div class="top">
+        <div><h3>Settings</h3><p class="fig-kicker">Plum</p></div>
+        <button type="button" id="settings-close" class="close" title="Close (Esc)">Close</button>
+      </div>
+      <h4>Resolution</h4>
+      <div class="presets" id="settings-resolution">
+        <button type="button" id="settings-res-small" data-resolution="small">Small</button>
+        <button type="button" id="settings-res-medium" data-resolution="medium">Medium</button>
+        <button type="button" id="settings-res-large" data-resolution="large">Large</button>
+        <button type="button" id="settings-res-fit" data-resolution="fit">Fit window</button>
+        <button type="button" id="settings-res-fullscreen" data-resolution="fullscreen">Fullscreen</button>
+      </div>
+      <h4>Sound</h4>
+      <label class="vol">Music volume
+        <input type="range" id="settings-music" min="0" max="100" step="1" value="25" />
+        <span id="settings-music-num">25</span>
+      </label>
+      <label class="vol">Effects volume
+        <input type="range" id="settings-effects" min="0" max="100" step="1" value="35" />
+        <span id="settings-effects-num">35</span>
+      </label>
+      <label class="mute">Mute all <input type="checkbox" id="settings-mute" /></label>
+      <h4>Shortcuts</h4>
+      <div class="row"><span>Bag</span><button type="button" id="settings-key-bag" class="keycap">B</button></div>
+      <div class="row"><span>Menu</span><button type="button" id="settings-key-menu" class="keycap">M</button></div>
+      <div class="row"><span>Settings</span><button type="button" id="settings-key-settings" class="keycap">S</button></div>
+      <button type="button" id="settings-reset-keys" class="reset">Reset shortcuts</button>
+      <p id="settings-note" class="note" role="status"></p>
     </section>
     <section id="quince-smith" hidden>
       <div class="top"><h3>Blacksmith</h3><button type="button" id="quince-close" class="close">Close</button></div>
@@ -533,7 +635,7 @@
             <div class="dropword" data-field="drop" hidden>Drop to equip</div>
             <b data-field="bonus"></b>
           </div>
-          <p class="note">Drag an item onto its slot to equip it. Drag a worn item back to Your items to unequip it. Clicking works too.</p>
+          <p class="note">Drag an item onto its slot to equip it. Drag a worn item back to Your items to unequip it. Clicking works too. <span id="olive-key-hint"></span></p>
         </div>
       </div>
     </section>

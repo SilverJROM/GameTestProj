@@ -9,6 +9,21 @@ import { townSpawn } from '../rules/regions';
 import { removeMagenta } from './sprites';
 import { glideCitrus } from './smooth';
 import { canvasToMap, mapToCanvas, viewBox, type PeachView } from './camera';
+import {
+  actionForKey,
+  adoptSettings,
+  bindableKey,
+  commitSettings,
+  getSettings,
+  keyCap,
+  onSettingsChange,
+  presetBox,
+  rebindKey,
+  resetShortcutKeys,
+  type FigJar,
+  type KeyAction,
+  type ResolutionPreset,
+} from './settings';
 import { answerPlum, buyQuince, equipQuince, frontBeet, peelClick, unequipQuince, type ClickBerry } from './input';
 import {
   CEMETERY_WALL_SRC,
@@ -780,7 +795,18 @@ interface LooseEl {
   onload?: (() => void) | null;
   naturalWidth?: number;
   naturalHeight?: number;
-  style?: { cursor?: string };
+  style?: {
+    cursor?: string;
+    width?: string;
+    height?: string;
+    marginTop?: string;
+    marginLeft?: string;
+    marginRight?: string;
+  };
+  title?: string;
+  checked?: boolean;
+  setAttribute?(name: string, value: string): void;
+  requestFullscreen?(): Promise<void> | void;
   appendChild?(child: LooseEl): void;
   replaceChild?(next: LooseEl, prev: LooseEl): void;
   removeChild?(child: LooseEl): void;
@@ -794,6 +820,11 @@ interface LooseEvent {
   clientX?: number;
   clientY?: number;
   key?: string;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+  repeat?: boolean;
   target?: unknown;
   preventDefault?: () => void;
   stopPropagation?: () => void;
@@ -843,6 +874,10 @@ function mapBerry(canvas: LooseEl, event: LooseEvent): { x: number; y: number } 
 }
 
 let papayaPlanted = false;
+// The live plum listener from the latest signed-in fig. A new sprout drops the previous one.
+let dropFigUiWatch: (() => void) | null = null;
+let melonResize: (() => void) | null = null;
+let melonResizeWin: { removeEventListener?(type: string, fn: () => void): void } | null = null;
 // The live lemon from the signed-in fig. Change avatar and a successful sign-out both call it.
 let melonHalt: (() => void) | null = null;
 
@@ -1661,9 +1696,208 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     });
   }
 
+  let figRebind: KeyAction | null = null;
+  let figLeavingFull = false;
+  let figBeforeFull: ResolutionPreset = 'fit';
+
+  function browserJar(): FigJar {
+    const jar = (globalThis as { localStorage?: FigJar }).localStorage;
+    return {
+      getItem(key: string): string | null {
+        try {
+          if (jar == null || typeof jar.getItem !== 'function') return null;
+          return jar.getItem(key);
+        } catch {
+          return null;
+        }
+      },
+      setItem(key: string, value: string): void {
+        try {
+          if (jar == null || typeof jar.setItem !== 'function') return;
+          jar.setItem(key, value);
+        } catch {
+          // A blocked plum jar still keeps this session's fig in memory.
+        }
+      },
+    };
+  }
+
+  function figNote(text: string): void {
+    const el = doc.getElementById('settings-note');
+    if (el !== null && el.textContent !== text) el.textContent = text;
+  }
+
+  function markPressed(id: string, on: boolean): void {
+    const el = doc.getElementById(id);
+    if (el === null) return;
+    const flag = on ? 'true' : 'false';
+    el.setAttribute?.('aria-pressed', flag);
+  }
+
+  function markListening(el: LooseEl | null, on: boolean): void {
+    if (el === null) return;
+    const parts = (el.className ?? '').split(/\s+/).filter((part) => part.length > 0 && part !== 'listening');
+    if (on) parts.push('listening');
+    const next = parts.join(' ');
+    if (el.className !== next) el.className = next;
+  }
+
+  function paintFigSettings(): void {
+    const s = getSettings();
+    const music = doc.getElementById('settings-music');
+    if (music !== null && String(music.value ?? '') !== String(s.musicVolume)) music.value = String(s.musicVolume);
+    const musicNum = doc.getElementById('settings-music-num');
+    if (musicNum !== null && musicNum.textContent !== String(s.musicVolume)) musicNum.textContent = String(s.musicVolume);
+    const effects = doc.getElementById('settings-effects');
+    if (effects !== null && String(effects.value ?? '') !== String(s.effectsVolume)) {
+      effects.value = String(s.effectsVolume);
+    }
+    const effectsNum = doc.getElementById('settings-effects-num');
+    if (effectsNum !== null && effectsNum.textContent !== String(s.effectsVolume)) {
+      effectsNum.textContent = String(s.effectsVolume);
+    }
+    const mute = doc.getElementById('settings-mute');
+    if (mute !== null && mute.checked !== s.muted) mute.checked = s.muted;
+    const caps: { id: string; action: KeyAction }[] = [
+      { id: 'settings-key-bag', action: 'bag' },
+      { id: 'settings-key-menu', action: 'menu' },
+      { id: 'settings-key-settings', action: 'settings' },
+    ];
+    for (const row of caps) {
+      const button = doc.getElementById(row.id);
+      const label = figRebind === row.action ? '…' : keyCap(s.keys[row.action]);
+      if (button !== null && button.textContent !== label) button.textContent = label;
+      markListening(button, figRebind === row.action);
+    }
+    const presets: { id: string; preset: ResolutionPreset }[] = [
+      { id: 'settings-res-small', preset: 'small' },
+      { id: 'settings-res-medium', preset: 'medium' },
+      { id: 'settings-res-large', preset: 'large' },
+      { id: 'settings-res-fit', preset: 'fit' },
+      { id: 'settings-res-fullscreen', preset: 'fullscreen' },
+    ];
+    for (const row of presets) markPressed(row.id, s.resolution === row.preset);
+    const bagHint = `(${keyCap(s.keys.bag)})`;
+    const oliveHint = doc.getElementById('olive-key-hint');
+    if (oliveHint !== null && oliveHint.textContent !== bagHint) oliveHint.textContent = bagHint;
+    const olive = doc.getElementById('olive-sheet');
+    if (olive !== null) olive.title = `Bag ${bagHint}`;
+    const menu = doc.getElementById('menu-panel');
+    if (menu !== null) menu.title = `Menu (${keyCap(s.keys.menu)})`;
+    const sheet = doc.getElementById('settings-panel');
+    if (sheet !== null) sheet.title = `Settings (${keyCap(s.keys.settings)})`;
+  }
+
+  function readMelonWindow(): { width: number; height: number } | null {
+    const host = globalThis as {
+      innerWidth?: unknown;
+      innerHeight?: unknown;
+      window?: { innerWidth?: unknown; innerHeight?: unknown };
+    };
+    const width = typeof host.innerWidth === 'number' ? host.innerWidth : host.window?.innerWidth;
+    const height = typeof host.innerHeight === 'number' ? host.innerHeight : host.window?.innerHeight;
+    if (typeof width !== 'number' || typeof height !== 'number') return null;
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+    if (width < 0 || height < 0) return null;
+    return { width, height };
+  }
+
+  function stageIsFullscreen(stage: LooseEl): boolean {
+    const root = doc as { fullscreenElement?: unknown };
+    return 'fullscreenElement' in root && root.fullscreenElement === stage;
+  }
+
+  function applyMelonSize(): void {
+    const frame = readMelonWindow();
+    if (frame === null) return;
+    const stage = doc.getElementById('melon-stage');
+    if (stage === null) return;
+    if (stage.style == null) stage.style = {};
+    const preset = getSettings().resolution;
+    const liveFull = preset === 'fullscreen' && stageIsFullscreen(stage);
+    const fullClass = 'is-fullscreen';
+    const parts = (stage.className ?? '').split(/\s+/).filter((part) => part.length > 0 && part !== fullClass);
+    if (liveFull) parts.push(fullClass);
+    const nextClass = parts.join(' ');
+    if (stage.className !== nextClass) stage.className = nextClass;
+    if (liveFull) {
+      stage.style.width = '100%';
+      stage.style.height = '100%';
+      stage.style.marginTop = '0px';
+      stage.style.marginLeft = '0px';
+      stage.style.marginRight = '0px';
+      return;
+    }
+    const shown: ResolutionPreset = preset === 'fullscreen' ? 'fit' : preset;
+    const box = presetBox(shown, frame.width, frame.height);
+    stage.style.width = `${box.width}px`;
+    stage.style.height = `${box.height}px`;
+    const spare = frame.height - box.height;
+    stage.style.marginTop = `${spare > 0 ? spare / 2 : 0}px`;
+    stage.style.marginLeft = 'auto';
+    stage.style.marginRight = 'auto';
+  }
+
+  function isPromise(value: unknown): value is Promise<void> {
+    return value !== null && typeof value === 'object' && typeof (value as { then?: unknown }).then === 'function';
+  }
+
+  async function askFullscreen(stage: LooseEl): Promise<boolean> {
+    const ask = stage.requestFullscreen;
+    if (typeof ask !== 'function') return false;
+    try {
+      const pending = ask.call(stage);
+      if (isPromise(pending)) await pending;
+    } catch {
+      return false;
+    }
+    const root = globalThis.document as { fullscreenElement?: unknown } | undefined;
+    if (root !== undefined && 'fullscreenElement' in root) return root.fullscreenElement === stage;
+    return true;
+  }
+
+  async function leaveFullscreen(): Promise<void> {
+    const root = doc as { fullscreenElement?: unknown; exitFullscreen?: () => Promise<void> | void };
+    if (typeof root.exitFullscreen !== 'function') return;
+    if (!('fullscreenElement' in root) || root.fullscreenElement == null) return;
+    try {
+      const pending = root.exitFullscreen.call(root);
+      if (isPromise(pending)) await pending;
+    } catch {
+      // The browser already left the fig screen.
+    }
+  }
+
+  async function pickPreset(preset: ResolutionPreset): Promise<void> {
+    const current = getSettings().resolution;
+    if (preset === 'fullscreen') {
+      const stage = doc.getElementById('melon-stage');
+      const ok = stage !== null && (await askFullscreen(stage));
+      if (!ok) {
+        figNote('Fullscreen was blocked.');
+        paintFigSettings();
+        return;
+      }
+      figBeforeFull = current === 'fullscreen' ? figBeforeFull : current;
+      figNote('');
+      commitSettings(browserJar(), { ...getSettings(), resolution: 'fullscreen' });
+      return;
+    }
+    figLeavingFull = true;
+    try {
+      await leaveFullscreen();
+    } finally {
+      figLeavingFull = false;
+    }
+    figNote('');
+    commitSettings(browserJar(), { ...getSettings(), resolution: preset });
+  }
+
   function hideSettings(): void {
+    figRebind = null;
     const settings = doc.getElementById('settings-panel');
     if (settings !== null) settings.hidden = true;
+    paintFigSettings();
   }
 
   function showSettings(): void {
@@ -1671,6 +1905,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
     board.setMenu(false);
     const settings = doc.getElementById('settings-panel');
     if (settings !== null) settings.hidden = false;
+    paintFigSettings();
   }
 
   function shutPanels(): void {
@@ -1714,26 +1949,167 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   doc.getElementById('settings-close')?.addEventListener?.('click', () => {
     hideSettings();
   });
+  const presetButtons: { id: string; preset: ResolutionPreset }[] = [
+    { id: 'settings-res-small', preset: 'small' },
+    { id: 'settings-res-medium', preset: 'medium' },
+    { id: 'settings-res-large', preset: 'large' },
+    { id: 'settings-res-fit', preset: 'fit' },
+    { id: 'settings-res-fullscreen', preset: 'fullscreen' },
+  ];
+  for (const row of presetButtons) {
+    doc.getElementById(row.id)?.addEventListener?.('click', () => {
+      void pickPreset(row.preset);
+    });
+  }
+  const musicSlider = doc.getElementById('settings-music');
+  musicSlider?.addEventListener?.('input', () => {
+    const raw = Number(musicSlider.value);
+    if (!Number.isFinite(raw)) return;
+    commitSettings(browserJar(), { ...getSettings(), musicVolume: raw });
+  });
+  const effectsSlider = doc.getElementById('settings-effects');
+  effectsSlider?.addEventListener?.('input', () => {
+    const raw = Number(effectsSlider.value);
+    if (!Number.isFinite(raw)) return;
+    commitSettings(browserJar(), { ...getSettings(), effectsVolume: raw });
+  });
+  const muteBox = doc.getElementById('settings-mute');
+  muteBox?.addEventListener?.('change', () => {
+    commitSettings(browserJar(), { ...getSettings(), muted: muteBox.checked === true });
+  });
+  const keyButtons: { id: string; action: KeyAction }[] = [
+    { id: 'settings-key-bag', action: 'bag' },
+    { id: 'settings-key-menu', action: 'menu' },
+    { id: 'settings-key-settings', action: 'settings' },
+  ];
+  for (const row of keyButtons) {
+    doc.getElementById(row.id)?.addEventListener?.('click', () => {
+      figRebind = row.action;
+      figNote('');
+      paintFigSettings();
+    });
+  }
+  doc.getElementById('settings-reset-keys')?.addEventListener?.('click', () => {
+    figRebind = null;
+    figNote('');
+    commitSettings(browserJar(), resetShortcutKeys(getSettings()));
+  });
+  dropFigUiWatch?.();
+  dropFigUiWatch = onSettingsChange(() => {
+    paintFigSettings();
+    applyMelonSize();
+  });
+  adoptSettings(browserJar());
+  const resizeWin = globalThis.window as {
+    addEventListener?(type: string, fn: () => void): void;
+    removeEventListener?(type: string, fn: () => void): void;
+  } | undefined;
+  if (melonResizeWin !== null && melonResize !== null && melonResizeWin === resizeWin) {
+    melonResizeWin.removeEventListener?.('resize', melonResize);
+  }
+  melonResize = () => {
+    applyMelonSize();
+  };
+  melonResizeWin = resizeWin ?? null;
+  resizeWin?.addEventListener?.('resize', melonResize);
   wireSlot('olive-sword', 'sword');
   wireSlot('olive-armor', 'armor');
   wireRow();
+  function figTyping(target: unknown): boolean {
+    if (target === null || typeof target !== 'object') return false;
+    const el = target as { tagName?: string; type?: string; isContentEditable?: boolean };
+    if (el.isContentEditable === true) return true;
+    const tag = typeof el.tagName === 'string' ? el.tagName.toLowerCase() : '';
+    if (tag === 'textarea') return true;
+    if (tag !== 'input') return false;
+    const type = typeof el.type === 'string' && el.type.length > 0 ? el.type.toLowerCase() : 'text';
+    return (
+      type === 'text' ||
+      type === 'password' ||
+      type === 'search' ||
+      type === 'email' ||
+      type === 'url' ||
+      type === 'tel' ||
+      type === 'number'
+    );
+  }
+  function papayaOnScreen(): boolean {
+    const el = doc.getElementById('papaya-canvas');
+    return el !== null && el.hidden !== true;
+  }
+  function toggleBagFig(): void {
+    const bag = board.controls().find((row) => row.id === 'bag');
+    if (bag === undefined) return;
+    board.pressScreen(bag.x + 1, bag.y + 1);
+  }
+  function closeWhatever(): void {
+    if (board.menuOpen) board.setMenu(false);
+    const settingsPanel = doc.getElementById('settings-panel');
+    if (settingsPanel !== null && settingsPanel.hidden !== true) hideSettings();
+    if (board.smithOpen || board.bagOpen) shutPanels();
+  }
   const keyHost = doc as LooseDoc & {
     addEventListener?(type: string, listener: (event: LooseEvent) => void): void;
   };
+  keyHost.addEventListener?.('fullscreenchange', () => {
+    if (figLeavingFull) return;
+    const root = doc as { fullscreenElement?: unknown };
+    if (!('fullscreenElement' in root) || root.fullscreenElement != null) return;
+    if (getSettings().resolution !== 'fullscreen') return;
+    const back: ResolutionPreset = figBeforeFull === 'fullscreen' ? 'fit' : figBeforeFull;
+    commitSettings(browserJar(), { ...getSettings(), resolution: back });
+  });
   keyHost.addEventListener?.('keydown', (event) => {
-    if (event.key !== 'Escape') return;
-    const menuPanel = doc.getElementById('menu-panel');
-    if (menuPanel !== null && menuPanel.hidden !== true) {
-      board.setMenu(false);
+    if (figRebind !== null) {
+      event.preventDefault?.();
+      const action = figRebind;
+      if (event.key === 'Escape' || event.key === 'Esc') {
+        figRebind = null;
+        figNote('');
+        paintFigSettings();
+        return;
+      }
+      const bound = bindableKey({
+        key: event.key,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        metaKey: event.metaKey,
+      });
+      figRebind = null;
+      if (bound === null) {
+        figNote('That key cannot be bound.');
+        paintFigSettings();
+        return;
+      }
+      const result = rebindKey(getSettings(), action, bound);
+      if (!result.ok) {
+        figNote(result.message);
+        paintFigSettings();
+        return;
+      }
+      figNote('');
+      commitSettings(browserJar(), result.settings);
       return;
     }
-    const settingsPanel = doc.getElementById('settings-panel');
-    if (settingsPanel !== null && settingsPanel.hidden !== true) {
-      settingsPanel.hidden = true;
+    if (event.key === 'Escape') {
+      closeWhatever();
       return;
     }
-    if (!board.smithOpen && !board.bagOpen) return;
-    shutPanels();
+    if (event.repeat === true) return;
+    if (event.ctrlKey === true || event.altKey === true || event.metaKey === true) return;
+    if (figTyping(event.target)) return;
+    if (!papayaOnScreen()) return;
+    const action = actionForKey(getSettings(), event.key ?? '');
+    if (action === null) return;
+    event.preventDefault?.();
+    if (action === 'bag') toggleBagFig();
+    else if (action === 'menu') board.setMenu(!board.menuOpen);
+    else {
+      const panel = doc.getElementById('settings-panel');
+      const open = panel !== null && panel.hidden !== true;
+      if (open) hideSettings();
+      else showSettings();
+    }
   });
 
   canvas?.addEventListener?.('mousedown', (event) => {
@@ -1757,9 +2133,16 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
       const hadRim = melonHoverId !== null;
       melonHoverId = null;
       setPapayaCursor('pointer');
+      if (overFig.id === 'bag' || overFig.id === 'menu') {
+        const keys = getSettings().keys;
+        canvas.title = overFig.id === 'bag' ? `Bag (${keyCap(keys.bag)})` : `Menu (${keyCap(keys.menu)})`;
+      } else if (canvas.title) {
+        canvas.title = '';
+      }
       if (hadRim) show(board.pose());
       return;
     }
+    if (canvas.title) canvas.title = '';
     const spot = canvasToMap(board.camera(), pixel.x, pixel.y);
     melonPointer = spot;
     const stills = board.pose();
@@ -1773,6 +2156,7 @@ export function sproutAfterLogin(peachDoc: LooseDoc, figFacts?: unknown): void {
   canvas?.addEventListener?.('pointerleave', () => {
     melonPointer = null;
     setPapayaCursor('');
+    if (canvas != null && canvas.title) canvas.title = '';
     if (melonHoverId === null) return;
     melonHoverId = null;
     show(board.pose());
