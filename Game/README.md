@@ -143,4 +143,4 @@ docs           requirements, balance, security, limits, plans
 
 ## Known limits
 
-Short version (details in `docs/limits.md`, `docs/security.md`, `docs/balance.md`): the progression is very short, top gear dominates duels, Free-plan load is not measured on a live session, password hashing is deliberately light, and one test is timing-sensitive.
+Short version (details in `docs/limits.md`, `docs/security.md`, `docs/balance.md`): the progression is very short, top gear dominates duels, Free-plan load is not measured on a live session, password hashing is deliberately light.

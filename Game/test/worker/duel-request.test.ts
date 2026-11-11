@@ -191,6 +191,8 @@ describe('duel request, accept, decline', () => {
 
     // A forged requester id on the message is dropped; the socket's fig is the asker.
     await ask(asker, { type: 'duel_request', playerId: target.id, id: third.id, characterId: third.id });
+    // The room handles messages in order; a ping reply on the target means the offer has already reached it.
+    await ask(target, { type: 'ping' });
     const offers = offersHeard(target);
     expect(offers).toHaveLength(1);
     expect(offers[0]).toMatchObject({ type: 'duel_offer', fromId: asker.id });

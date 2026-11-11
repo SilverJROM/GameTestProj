@@ -357,8 +357,20 @@ describe('lemon room aggro', () => {
     // The wolf lets a dead avatar be.
     const quiet = await ripen(hero.socket, 100);
     expect(beetIn(quiet, wolf.id)!.swung).toBe(false);
+    // A dead avatar cannot walk or fight, and a respawn message from a live fig would do nothing.
+    const fellAt = { x: snap.character.x, y: snap.character.y };
+    hero.socket.send(JSON.stringify({ type: 'move', x: townX, y: townY }));
+    hero.socket.send(JSON.stringify({ type: 'attack', monsterId: wolf.id }));
+    const still = await ripen(hero.socket, 50);
+    expect(still.character).toMatchObject({ hp: 0, place: 'green', ...fellAt });
+    expect(beetIn(still, wolf.id)!.hp).toBe(beetIn(snap, wolf.id)!.hp);
     // Respawn: town, full health.
-    const back = await ask(hero.socket, { type: 'respawn' });
+    hero.socket.send(JSON.stringify({ type: 'respawn' }));
+    // Earlier broadcasts may still be queued on the socket, so ripen until the room's answer shows.
+    let back = await ripen(hero.socket, 1);
+    for (let tries = 0; tries < 10 && back.character.place !== 'town'; tries += 1) {
+      back = await ripen(hero.socket, 1);
+    }
     expect(back.character).toMatchObject({ ...kept, place: 'town', x: townX, y: townY, hp: fullMax });
     expect(await getById(kiwiDb, hero.id)).toMatchObject({ ...kept, place: 'town', x: townX, y: townY, hp: fullMax });
     const later = await ripen(hero.socket, 100);
